@@ -1,0 +1,31 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Data & Datasets
+HRP4K/
+*.zip
+*.tar
+*.gz
+
+# Model weights
+*.pt
+*.pth
+*.onnx
+*.engine
+yolo11n.pt
+
+# Output / Results / Logs
+results/
+runs/
+*.log
+status.json
+
+# Environment & OS
+venv/
+.venv/
+.env
+.DS_Store
+.vscode/
+.idea/
