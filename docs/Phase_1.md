@@ -289,7 +289,7 @@ Như vậy benchmark suite chính thức luôn giữ được tính nhất quán
 
 ---
 
-# 8. Training protocol
+# 8. Training protocol & Optimization
 
 Paper sử dụng:
 
@@ -297,9 +297,25 @@ Paper sử dụng:
 * COCO-pretrained weights;
 * **150 epochs**;
 * official default hyperparameters;
-* cùng protocol để đảm bảo fair comparison. 
+* cùng protocol để đảm bảo fair comparison.
 
-Do đó config nên có dạng:
+### 8.1. Tối ưu tốc độ Huấn luyện bằng Mixed Precision (FP16 / BF16)
+
+Toàn bộ các mô hình (YOLOv5, YOLOv8, YOLOv11, RT-DETRv1, RT-DETRv2, D-FINE) khi huấn luyện **bắt buộc phải bật Automatic Mixed Precision (AMP - FP16 / BF16)**:
+
+* **Tối ưu VRAM GPU**: Giảm 40–50% dung lượng VRAM tiêu thụ, cho phép tăng batch size phù hợp.
+* **Tăng tốc độ tính toán**: Tận dụng triệt để Tensor Cores trên GPU (NVIDIA L40S, A100, RTX 4090, v.v.), nâng cao throughput (FPS) khi huấn luyện.
+* **Đảm bảo độ chính xác**: Gradient scaling tự động giúp bảo toàn độ chính xác của các trọng số mà không làm suy giảm mAP.
+
+### 8.2. Chế độ Chạy nhanh Kiểm thử (Smoke Mode for Fast Debugging)
+
+Tất cả các module huấn luyện và đánh giá phải hỗ trợ cờ lệnh `--smoke` (`smoke_mode: true`) để phục vụ việc kiểm tra và sửa lỗi nhanh (dry-run pipeline verification):
+
+* **Số lượng ảnh tối thiểu**: Chỉ load khoảng 50 – 100 ảnh ngẫu nhiên từ dataset (hoặc ~1% dữ liệu).
+* **Số epoch tối thiểu**: Chạy từ **1 đến 2 epochs**.
+* **Mục tiêu**: Đảm bảo pipeline code, data loader, loss calculation, evaluation metric và GPU allocation hoạt động trơn tru 100% trước khi kích hoạt đợt huấn luyện chính thức 150-epoch.
+
+Do đó config chuẩn cho huấn luyện có dạng:
 
 ```yaml
 experiment:
@@ -307,6 +323,11 @@ experiment:
   epochs: 150
   pretrained: coco
   seed: 42
+  smoke_mode: false # Đặt true để chạy thử nghiệm nhanh (1-2 epochs, ~50 samples)
+
+optimization:
+  amp: true        # Automatic Mixed Precision
+  precision: fp16  # fp16 hoặc bf16 tùy cứng GPU
 
 dataset:
   train: data/HRP4K/train
@@ -321,7 +342,7 @@ evaluation:
   official_metrics: true
 ```
 
-### Một vấn đề reproducibility cần ghi rõ
+### 8.3. Một vấn đề reproducibility cần ghi rõ
 
 Paper **không công bố đầy đủ mọi training parameter cần thiết để bit-for-bit reproduction**, chẳng hạn exact software commit/version và một số preprocessing/training details.
 
@@ -339,6 +360,7 @@ Ultralytics version
 RT-DETR commit
 D-FINE commit
 pycocotools version
+AMP / Precision mode (FP16/BF16)
 ```
 
 và lưu toàn bộ resolved config sau mỗi run.

@@ -526,9 +526,9 @@ Không retrain detector.
 
 Mục tiêu: đo riêng tác động của inference processing.
 
-### Protocol B — Method-native training
+### Protocol B — Method-native training & Mixed Precision (AMP FP16 / BF16)
 
-Cho phép:
+Cho phép fine-tuning hoặc retraining các mô hình xử lý độ phân giải:
 
 ```text
 SAHI sliced fine-tuning
@@ -539,9 +539,13 @@ TPP training
 ZoomDet training
 ```
 
+**Yêu cầu bắt buộc về Tối ưu hóa & Debugging:**
+1. **Mixed Precision (AMP FP16 / BF16)**: Tất cả các quá trình training/fine-tuning bắt buộc phải bật Automatic Mixed Precision (AMP) để tối đa tốc độ tính toán trên Tensor Cores và tiết kiệm VRAM.
+2. **Smoke Mode (`--smoke`)**: Mọi pipeline training & inference của Phase 2 bắt buộc hỗ trợ cờ `--smoke` (chạy 1–2 epochs, ~50 samples) để debug và kiểm tra tính hợp lệ của code trước khi chạy đợt huấn luyện chính thức.
+
 Mục tiêu:
 
-> mỗi method đạt performance tốt nhất theo đúng philosophy của nó.
+> mỗi method đạt performance tốt nhất theo đúng philosophy của nó trên cùng điều kiện tối ưu phần cứng.
 
 ### Protocol C — Compute-matched
 
