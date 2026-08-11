@@ -197,18 +197,8 @@ Tôi sẽ không làm quá nhiều. Chỉ cần bổ sung **5 outputs**:
 4. Position-only regression/classification benchmark.
 5. Raw `12×8` grid cho `count + median scale + IQR`.
 
-Sau 5 thứ đó, chúng ta gần như có thể quyết định rõ giữa ba architecture:
+Sau 5 phân tích này, chúng ta có được kết luận thực nghiệm rõ ràng về cách vị trí không gian điều kiện hóa kích thước thị giác ($P(\text{scale} \mid x, y)$):
 
-[
-\text{Position-only Zoom}
-]
+* Vị trí không gian ($y_{center}, y_{bottom}$) tạo nên một **Prior định hướng mạnh** ($\text{Far} \to \text{Ultra-fine}$, $\text{Near} \to \text{Large}$).
+* Tuy nhiên, biến thiên kích thước cục bộ vẫn đáng kể (Position-only $R^2 \approx 0.125$), chứng minh rằng **vị trí không gian hoạt động như một Prior định hướng (Position Prior), cần kết hợp với đặc trưng thị giác cục bộ (Visual Feature)** để giải thích chính xác kích thước đối tượng.
 
-hay
-
-[
-\boxed{\text{Position Prior + Visual Scale Head}}
-]
-
-hay bỏ perspective prior và chỉ dùng visual Scale Head.
-
-**Với số liệu hiện tại, tôi đang nghiêng mạnh nhất về phương án thứ hai: `Position Prior + Visual Feature Correction`.**
