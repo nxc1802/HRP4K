@@ -1,0 +1,57 @@
+{
+    "pipeline": "AdaPoth-Lite-YOLO11n",
+    "debug_minimal_data": true,
+    "num_samples_evaluated": 20,
+    "training_time_seconds": 50.83,
+    "final_metrics": {
+        "scout_region_recall": 100.0,
+        "average_crops_k": 3.15,
+        "mAP_50_95": 0.0,
+        "mAP_50": 0.0,
+        "mAP_75": 0.0,
+        "AP_small": 0.0,
+        "AP_medium": 0.0,
+        "AP_large": 0.0,
+        "AR_100": 0.0
+    },
+    "val_history": [
+        {
+            "epoch": 1,
+            "loss_d": 105.31595611572266,
+            "g_loss": 31.195759296417236,
+            "l_loss": 74.12019767761231,
+            "scout_region_recall": 100.0,
+            "average_crops_k": 3.15,
+            "mAP_50_95": 0.0,
+            "mAP_50": 0.0,
+            "mAP_75": 0.0,
+            "AP_small": 0.0,
+            "AP_medium": 0.0,
+            "AP_large": 0.0,
+            "AR_100": 0.0
+        },
+        {
+            "epoch": 2,
+            "loss_d": 65.52069778442383,
+            "g_loss": 13.331242895126342,
+            "l_loss": 52.18945426940918,
+            "scout_region_recall": 100.0,
+            "average_crops_k": 3.15,
+            "mAP_50_95": 0.0,
+            "mAP_50": 0.0,
+            "mAP_75": 0.0,
+            "AP_small": 0.0,
+            "AP_medium": 0.0,
+            "AP_large": 0.0,
+            "AR_100": 0.0
+        }
+    ],
+    "scout_losses": [
+        150.92883415222167,
+        42.89756546020508
+    ],
+    "detector_losses": [
+        105.31595611572266,
+        65.52069778442383
+    ]
+}

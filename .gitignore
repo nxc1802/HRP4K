@@ -17,7 +17,9 @@ HRP4K/
 yolo11n.pt
 
 # Output / Results / Logs
-results/
+results/*
+!results/reports/
+!results/visualizations/
 runs/
 *.log
 status.json
