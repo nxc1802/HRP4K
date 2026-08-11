@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 *$py.class
+*.egg-info/
 
 # Data & Datasets
 HRP4K/
@@ -20,6 +21,7 @@ yolo11n.pt
 results/*
 !results/reports/
 !results/visualizations/
+outputs/
 runs/
 *.log
 status.json

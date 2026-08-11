@@ -1,0 +1,62 @@
+from __future__ import annotations
+
+import json
+import platform
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any
+
+
+def environment_snapshot() -> dict[str, Any]:
+    snapshot: dict[str, Any] = {"python": sys.version, "platform": platform.platform()}
+    try:
+        import torch
+        snapshot.update({"torch": torch.__version__, "cuda": torch.version.cuda,
+                         "cuda_available": torch.cuda.is_available(), "mps_available": torch.backends.mps.is_available()})
+    except ImportError: pass
+    try:
+        import ultralytics
+        snapshot["ultralytics"] = ultralytics.__version__
+    except ImportError: pass
+    try:
+        snapshot["git_commit"] = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+    except (subprocess.SubprocessError, FileNotFoundError): snapshot["git_commit"] = None
+    return snapshot
+
+
+def train_yolo(
+    dataset_yaml: Path, weights: Path | str, run_dir: Path, smoke: bool = False,
+    epochs: int = 150, image_size: int = 640, batch: int = 16, device: str | None = None,
+) -> dict[str, Any]:
+    try:
+        from ultralytics import YOLO
+    except ImportError as exc:
+        raise RuntimeError("Training requires the 'vision' dependencies") from exc
+    run_dir = run_dir.resolve()
+    dataset_yaml = dataset_yaml.resolve()
+    run_dir.mkdir(parents=True, exist_ok=True)
+    actual_epochs = min(2, epochs) if smoke else epochs
+    actual_imgsz = min(640, image_size) if smoke else image_size
+    config = {
+        "dataset": str(dataset_yaml.resolve()), "weights": str(weights), "smoke": smoke,
+        "epochs": actual_epochs, "image_size": actual_imgsz, "batch": batch,
+        "amp": True, "lr0": 0.01, "lrf": 0.01, "momentum": 0.937, "weight_decay": 0.0005,
+        "warmup_epochs": 3.0, "mosaic": 1.0, "mixup": 0.0, "fliplr": 0.5, "device": device, "seed": 42,
+    }
+    (run_dir / "resolved_config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
+    (run_dir / "environment.json").write_text(json.dumps(environment_snapshot(), indent=2), encoding="utf-8")
+    model = YOLO(str(weights))
+    result = model.train(
+        data=str(dataset_yaml), epochs=actual_epochs, imgsz=actual_imgsz, batch=batch,
+        amp=True, lr0=0.01, lrf=0.01, momentum=0.937, weight_decay=0.0005,
+        warmup_epochs=3.0, warmup_momentum=0.8, warmup_bias_lr=0.1,
+        mosaic=1.0, mixup=0.0, degrees=0.0, translate=0.1, scale=0.5,
+        hsv_h=0.015, hsv_s=0.7, hsv_v=0.4, fliplr=0.5,
+        seed=42, deterministic=True, workers=8, cache=False, plots=True,
+        project=str(run_dir.parent), name=run_dir.name, exist_ok=True, device=device, verbose=True,
+    )
+    best = run_dir / "weights" / "best.pt"; last = run_dir / "weights" / "last.pt"
+    metrics = getattr(result, "results_dict", {})
+    return {"run_dir": str(run_dir), "best": str(best if best.exists() else last),
+            "metrics": {str(key): float(value) for key, value in metrics.items()}}

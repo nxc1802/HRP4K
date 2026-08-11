@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hrp4k-benchmark"
+version = "0.1.0"
+description = "Reproducible HRP4K dataset, detector and resolution-allocation benchmark CLI"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.24"]
+
+[project.optional-dependencies]
+vision = ["opencv-python>=4.8", "matplotlib>=3.7", "ultralytics>=8.3", "pycocotools>=2.0.7", "PyYAML>=6"]
+
+[project.scripts]
+hrp4k = "hrp4k_suite.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["hrp4k_suite*"]
