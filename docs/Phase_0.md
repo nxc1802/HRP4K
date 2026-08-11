@@ -4,13 +4,23 @@ Phase 0 chỉ có một mục tiêu: **hiểu dataset một cách đầy đủ, 
 
 Kết quả của phase này phải trở thành **nguồn dữ liệu nền** cho các bước sau: chọn hướng nghiên cứu, giải thích kết quả model, phân tích failure case, thiết kế ablation, viết Dataset Analysis/Discussion và giải thích vì sao một phương pháp hoạt động hoặc thất bại.
 
-### 0.1. Dataset integrity & structure
+### 0.1. Dataset integrity & structure & Local Deficit Handling
 
-Trước hết xác nhận dataset thực tế khớp với mô tả chính thức.
+Trước hết xác nhận dataset thực tế khớp với mô tả chính thức và ghi nhận thực trạng dữ liệu local.
 
-Cần kiểm tra số ảnh theo split, positive/negative images, số annotation, kích thước ảnh, category, bbox hợp lệ, duplicate annotation, bbox ngoài ảnh, bbox cực nhỏ/lớn bất thường, ảnh thiếu/hỏng và phân bố số object trên mỗi ảnh.
+#### Thực trạng Dataset Local hiện tại:
+* **Tập `valid`**: **900 / 900 ảnh** (Đầy đủ 100%).
+* **Tập `test`**: **900 / 900 ảnh** (Đầy đủ 100%).
+* **Tập `train`**: **2,286 / 4,203 ảnh** (Thực tế chỉ có 2,286 file ảnh so với 4,203 file nhãn công bố, bị thiếu 1,917 file ảnh).
+  * Trong tập train hiện có: 1,497 ảnh Positive (thiếu 1,306) và 789 ảnh Negative (thiếu 611).
 
-Đầu ra nên có một `dataset_integrity_report` với các sanity checks và các anomaly được phát hiện.
+#### Cơ chế Xử lý Thiếu hụt Dữ liệu Local (Irresolvable Local Deficit Handling Mechanism):
+Do sự thiếu hụt này không thể giải quyết bằng việc tải lại trong môi trường local, toàn bộ hệ thống xử lý dữ liệu và huấn luyện **bắt buộc phải áp dụng cơ chế tự động lọc và bỏ qua (Automatic Skip Missing Images)**:
+1. **Khớp cặp Ảnh-Nhãn động (Dynamic Image-Label Matching)**: Data Loader (`loader.py`), script thống kê (`dataset_statistics.py`) và pipeline huấn luyện chỉ xây dựng dữ liệu dựa trên các cặp nhãn có **file ảnh `.jpg` thực sự tồn tại trên đĩa**.
+2. **Bỏ qua File Nhãn mồ côi (Orphan Label Exclusion)**: Các nhãn trong `train/labels/` hay `train.json` nếu thiếu file ảnh tương ứng trong `train/images/` sẽ bị bỏ qua một cách an toàn mà không làm gián đoạn hay crash chương trình (`missing_image_handling: skip`).
+3. **Giữ nguyên vẹn 100% Validation & Test Set**: Bảo toàn tuyệt đối tập `valid` (900 ảnh) và `test` (900 ảnh) để các đánh giá Benchmark thu được luôn chuẩn xác và so sánh khách quan với kết quả công bố.
+
+Đầu ra nên có một `dataset_integrity_report` ghi nhận chi tiết các sanity checks và các anomaly được phát hiện này.
 
 ---
 
