@@ -1,0 +1,10 @@
+# Environment verified by the local Phase 0-3 smoke run (Python 3.14, Apple M4 CPU).
+# GPU publication runs should use a separate CUDA-specific lock/container and record it in environment.json.
+numpy==2.5.1
+opencv-python==5.0.0.93
+matplotlib==3.11.1
+ultralytics==8.4.108
+pycocotools==2.0.11
+PyYAML==6.0.3
+torch==2.13.0
+torchvision==0.28.0

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import time
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
@@ -9,6 +10,7 @@ from typing import Any, Iterable
 import numpy as np
 
 from .dataset import image_path, load_split
+from .detectors import UltralyticsAdapter
 
 
 @dataclass
@@ -36,6 +38,9 @@ def _starts(length: int, window: int, overlap: float) -> list[int]:
 
 def make_views(image: np.ndarray, method: str, tile_size: int = 960, overlap: float = 0.2) -> list[ProcessedView]:
     height, width = image.shape[:2]
+    if method == "sahi":
+        warnings.warn("'sahi' is a compatibility alias; use 'sliced-nms' for the in-house implementation", DeprecationWarning)
+        method = "sliced-nms"
     if method == "resize":
         return [ProcessedView(image, 0, 0, width, height)]
     if method.startswith("uniform"):
@@ -47,7 +52,7 @@ def make_views(image: np.ndarray, method: str, tile_size: int = 960, overlap: fl
                 x0, x1 = round(col * width / grid), round((col + 1) * width / grid)
                 views.append(ProcessedView(image[y0:y1, x0:x1], x0, y0, x1 - x0, y1 - y0))
         return views
-    if method == "sahi":
+    if method == "sliced-nms":
         views = []
         window_w = min(tile_size, width)
         window_h = min(max(1, round(tile_size * height / width)), height)
@@ -56,9 +61,22 @@ def make_views(image: np.ndarray, method: str, tile_size: int = 960, overlap: fl
                 views.append(ProcessedView(image[y0:y0 + window_h, x0:x0 + window_w], x0, y0, window_w, window_h))
         return views
     if method == "perspective-bands":
-        # A transparent geometry baseline, not a reproduction of learned TPP.
+        warnings.warn("'perspective-bands' removes vertical context but does not magnify horizontally; use 'perspective-grid'", DeprecationWarning)
         boundaries = [0, round(height * 0.45), round(height * 0.72), height]
         return [ProcessedView(image[y0:y1], 0, y0, width, y1 - y0) for y0, y1 in zip(boundaries, boundaries[1:])]
+    if method == "perspective-grid":
+        # Hand-designed ground-plane baseline. Far bands receive more horizontal crops and therefore more detector pixels.
+        boundaries = [0, round(height * 0.45), round(height * 0.72), height]
+        columns_by_band = [4, 3, 2]
+        views = []
+        for (y0, y1), columns in zip(zip(boundaries, boundaries[1:]), columns_by_band):
+            window_w = min(width, int(np.ceil(width / (columns - (columns - 1) * overlap))))
+            starts = _starts(width, window_w, overlap)
+            if len(starts) > columns:
+                starts = np.linspace(0, width - window_w, columns, dtype=int).tolist()
+            for x0 in starts:
+                views.append(ProcessedView(image[y0:y1, x0:x0 + window_w], x0, y0, window_w, y1 - y0))
+        return views
     raise ValueError(f"Unknown processing method: {method}")
 
 
@@ -88,15 +106,32 @@ def predict_yolo(
     limit: int | None = None, image_size: int = 640, confidence: float = 0.05,
     tile_size: int = 960, overlap: float = 0.2, device: str | None = None,
 ) -> dict[str, Any]:
+    if method == "sahi":
+        warnings.warn("'sahi' is deprecated; recording this run as 'sliced-nms'", DeprecationWarning)
+        method = "sliced-nms"
     try:
         import cv2
-        from ultralytics import YOLO
     except ImportError as exc:
         raise RuntimeError("Prediction requires the 'vision' dependencies") from exc
-    model = YOLO(str(weights))
     coco = load_split(data_dir, split)
+    category_ids = [int(category["id"]) for category in coco.get("categories", [])]
+    if len(category_ids) != 1:
+        raise ValueError(f"Expected exactly one HRP4K category, found {category_ids}")
+    category_id = category_ids[0]
+    detector = UltralyticsAdapter(weights, category_id, device)
     images = [im for im in coco.get("images", []) if image_path(data_dir, split, im["file_name"]).is_file()]
     if limit is not None: images = images[:limit]
+    if images:
+        warmup_image = cv2.imread(str(image_path(data_dir, split, images[0]["file_name"])))
+        if warmup_image is not None:
+            detector.predict(make_views(warmup_image, method, tile_size, overlap)[0].image, image_size, confidence)
+    peak_vram_mb = None
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.reset_peak_memory_stats()
+    except ImportError:
+        torch = None
     predictions: list[dict[str, Any]] = []; image_meta = []
     for im in images:
         path = image_path(data_dir, split, im["file_name"])
@@ -105,30 +140,42 @@ def predict_yolo(
         views = make_views(source, method, tile_size, overlap)
         started = time.perf_counter(); candidates = []
         for view in views:
-            result = model.predict(view.image, imgsz=image_size, conf=confidence, verbose=False, device=device)[0]
-            if result.boxes is None: continue
-            for xyxy, score in zip(result.boxes.xyxy.cpu().numpy(), result.boxes.conf.cpu().numpy()):
-                candidates.append({"image_id": int(im["id"]), "category_id": 0,
-                                   "bbox": view.map_box(xyxy), "score": float(score)})
+            for prediction in detector.predict(view.image, image_size, confidence):
+                candidates.append({"image_id": int(im["id"]), "category_id": prediction["category_id"],
+                                   "bbox": view.map_box(prediction["xyxy"]), "score": prediction["score"]})
         merged, suppressed = nms(candidates)
         elapsed = (time.perf_counter() - started) * 1000
         predictions.extend(merged)
         source_pixels = sum(view.source_width * view.source_height for view in views)
+        detector_input_pixels = len(views) * image_size * image_size
         image_meta.append({"image_id": int(im["id"]), "method": method, "latency_ms": elapsed,
                            "detector_calls": len(views), "processed_source_pixels": source_pixels,
                            "processed_area_ratio": source_pixels / (source.shape[0] * source.shape[1]),
+                           "detector_input_pixels": detector_input_pixels,
+                           "compute_amplification_input": detector_input_pixels / (image_size * image_size),
                            "fusion_suppression_count": suppressed, "predictions": len(merged)})
+    latencies = [x["latency_ms"] for x in image_meta]
+    calls = [x["detector_calls"] for x in image_meta]
     payload = {
         "method": method, "weights": str(weights), "split": split,
-        "settings": {"image_size": image_size, "confidence": confidence, "tile_size": tile_size, "overlap": overlap},
+        "settings": {"image_size": image_size, "confidence": confidence, "tile_size": tile_size, "overlap": overlap,
+                     "warmup_iterations": 1 if images else 0, "latency_includes_preprocessing_and_fusion": True},
         "predictions": predictions, "image_metadata": image_meta,
         "summary": {
             "images": len(image_meta), "predictions": len(predictions),
-            "mean_latency_ms": float(np.mean([x["latency_ms"] for x in image_meta])) if image_meta else 0.0,
-            "mean_detector_calls": float(np.mean([x["detector_calls"] for x in image_meta])) if image_meta else 0.0,
+            "mean_latency_ms": float(np.mean(latencies)) if image_meta else 0.0,
+            "p50_latency_ms": float(np.percentile(latencies, 50)) if image_meta else 0.0,
+            "p95_latency_ms": float(np.percentile(latencies, 95)) if image_meta else 0.0,
+            "mean_detector_calls": float(np.mean(calls)) if image_meta else 0.0,
+            "p95_detector_calls": float(np.percentile(calls, 95)) if image_meta else 0.0,
             "mean_processed_area_ratio": float(np.mean([x["processed_area_ratio"] for x in image_meta])) if image_meta else 0.0,
+            "mean_detector_input_pixels": float(np.mean([x["detector_input_pixels"] for x in image_meta])) if image_meta else 0.0,
+            "compute_amplification_input": float(np.mean([x["compute_amplification_input"] for x in image_meta])) if image_meta else 0.0,
         },
     }
+    if torch is not None and torch.cuda.is_available():
+        peak_vram_mb = float(torch.cuda.max_memory_allocated() / (1024 ** 2))
+    payload["summary"]["peak_vram_mb"] = peak_vram_mb
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     return payload
@@ -138,8 +185,10 @@ METHOD_STATUS = {
     "resize": "implemented",
     "uniform-2": "implemented",
     "uniform-3": "implemented",
-    "sahi": "implemented (framework-independent sliced inference)",
-    "perspective-bands": "implemented geometry baseline; not learned TPP",
+    "sliced-nms": "implemented in-house sliced inference; not official SAHI",
+    "sahi": "deprecated compatibility alias for sliced-nms",
+    "perspective-bands": "deprecated context-removal baseline",
+    "perspective-grid": "implemented hand-designed geometry allocation baseline; not learned TPP",
     "autofocus": "external reproduction required",
     "adazoom": "external RL reproduction required",
     "fovea": "external MMDetection reproduction required",

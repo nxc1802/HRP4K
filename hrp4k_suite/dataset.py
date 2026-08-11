@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import math
 import random
@@ -87,6 +88,39 @@ def _summary(values: list[float]) -> dict[str, float | int]:
     }
 
 
+def _rank(values: list[float]) -> np.ndarray:
+    array = np.asarray(values, dtype=float)
+    order = np.argsort(array, kind="mergesort")
+    ranks = np.empty(len(array), dtype=float)
+    start = 0
+    while start < len(array):
+        end = start + 1
+        while end < len(array) and array[order[end]] == array[order[start]]: end += 1
+        ranks[order[start:end]] = (start + end - 1) / 2 + 1
+        start = end
+    return ranks
+
+
+def _spearman(left: list[float], right: list[float]) -> float:
+    if len(left) < 2: return 0.0
+    return float(np.corrcoef(_rank(left), _rank(right))[0, 1])
+
+
+def _js_divergence(left: list[float], right: list[float]) -> float:
+    p, q = np.asarray(left, dtype=float), np.asarray(right, dtype=float)
+    p = p / max(p.sum(), 1e-12); q = q / max(q.sum(), 1e-12); midpoint = (p + q) / 2
+    def kl(a, b):
+        mask = a > 0
+        return float(np.sum(a[mask] * np.log2(a[mask] / np.maximum(b[mask], 1e-12))))
+    return (kl(p, midpoint) + kl(q, midpoint)) / 2
+
+
+def _ks_distance(left: list[float], right: list[float]) -> float:
+    if not left or not right: return 0.0
+    a, b = np.sort(left), np.sort(right); values = np.sort(np.concatenate((a, b)))
+    return float(np.max(np.abs(np.searchsorted(a, values, side="right") / len(a) - np.searchsorted(b, values, side="right") / len(b))))
+
+
 def available_image_ids(data_dir: Path, split: str) -> set[int]:
     data = load_split(data_dir, split)
     return {
@@ -131,8 +165,13 @@ def prepare_smoke_dataset(
     """Create a tiny YOLO/COCO view using symlinks; never copies the 4K images."""
     output_dir.mkdir(parents=True, exist_ok=True)
     limits = {"train": train_limit, "valid": valid_limit, "test": test_limit}
-    manifest: dict[str, Any] = {"source": str(data_dir.resolve()), "seed": seed, "splits": {}}
+    manifest: dict[str, Any] = {
+        "source": str(data_dir.resolve()), "seed": seed, "splits": {},
+        "official_reference": {"train": 4203, "valid": 900, "test": 900},
+        "annotation_sha256": {},
+    }
     for offset, split in enumerate(SPLITS):
+        declared = load_split(data_dir, split)
         source = filtered_coco(data_dir, split)
         chosen = _balanced_sample(source, min(limits[split], len(source["images"])), seed + offset)
         sampled = {
@@ -143,6 +182,9 @@ def prepare_smoke_dataset(
         split_dir = output_dir / split
         image_dir, label_dir = split_dir / "images", split_dir / "labels"
         image_dir.mkdir(parents=True, exist_ok=True); label_dir.mkdir(parents=True, exist_ok=True)
+        for directory in (image_dir, label_dir):
+            for stale in directory.iterdir():
+                if stale.is_file() or stale.is_symlink(): stale.unlink()
         annotations = defaultdict(list)
         for ann in sampled["annotations"]:
             annotations[int(ann["image_id"])].append(ann)
@@ -159,12 +201,19 @@ def prepare_smoke_dataset(
                 lines.append(f"0 {(x + box_w / 2) / width:.8f} {(y + box_h / 2) / height:.8f} {box_w / width:.8f} {box_h / height:.8f}")
             (label_dir / f"{target_image.stem}.txt").write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
         (output_dir / f"{split}.json").write_text(json.dumps(sampled, indent=2), encoding="utf-8")
-        manifest["splits"][split] = {"images": len(sampled["images"]), "annotations": len(sampled["annotations"])}
+        annotation_path = data_dir / f"{split}.json"
+        manifest["annotation_sha256"][split] = hashlib.sha256(annotation_path.read_bytes()).hexdigest()
+        manifest["splits"][split] = {
+            "declared_images": len(declared.get("images", [])), "available_images": len(source["images"]),
+            "selected_images": len(sampled["images"]), "annotations": len(sampled["annotations"]),
+        }
     yaml_text = (
         f"path: {output_dir.resolve()}\ntrain: train/images\nval: valid/images\ntest: test/images\n"
         "names:\n  0: pothole\n"
     )
     (output_dir / "dataset.yaml").write_text(yaml_text, encoding="utf-8")
+    manifest["official_training_complete"] = manifest["splits"]["train"]["selected_images"] == 4203
+    manifest["benchmark_label"] = "official" if manifest["official_training_complete"] else "local-available-or-smoke"
     (output_dir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     return manifest
 
@@ -237,6 +286,8 @@ def analyze_dataset(data_dir: Path, output_dir: Path, quality_samples: int = 24)
         "y_bottom": _summary([r["y_bottom"] for r in rows]),
         "corr_y_bottom_log_area": float(np.corrcoef([r["y_bottom"] for r in rows], [r["log_area"] for r in rows])[0, 1]),
         "corr_y_center_log_area": float(np.corrcoef([r["y_center"] for r in rows], [r["log_area"] for r in rows])[0, 1]),
+        "spearman_y_bottom_log_area": _spearman([r["y_bottom"] for r in rows], [r["log_area"] for r in rows]),
+        "spearman_y_center_log_area": _spearman([r["y_center"] for r in rows], [r["log_area"] for r in rows]),
     }
     shape = {"width_px": summary["box_width_px"], "height_px": summary["box_height_px"], "aspect_ratio": _summary([r["aspect_ratio"] for r in rows])}
     density = {"objects_per_positive_image": summary["objects_per_positive_image"], "count_distribution": dict(Counter(r["objects_in_image"] for r in rows))}
@@ -248,14 +299,15 @@ def analyze_dataset(data_dir: Path, output_dir: Path, quality_samples: int = 24)
             candidates = []
             for split in SPLITS:
                 data = load_split(data_dir, split)
-                candidates.extend((split, im) for im in data["images"] if image_path(data_dir, split, im["file_name"]).is_file())
+                positive_ids = {int(ann["image_id"]) for ann in data.get("annotations", [])}
+                candidates.extend((split, im, int(im["id"]) in positive_ids) for im in data["images"] if image_path(data_dir, split, im["file_name"]).is_file())
             if candidates:
                 indices = np.linspace(0, len(candidates) - 1, min(quality_samples, len(candidates)), dtype=int)
                 for idx in indices:
-                    split, im = candidates[int(idx)]; path = image_path(data_dir, split, im["file_name"])
+                    split, im, positive = candidates[int(idx)]; path = image_path(data_dir, split, im["file_name"])
                     image = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
                     if image is None: continue
-                    quality.append({"split": split, "image_id": im["id"], "file_name": path.name,
+                    quality.append({"split": split, "image_id": im["id"], "file_name": path.name, "positive": positive,
                                     "brightness": float(image.mean()), "contrast": float(image.std()),
                                     "sharpness_laplacian_var": float(cv2.Laplacian(image, cv2.CV_64F).var())})
         except ImportError:
@@ -282,6 +334,30 @@ def analyze_dataset(data_dir: Path, output_dir: Path, quality_samples: int = 24)
             ]))
     spatial["grid_shape"] = [8, 12]
     spatial["center_grid"] = grid.tolist()
+    y_bands = []
+    for band in range(10):
+        values = [row["area_ratio"] for row in rows if band / 10 <= row["y_center"] < (band + 1) / 10]
+        y_bands.append({"band": f"{band / 10:.1f}-{(band + 1) / 10:.1f}", "area_ratio": _summary(values),
+                        "conditional_variance": float(np.var(values)) if values else None})
+    spatial["y_center_bands"] = y_bands
+
+    split_shift = {}
+    for index, left in enumerate(SPLITS):
+        for right in SPLITS[index + 1:]:
+            left_rows = [row for row in rows if row["split"] == left]; right_rows = [row for row in rows if row["split"] == right]
+            left_counts = Counter(row["scale_class"] for row in left_rows); right_counts = Counter(row["scale_class"] for row in right_rows)
+            split_shift[f"{left}_vs_{right}"] = {
+                "scale_js_divergence": _js_divergence([left_counts[s] for s in SCALE_ORDER], [right_counts[s] for s in SCALE_ORDER]),
+                "area_ratio_ks_distance": _ks_distance([row["area_ratio"] for row in left_rows], [row["area_ratio"] for row in right_rows]),
+                "y_center_ks_distance": _ks_distance([row["y_center"] for row in left_rows], [row["y_center"] for row in right_rows]),
+                "aspect_ratio_ks_distance": _ks_distance([row["aspect_ratio"] for row in left_rows], [row["aspect_ratio"] for row in right_rows]),
+            }
+    split_summary["distribution_shift"] = split_shift
+    quality_by_label = {
+        label: {metric: _summary([sample[metric] for sample in quality if sample["positive"] is positive])
+                for metric in ("brightness", "contrast", "sharpness_laplacian_var")}
+        for label, positive in (("positive", True), ("negative", False))
+    }
 
     artifacts = {
         "dataset_integrity.json": integrity, "dataset_summary.json": summary,
@@ -292,7 +368,7 @@ def analyze_dataset(data_dir: Path, output_dir: Path, quality_samples: int = 24)
         "shape_analysis.json": shape, "image_object_density.json": density,
         "split_analysis.json": split_summary,
         "domain_analysis.json": {"status": "unavailable", "reason": "COCO files do not contain city or pavement-material metadata"},
-        "image_quality_analysis.json": {"sample_count": len(quality), "samples": quality},
+        "image_quality_analysis.json": {"sample_count": len(quality), "positive_vs_negative": quality_by_label, "samples": quality},
     }
     for name, payload in artifacts.items():
         (output_dir / name).write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -308,6 +384,9 @@ def analyze_dataset(data_dir: Path, output_dir: Path, quality_samples: int = 24)
         f"- Positive / negative images: {summary['positive_images']:,} / {summary['negative_images']:,}",
         f"- Local available images: {sum(v['available_images'] for v in integrity['splits'].values()):,}",
         f"- Scale distribution: `{json.dumps(summary['scale_counts'], ensure_ascii=False)}`", "",
+        f"- Spearman(y_center, log_area): {spatial['spearman_y_center_log_area']:.4f}",
+        f"- Spearman(y_bottom, log_area): {spatial['spearman_y_bottom_log_area']:.4f}",
+        f"- Split-shift diagnostics: `{json.dumps(split_shift, ensure_ascii=False)}`", "",
         "The official video-level train/valid/test split is preserved. Missing local train images are skipped, not re-split.",
         "City and pavement analysis cannot be reconstructed because those fields are absent from the released COCO JSON.",
     ]

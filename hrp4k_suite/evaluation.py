@@ -57,6 +57,11 @@ def _evaluate_at(gt: dict[str, Any], predictions: list[dict[str, Any]], threshol
 
 
 def evaluate(gt: dict[str, Any], predictions: list[dict[str, Any]], confidence: float = 0.25) -> dict[str, Any]:
+    category_ids = {int(category["id"]) for category in gt.get("categories", [])}
+    prediction_category_ids = {int(prediction["category_id"]) for prediction in predictions}
+    unknown_categories = prediction_category_ids - category_ids
+    if unknown_categories:
+        raise ValueError(f"Prediction category IDs {sorted(unknown_categories)} do not exist in ground truth {sorted(category_ids)}")
     thresholds = np.arange(0.5, 0.96, 0.05)
     evaluations = {f"{t:.2f}": _evaluate_at(gt, predictions, float(t)) for t in thresholds}
     active = [p for p in predictions if float(p.get("score", 0)) >= confidence]
@@ -66,6 +71,7 @@ def evaluate(gt: dict[str, Any], predictions: list[dict[str, Any]], confidence: 
     precision = tp / max(tp + fp, 1); recall = tp / max(tp + fn, 1)
     negative_ids = {int(im["id"]) for im in gt["images"]} - {int(a["image_id"]) for a in gt["annotations"]}
     negative_fp = sum(int(p["image_id"]) in negative_ids for p in active)
+    negative_images_with_fp = {int(p["image_id"]) for p in active if int(p["image_id"]) in negative_ids}
     official = _coco_metrics(gt, predictions)
     return {
         "protocol": {"iou": "COCO-style 0.50:0.95", "ap_interpolation_points": 101, "confidence_operating_point": confidence},
@@ -74,9 +80,14 @@ def evaluate(gt: dict[str, Any], predictions: list[dict[str, Any]], confidence: 
         "AP75": official.get("AP75", evaluations["0.75"]["ap"]),
         "AP50_95": official.get("AP50_95", float(np.mean([v["ap"] for v in evaluations.values()]))),
         "precision": precision, "recall": recall, "f1": 2 * precision * recall / max(precision + recall, 1e-12),
-        "FPPI": fp / max(len(gt["images"]), 1), "negative_FPPI": negative_fp / max(len(negative_ids), 1),
+        "FPPI_official": negative_fp / max(len(negative_ids), 1),
+        "FPPI_all_images": fp / max(len(gt["images"]), 1),
+        "negative_images": len(negative_ids), "negative_images_with_fp": len(negative_images_with_fp),
+        "negative_image_false_alarm_rate": len(negative_images_with_fp) / max(len(negative_ids), 1),
+        "deprecated_aliases": {"FPPI": "FPPI_all_images", "negative_FPPI": "FPPI_official"},
         "tp": tp, "fp": fp, "fn": fn,
         "scale": {s: {"AP50": _evaluate_at(gt, predictions, 0.5, s)["ap"], "recall50": _evaluate_at(gt, predictions, 0.5, s)["recall"]} for s in SCALE_ORDER},
+        "iou_threshold_curve": {key: {"AP": value["ap"], "recall": value["recall"]} for key, value in evaluations.items()},
         "coco_evaluator": official,
     }
 

@@ -9,6 +9,8 @@ python -m venv .venv
 .venv/bin/pip install -e '.[vision]'
 ```
 
+Môi trường smoke đã xác minh được pin tại `requirements/benchmark-lock.txt`. Mỗi run còn lưu toàn bộ `pip freeze`, phiên bản Torch/CUDA/Ultralytics, Git commit và dataset manifest/hash trong thư mục run.
+
 Trong workspace hiện tại có thể dùng trực tiếp `venv/bin/python -m hrp4k_suite`.
 
 ## Chạy nhanh toàn pipeline
@@ -26,10 +28,10 @@ Lệnh này chạy tuần tự:
 
 1. Phase 0: integrity + thống kê annotation + quality sample.
 2. Phase 1: tạo dataset nhỏ bằng symlink, train YOLO11n đúng 1 epoch với AMP.
-3. Phase 2: inference resize baseline và export unified COCO JSON.
+3. Phase 2: smoke inference `resize`, `sliced-nms`, `perspective-grid` và export unified COCO JSON.
 4. Phase 3: evaluate + sinh diagnostic report từ prediction đã lưu.
 
-Full local training bị chặn có chủ đích. `train` bắt buộc có `--smoke`.
+Full training cần cờ xác nhận `--allow-full`. Nếu manifest thiếu bất kỳ phần nào trong 4.203 train image chính thức, lệnh còn yêu cầu `--allow-incomplete-train` và run phải được gọi là **local-available**, không phải official reproduction.
 
 ## CLI theo phase
 
@@ -45,17 +47,17 @@ venv/bin/python -m hrp4k_suite train --smoke \
   --dataset outputs/smoke/dataset/dataset.yaml \
   --weights yolo11n.pt --output outputs/smoke/runs/yolo11n
 
-# Phase 2 inference: resize | uniform-2 | uniform-3 | sahi | perspective-bands
+# Phase 2 inference: resize | uniform-2 | uniform-3 | sliced-nms | perspective-grid
 venv/bin/python -m hrp4k_suite predict \
   --data outputs/smoke/dataset --split test \
   --weights outputs/smoke/runs/yolo11n/weights/best.pt \
-  --method sahi --output outputs/smoke/predictions/sahi.json
+  --method sliced-nms --output outputs/smoke/predictions/sliced_nms.json
 
 # Unified evaluator
 venv/bin/python -m hrp4k_suite evaluate \
   --ground-truth outputs/smoke/dataset/test.json \
-  --predictions outputs/smoke/predictions/sahi.json \
-  --output outputs/smoke/predictions/sahi_metrics.json
+  --predictions outputs/smoke/predictions/sliced_nms.json \
+  --output outputs/smoke/predictions/sliced_nms_metrics.json
 
 # Phase 3: không inference lại
 venv/bin/python -m hrp4k_suite diagnose \
@@ -69,6 +71,6 @@ venv/bin/python -m hrp4k_suite diagnose \
 ## Ranh giới kết quả
 
 - Các file COCO công khai không có metadata city/material trên từng ảnh, nên suite không suy đoán hai trường này.
-- `sahi` ở đây là sliced-inference tương thích framework với overlap + global NMS, không phải SAHI sliced fine-tuning.
-- `perspective-bands` là geometry baseline minh bạch, không được gọi là reproduction của learned Two-Plane Prior.
+- `sliced-nms` là sliced inference tự triển khai với overlap + global NMS, không phải official SAHI hay SAHI sliced fine-tuning. `sahi` chỉ còn là alias tương thích cũ.
+- `perspective-grid` là geometry baseline thủ công phân bổ nhiều detector crop hơn cho far field, không phải reproduction của learned Two-Plane Prior.
 - AutoFocus, AdaZoom, FOVEA, learned TPP và ZoomDet được giữ trong status matrix nhưng chưa tạo số liệu giả.

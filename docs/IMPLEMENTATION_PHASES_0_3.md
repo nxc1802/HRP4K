@@ -29,7 +29,7 @@ Không thể tái tạo trung thực city/material subgroup do metadata vắng t
 - subset smoke deterministic, giữ nguyên official split, dùng symlink để không nhân bản ảnh 4K;
 - YOLO training adapter với AMP, environment/config snapshot và full-training guard;
 - unified COCO prediction format;
-- evaluator pycocotools cho AP50/AP75/AP50:95, operating-point precision/recall/F1/FPPI và HRP4K scale bins;
+- evaluator pycocotools cho AP50/AP75/AP50:95, operating-point precision/recall/F1, `FPPI_official` trên negative set và HRP4K scale bins;
 - per-image error records phục vụ Phase 3.
 
 Local smoke chỉ chạy YOLO11n. Matrix YOLOv5/v8/v11, RT-DETRv1/v2 và D-FINE cần môi trường/checkpoint chính chủ riêng khi chạy benchmark thật; không thể kết luận reproduction từ một epoch smoke.
@@ -40,7 +40,7 @@ Local smoke chỉ chạy YOLO11n. Matrix YOLOv5/v8/v11, RT-DETRv1/v2 và D-FINE 
 
 - resize-only;
 - uniform 2×2/3×3;
-- sliced inference có overlap và global NMS (`sahi`);
+- sliced inference có overlap và global NMS (`sliced-nms`, không phải official SAHI);
 - perspective-band baseline;
 - đo detector calls, source pixels, processed-area ratio, latency và fusion suppression.
 
@@ -52,7 +52,7 @@ Các tên AutoFocus, AdaZoom, FOVEA, learned Two-Plane Prior và ZoomDet đượ
 
 - effective bbox size tại canvas 640/960/1280/1920;
 - per-image TP/FP/FN/localization errors;
-- scale metrics, FPPI, detector-call/latency summary;
+- scale metrics, `FPPI_official`, detector-call/latency/CAF summary;
 - report có interpretation boundary và reproduction-status matrix.
 
 Các phân tích material, bootstrap nhiều seed, failure taxonomy thủ công và method suitability map chỉ có ý nghĩa sau khi có prediction benchmark thật và metadata tương ứng. Smoke report không được dùng để xếp hạng method.

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hrp4k-benchmark"
-version = "0.1.0"
+version = "0.2.0"
 description = "Reproducible HRP4K dataset, detector and resolution-allocation benchmark CLI"
 requires-python = ">=3.10"
 dependencies = ["numpy>=1.24"]
