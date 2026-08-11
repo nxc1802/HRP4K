@@ -134,43 +134,60 @@ def predict_yolo(
         torch = None
     predictions: list[dict[str, Any]] = []; image_meta = []
     for im in images:
+        end_to_end_started = time.perf_counter()
         path = image_path(data_dir, split, im["file_name"])
+        decode_started = time.perf_counter()
         source = cv2.imread(str(path))
         if source is None: continue
+        decode_latency_ms = (time.perf_counter() - decode_started) * 1000
+        processor_started = time.perf_counter()
         views = make_views(source, method, tile_size, overlap)
-        started = time.perf_counter(); candidates = []
+        processor_latency_ms = (time.perf_counter() - processor_started) * 1000
+        candidates = []; detector_latency_ms = 0.0
         for view in views:
+            detector_started = time.perf_counter()
             for prediction in detector.predict(view.image, image_size, confidence):
                 candidates.append({"image_id": int(im["id"]), "category_id": prediction["category_id"],
                                    "bbox": view.map_box(prediction["xyxy"]), "score": prediction["score"]})
+            detector_latency_ms += (time.perf_counter() - detector_started) * 1000
+        fusion_started = time.perf_counter()
         merged, suppressed = nms(candidates)
-        elapsed = (time.perf_counter() - started) * 1000
+        fusion_latency_ms = (time.perf_counter() - fusion_started) * 1000
+        end_to_end_latency_ms = (time.perf_counter() - end_to_end_started) * 1000
         predictions.extend(merged)
         source_pixels = sum(view.source_width * view.source_height for view in views)
-        detector_input_pixels = len(views) * image_size * image_size
-        image_meta.append({"image_id": int(im["id"]), "method": method, "latency_ms": elapsed,
+        nominal_canvas_pixels = len(views) * image_size * image_size
+        image_meta.append({"image_id": int(im["id"]), "method": method,
+                           "decode_latency_ms": decode_latency_ms, "processor_latency_ms": processor_latency_ms,
+                           "detector_latency_ms": detector_latency_ms, "fusion_latency_ms": fusion_latency_ms,
+                           "end_to_end_latency_ms": end_to_end_latency_ms,
                            "detector_calls": len(views), "processed_source_pixels": source_pixels,
                            "processed_area_ratio": source_pixels / (source.shape[0] * source.shape[1]),
-                           "detector_input_pixels": detector_input_pixels,
-                           "compute_amplification_input": detector_input_pixels / (image_size * image_size),
+                           "nominal_detector_canvas_pixels": nominal_canvas_pixels,
+                           "compute_amplification_nominal_canvas": nominal_canvas_pixels / (image_size * image_size),
                            "fusion_suppression_count": suppressed, "predictions": len(merged)})
-    latencies = [x["latency_ms"] for x in image_meta]
+    end_to_end_latencies = [x["end_to_end_latency_ms"] for x in image_meta]
+    processor_latencies = [x["processor_latency_ms"] for x in image_meta]
+    detector_latencies = [x["detector_latency_ms"] for x in image_meta]
     calls = [x["detector_calls"] for x in image_meta]
     payload = {
         "method": method, "weights": str(weights), "split": split,
         "settings": {"image_size": image_size, "confidence": confidence, "tile_size": tile_size, "overlap": overlap,
-                     "warmup_iterations": 1 if images else 0, "latency_includes_preprocessing_and_fusion": True},
+                     "warmup_iterations": 1 if images else 0,
+                     "latency_protocol": "end_to_end includes decode, processor, detector, remapping and fusion"},
         "predictions": predictions, "image_metadata": image_meta,
         "summary": {
             "images": len(image_meta), "predictions": len(predictions),
-            "mean_latency_ms": float(np.mean(latencies)) if image_meta else 0.0,
-            "p50_latency_ms": float(np.percentile(latencies, 50)) if image_meta else 0.0,
-            "p95_latency_ms": float(np.percentile(latencies, 95)) if image_meta else 0.0,
+            "mean_processor_latency_ms": float(np.mean(processor_latencies)) if image_meta else 0.0,
+            "mean_detector_latency_ms": float(np.mean(detector_latencies)) if image_meta else 0.0,
+            "mean_end_to_end_latency_ms": float(np.mean(end_to_end_latencies)) if image_meta else 0.0,
+            "p50_end_to_end_latency_ms": float(np.percentile(end_to_end_latencies, 50)) if image_meta else 0.0,
+            "p95_end_to_end_latency_ms": float(np.percentile(end_to_end_latencies, 95)) if image_meta else 0.0,
             "mean_detector_calls": float(np.mean(calls)) if image_meta else 0.0,
             "p95_detector_calls": float(np.percentile(calls, 95)) if image_meta else 0.0,
             "mean_processed_area_ratio": float(np.mean([x["processed_area_ratio"] for x in image_meta])) if image_meta else 0.0,
-            "mean_detector_input_pixels": float(np.mean([x["detector_input_pixels"] for x in image_meta])) if image_meta else 0.0,
-            "compute_amplification_input": float(np.mean([x["compute_amplification_input"] for x in image_meta])) if image_meta else 0.0,
+            "mean_nominal_detector_canvas_pixels": float(np.mean([x["nominal_detector_canvas_pixels"] for x in image_meta])) if image_meta else 0.0,
+            "compute_amplification_nominal_canvas": float(np.mean([x["compute_amplification_nominal_canvas"] for x in image_meta])) if image_meta else 0.0,
         },
     }
     if torch is not None and torch.cuda.is_available():

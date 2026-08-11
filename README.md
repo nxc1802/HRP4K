@@ -62,9 +62,16 @@ venv/bin/python -m hrp4k_suite evaluate \
 # Phase 3: không inference lại
 venv/bin/python -m hrp4k_suite diagnose \
   --ground-truth outputs/smoke/dataset/test.json \
-  --predictions outputs/smoke/predictions/*.json \
+  --predictions \
+    outputs/smoke/predictions/resize.json \
+    outputs/smoke/predictions/sliced-nms.json \
+    outputs/smoke/predictions/perspective-grid.json \
   --output outputs/smoke/phase3
 ```
+
+Ba preset medium cho Phase 1 có thể được chọn bằng `--preset yolov5m-compat|yolov8m|yolo11m`. Preset YOLOv5 dùng compatibility checkpoint `yolov5mu.pt` và không được coi là exact reproduction của original YOLOv5 repository. `hrp4k status` hiển thị provenance và trạng thái của toàn bộ sáu baseline.
+
+`prepare-dataset` mặc định chọn toàn bộ ảnh local khả dụng; `prepare-smoke` mới dùng giới hạn 24/12/12. Diagnostics kiểm tra schema và bỏ qua metrics/per-image JSON nếu người dùng vô tình truyền wildcard rộng.
 
 `hrp4k status` cho biết baseline nào đã được triển khai và learned method nào còn cần reproduction từ official repository.
 

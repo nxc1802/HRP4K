@@ -34,6 +34,7 @@ def train_yolo(
     dataset_yaml: Path, weights: Path | str, run_dir: Path, smoke: bool = False,
     epochs: int = 150, image_size: int = 640, batch: int = 16, device: str | None = None,
     allow_full: bool = False, allow_incomplete_train: bool = False,
+    experiment: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not smoke and not allow_full:
         raise ValueError("Full training requires explicit --allow-full; use --smoke for local verification")
@@ -58,6 +59,7 @@ def train_yolo(
         "amp": True, "optimizer": "SGD", "lr0": 0.01, "lrf": 0.01, "momentum": 0.937, "weight_decay": 0.0005,
         "warmup_epochs": 3.0, "mosaic": 1.0, "mixup": 0.0, "fliplr": 0.5, "device": device, "seed": 42,
         "dataset_manifest": manifest, "benchmark_label": "smoke" if smoke else (manifest or {}).get("benchmark_label", "unverified"),
+        "experiment": experiment,
     }
     (run_dir / "resolved_config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
     (run_dir / "environment.json").write_text(json.dumps(environment_snapshot(), indent=2), encoding="utf-8")

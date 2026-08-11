@@ -155,7 +155,10 @@ python -m hrp4k_suite evaluate \
 ```bash
 python -m hrp4k_suite diagnose \
   --ground-truth outputs/full_dataset/test.json \
-  --predictions outputs/predictions/*.json \
+  --predictions \
+    outputs/predictions/resize_640.json \
+    outputs/predictions/sliced_nms_960.json \
+    outputs/predictions/perspective_grid.json \
   --output outputs/phase3_report
 ```
 
@@ -232,7 +235,10 @@ python -m hrp4k_suite evaluate \
 echo "=== [6/6] PHASE 3: DEEP DIAGNOSTICS REPORT ==="
 python -m hrp4k_suite diagnose \
   --ground-truth outputs/full_dataset/test.json \
-  --predictions outputs/predictions/*.json \
+  --predictions \
+    outputs/predictions/resize_640.json \
+    outputs/predictions/sliced_nms_960.json \
+    outputs/predictions/perspective_grid.json \
   --output outputs/phase3_report
 
 echo "=== BENCHMARK PIPELINE COMPLETE! Output saved to outputs/phase3_report ==="

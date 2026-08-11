@@ -29,7 +29,7 @@ class ProcessingTests(unittest.TestCase):
 
     def test_missing_metrics_are_not_rendered_as_zero(self):
         gt = {"categories": [{"id": 0, "name": "pothole"}], "images": [{"id": 1, "width": 100, "height": 100}], "annotations": []}
-        prediction = {"method": "resize", "predictions": [], "summary": {"compute_amplification_input": 1}}
+        prediction = {"method": "resize", "predictions": [], "summary": {"compute_amplification_nominal_canvas": 1}}
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory); gt_path = root / "gt.json"; pred_path = root / "resize.json"
             gt_path.write_text(json.dumps(gt), encoding="utf-8"); pred_path.write_text(json.dumps(prediction), encoding="utf-8")
@@ -37,6 +37,18 @@ class ProcessingTests(unittest.TestCase):
             self.assertEqual(result["methods"]["resize"]["evaluation_status"], "not_evaluated")
             report = (root / "report" / "phase3_report.md").read_text(encoding="utf-8")
             self.assertIn("| resize | not_evaluated | 0 | N/A | N/A |", report)
+
+    def test_metrics_json_is_ignored_when_wildcard_is_too_broad(self):
+        gt = {"categories": [{"id": 0, "name": "pothole"}], "images": [], "annotations": []}
+        prediction = {"method": "resize", "predictions": []}
+        metrics = {"AP50": 0.5, "AP50_95": 0.3}
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); gt_path = root / "gt.json"; pred_path = root / "resize.json"; metrics_path = root / "resize_metrics.json"
+            gt_path.write_text(json.dumps(gt), encoding="utf-8"); pred_path.write_text(json.dumps(prediction), encoding="utf-8")
+            metrics_path.write_text(json.dumps(metrics), encoding="utf-8")
+            result = diagnose(gt_path, [pred_path, metrics_path], root / "report")
+            self.assertEqual(list(result["methods"]), ["resize"])
+            self.assertEqual(result["ignored_inputs"][0]["path"], str(metrics_path))
 
 
 if __name__ == "__main__":

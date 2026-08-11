@@ -13,8 +13,14 @@ from .processing import METHOD_STATUS
 
 def _load_predictions(path: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     raw = json.loads(path.read_text(encoding="utf-8"))
-    if isinstance(raw, dict): return raw.get("predictions", []), raw
-    return raw, {"predictions": raw}
+    predictions = raw.get("predictions") if isinstance(raw, dict) else raw
+    if not isinstance(predictions, list):
+        raise ValueError("not a prediction document: missing predictions list")
+    required = {"image_id", "category_id", "bbox", "score"}
+    if any(not isinstance(item, dict) or not required.issubset(item) for item in predictions):
+        raise ValueError("not a prediction document: records do not match canonical COCO prediction schema")
+    payload = raw if isinstance(raw, dict) else {"predictions": raw}
+    return predictions, payload
 
 
 def _pareto_methods(methods: dict[str, Any]) -> list[str]:
@@ -22,7 +28,7 @@ def _pareto_methods(methods: dict[str, Any]) -> list[str]:
     for name, value in methods.items():
         if value["evaluation_status"] != "evaluated": continue
         ap = value["metrics"].get("AP50_95")
-        cost = value["processing"].get("compute_amplification_input")
+        cost = value["processing"].get("compute_amplification_nominal_canvas")
         if ap is not None and cost is not None: candidates.append((name, float(ap), float(cost)))
     return [name for name, ap, cost in candidates
             if not any(other_ap >= ap and other_cost <= cost and (other_ap > ap or other_cost < cost)
@@ -55,9 +61,13 @@ def diagnose(gt_path: Path, prediction_paths: list[Path], output_dir: Path) -> d
         with (output_dir / "effective_object_sizes.csv").open("w", newline="", encoding="utf-8") as handle:
             writer = csv.DictWriter(handle, fieldnames=list(effective_rows[0])); writer.writeheader(); writer.writerows(effective_rows)
 
-    methods: dict[str, Any] = {}
+    methods: dict[str, Any] = {}; ignored_inputs = []
     for path in prediction_paths:
-        predictions, payload = _load_predictions(path)
+        try:
+            predictions, payload = _load_predictions(path)
+        except (json.JSONDecodeError, OSError, ValueError) as exc:
+            ignored_inputs.append({"path": str(path), "reason": str(exc)})
+            continue
         method = str(payload.get("method") or path.stem)
         metrics_path = path.with_name(path.stem + "_metrics.json")
         metrics = json.loads(metrics_path.read_text(encoding="utf-8")) if metrics_path.exists() else {}
@@ -93,7 +103,7 @@ def diagnose(gt_path: Path, prediction_paths: list[Path], output_dir: Path) -> d
             str(res): {"median_width": float(np.median([r[f"width_at_{res}"] for r in effective_rows])) if effective_rows else 0,
                        "median_height": float(np.median([r[f"height_at_{res}"] for r in effective_rows])) if effective_rows else 0}
             for res in (640, 960, 1280, 1920)
-        }, "paired_image_analysis": paired,
+        }, "paired_image_analysis": paired, "ignored_inputs": ignored_inputs,
     }
     result["accuracy_compute_pareto"] = _pareto_methods(methods)
     (output_dir / "diagnostics.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
@@ -104,14 +114,16 @@ def diagnose(gt_path: Path, prediction_paths: list[Path], output_dir: Path) -> d
              "| Width canvas | Median bbox width | Median bbox height |", "|---:|---:|---:|"]
     for resolution, values in result["effective_size"].items():
         lines.append(f"| {resolution} | {values['median_width']:.2f} | {values['median_height']:.2f} |")
-    lines.extend(["", "## Methods", "", "| Method | Status | Predictions | AP50 | AP50:95 | FPPI official | CAF input | P95 latency (ms) |",
+    lines.extend(["", "## Methods", "", "| Method | Status | Predictions | AP50 | AP50:95 | FPPI official | CAF nominal | P95 end-to-end (ms) |",
                   "|---|---|---:|---:|---:|---:|---:|---:|"])
     for method, value in methods.items():
         metric = value["metrics"]; processing = value["processing"]
         lines.append(f"| {method} | {value['evaluation_status']} | {value['predictions']} | {_format_metric(metric.get('AP50'))} | "
                      f"{_format_metric(metric.get('AP50_95'))} | {_format_metric(metric.get('FPPI_official'))} | "
-                     f"{_format_metric(processing.get('compute_amplification_input'), 2)} | {_format_metric(processing.get('p95_latency_ms'), 2)} |")
+                     f"{_format_metric(processing.get('compute_amplification_nominal_canvas'), 2)} | {_format_metric(processing.get('p95_end_to_end_latency_ms'), 2)} |")
     lines.extend(["", f"Accuracy–compute Pareto methods: `{', '.join(result['accuracy_compute_pareto']) or 'N/A'}`."])
+    if ignored_inputs:
+        lines.extend(["", "## Ignored non-prediction inputs", "", "```json", json.dumps(ignored_inputs, indent=2), "```"])
     if paired:
         lines.extend(["", "## Per-image paired analysis", "", "```json", json.dumps(paired, indent=2), "```"])
     lines.extend(["", "## Interpretation boundary", "",

@@ -158,11 +158,18 @@ def _balanced_sample(data: dict[str, Any], limit: int, seed: int) -> set[int]:
     return set(chosen)
 
 
-def prepare_smoke_dataset(
-    data_dir: Path, output_dir: Path, train_limit: int = 24, valid_limit: int = 12,
-    test_limit: int = 12, seed: int = 42,
+def dataset_completeness(manifest: dict[str, Any]) -> dict[str, bool]:
+    reference = manifest["official_reference"]; splits = manifest["splits"]
+    training = all(splits[split]["selected_images"] == reference[split] for split in ("train", "valid"))
+    benchmark = training and splits["test"]["selected_images"] == reference["test"]
+    return {"official_training_complete": training, "official_benchmark_complete": benchmark}
+
+
+def prepare_dataset_view(
+    data_dir: Path, output_dir: Path, train_limit: int | None = None, valid_limit: int | None = None,
+    test_limit: int | None = None, seed: int = 42,
 ) -> dict[str, Any]:
-    """Create a tiny YOLO/COCO view using symlinks; never copies the 4K images."""
+    """Create a deterministic YOLO/COCO view using symlinks; None selects all available images."""
     output_dir.mkdir(parents=True, exist_ok=True)
     limits = {"train": train_limit, "valid": valid_limit, "test": test_limit}
     manifest: dict[str, Any] = {
@@ -173,7 +180,9 @@ def prepare_smoke_dataset(
     for offset, split in enumerate(SPLITS):
         declared = load_split(data_dir, split)
         source = filtered_coco(data_dir, split)
-        chosen = _balanced_sample(source, min(limits[split], len(source["images"])), seed + offset)
+        requested_limit = limits[split]
+        selected_limit = len(source["images"]) if requested_limit is None else min(requested_limit, len(source["images"]))
+        chosen = _balanced_sample(source, selected_limit, seed + offset)
         sampled = {
             **{key: value for key, value in source.items() if key not in {"images", "annotations"}},
             "images": [im for im in source["images"] if int(im["id"]) in chosen],
@@ -212,10 +221,22 @@ def prepare_smoke_dataset(
         "names:\n  0: pothole\n"
     )
     (output_dir / "dataset.yaml").write_text(yaml_text, encoding="utf-8")
-    manifest["official_training_complete"] = manifest["splits"]["train"]["selected_images"] == 4203
-    manifest["benchmark_label"] = "official" if manifest["official_training_complete"] else "local-available-or-smoke"
+    manifest.update(dataset_completeness(manifest))
+    manifest["benchmark_label"] = (
+        "official" if manifest["official_benchmark_complete"] else
+        "official-training-only" if manifest["official_training_complete"] else
+        "local-available-or-smoke"
+    )
     (output_dir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     return manifest
+
+
+def prepare_smoke_dataset(
+    data_dir: Path, output_dir: Path, train_limit: int = 24, valid_limit: int = 12,
+    test_limit: int = 12, seed: int = 42,
+) -> dict[str, Any]:
+    """Compatibility wrapper for a bounded smoke dataset view."""
+    return prepare_dataset_view(data_dir, output_dir, train_limit, valid_limit, test_limit, seed)
 
 
 def analyze_dataset(data_dir: Path, output_dir: Path, quality_samples: int = 24) -> dict[str, Any]:

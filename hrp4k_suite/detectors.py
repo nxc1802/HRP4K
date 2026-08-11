@@ -37,9 +37,9 @@ class UltralyticsAdapter:
 
 
 DETECTOR_STATUS = {
-    "yolov5": "adapter-compatible; official medium reproduction not configured",
-    "yolov8": "adapter-compatible through Ultralytics; official medium reproduction not configured",
-    "yolov11": "implemented through Ultralytics; smoke verified",
+    "yolov5m-compat": "Ultralytics compatibility preset configured; original-paper reproduction not claimed",
+    "yolov8m": "Ultralytics medium preset configured; smoke-capable",
+    "yolo11m": "Ultralytics medium preset configured; smoke verified",
     "rt-detr-v1": "official external adapter required",
     "rt-detr-v2": "official external adapter required",
     "d-fine": "official external adapter required",
