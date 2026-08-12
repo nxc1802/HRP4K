@@ -1,0 +1,7 @@
+name: sahi
+slice_width: 960
+slice_height: 960
+overlap: 0.2
+postprocess_type: NMS
+postprocess_metric: IOU
+postprocess_threshold: 0.5

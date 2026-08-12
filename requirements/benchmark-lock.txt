@@ -8,3 +8,8 @@ pycocotools==2.0.11
 PyYAML==6.0.3
 torch==2.13.0
 torchvision==0.28.0
+sahi==0.12.5
+shapely==2.1.2
+click==8.4.2
+fire==0.7.1
+termcolor==3.3.0

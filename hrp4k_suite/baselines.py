@@ -9,6 +9,11 @@ BASELINE_PRESETS: dict[str, dict[str, Any]] = {
         "reproduction_scope": "Ultralytics compatibility checkpoint; not the original YOLOv5 paper repository",
         "status": "smoke-capable; paper reproduction not claimed",
     },
+    "yolov5m-official": {
+        "family": "YOLOv5", "framework": "official external", "weights": "yolov5m.pt", "size": "medium",
+        "reproduction_scope": "Original YOLOv5 repository in an isolated environment",
+        "status": "external runner required",
+    },
     "yolov8m": {
         "family": "YOLOv8", "framework": "ultralytics", "weights": "yolov8m.pt", "size": "medium",
         "reproduction_scope": "Ultralytics implementation with project-resolved protocol",

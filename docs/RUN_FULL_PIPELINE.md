@@ -1,6 +1,6 @@
 # HRP4K Benchmark: Local-Available Pipeline Guide
 
-Tài liệu này mô tả một **paper-aligned local-available run** cho pipeline Phase 0–3. Vì local chỉ có 2.286/4.203 train image, kết quả không phải official reproduction và không được so deviation trực tiếp với số liệu paper.
+Tài liệu này mô tả pipeline Phase 0–3 trên **single official downloaded release**. Release hiện có 2.286 file train khả dụng; thiếu hụt bắt nguồn từ nguồn phát hành và nhóm sẽ liên hệ tác giả để xin archive đầy đủ. Smoke output vẫn chỉ kiểm tra plumbing, không phải kết quả paper.
 
 ---
 
@@ -50,10 +50,7 @@ Tạo cấu trúc YOLO/COCO dataset cho toàn bộ ảnh thực tế khả dụn
 ```bash
 python -m hrp4k_suite prepare-dataset \
   --data HRP4K \
-  --output outputs/full_dataset \
-  --train-limit 2286 \
-  --valid-limit 900 \
-  --test-limit 900
+  --output outputs/full_dataset
 ```
 
 ---
@@ -69,8 +66,7 @@ python -m hrp4k_suite train \
   --epochs 150 \
   --imgsz 640 \
   --batch 16 \
-  --allow-full \
-  --allow-incomplete-train
+  --allow-full
 ```
 
 ---
@@ -189,8 +185,7 @@ python -m hrp4k_suite train \
   --epochs 150 \
   --imgsz 640 \
   --batch 16 \
-  --allow-full \
-  --allow-incomplete-train
+  --allow-full
 
 echo "=== [4/6] PHASE 2: RESOLUTION ALLOCATION INFERENCES ==="
 mkdir -p outputs/predictions

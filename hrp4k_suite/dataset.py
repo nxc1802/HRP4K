@@ -11,6 +11,8 @@ from typing import Any, Iterable
 
 import numpy as np
 
+from .dataset_identity import verify_dataset_identity
+
 SPLITS = ("train", "valid", "test")
 SCALE_ORDER = ("ultra_fine", "fine", "medium", "large")
 
@@ -221,12 +223,20 @@ def prepare_dataset_view(
         "names:\n  0: pothole\n"
     )
     (output_dir / "dataset.yaml").write_text(yaml_text, encoding="utf-8")
-    manifest.update(dataset_completeness(manifest))
-    manifest["benchmark_label"] = (
-        "official" if manifest["official_benchmark_complete"] else
-        "official-training-only" if manifest["official_training_complete"] else
-        "local-available-or-smoke"
+    identity = verify_dataset_identity(manifest)
+    manifest.update(identity)
+    full_release_view = all(
+        limits[split] is None
+        and manifest["splits"][split]["selected_images"] == manifest["splits"][split]["available_images"]
+        for split in SPLITS
     )
+    official_view = bool(identity["official_dataset_identity"] and full_release_view)
+    manifest.update({
+        "official_training_complete": official_view,
+        "official_benchmark_complete": official_view,
+        "official_dataset_view": official_view,
+        "benchmark_label": "official" if official_view else "smoke",
+    })
     (output_dir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     return manifest
 

@@ -10,6 +10,8 @@ from .detectors import DETECTOR_STATUS
 from .diagnostics import diagnose
 from .evaluation import evaluate_files
 from .processing import METHOD_STATUS, predict_yolo
+from .preflight import preflight
+from .registry import METHOD_REGISTRY
 from .training import train_yolo
 from . import __version__
 
@@ -41,15 +43,16 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--preset", choices=[name for name, value in BASELINE_PRESETS.items() if value.get("framework") == "ultralytics"])
     train.add_argument("--output", type=_path); train.add_argument("--smoke", action="store_true")
     train.add_argument("--allow-full", action="store_true", help="Explicitly authorize a non-smoke training run")
-    train.add_argument("--allow-incomplete-train", action="store_true", help="Label and allow a non-official local-available training set")
     train.add_argument("--epochs", type=int, default=150); train.add_argument("--imgsz", type=int, default=640); train.add_argument("--batch", type=int, default=16); train.add_argument("--device")
 
     predict = commands.add_parser("predict", help="Phase 1/2 inference and unified COCO export")
     predict.add_argument("--data", type=_path, default=Path("outputs/smoke/dataset")); predict.add_argument("--split", choices=["train", "valid", "test"], default="test")
+    predict.add_argument("--detector", choices=["ultralytics", "yolov5m-compat", "yolov5m-official", "yolov8m", "yolo11m", "rt-detr-v1", "rt-detr-v2", "d-fine"], default="ultralytics")
     predict.add_argument("--weights", type=_path, required=True); predict.add_argument("--output", type=_path, required=True)
-    predict.add_argument("--method", choices=["resize", "uniform-2", "uniform-3", "sliced-nms", "perspective-grid", "sahi", "perspective-bands"], default="resize")
+    predict.add_argument("--method", choices=list(METHOD_REGISTRY), default="resize")
     predict.add_argument("--limit", type=int); predict.add_argument("--imgsz", type=int, default=320); predict.add_argument("--confidence", type=float, default=0.05)
     predict.add_argument("--tile-size", type=int, default=960); predict.add_argument("--overlap", type=float, default=0.2); predict.add_argument("--device")
+    predict.add_argument("--warmup", type=int, default=20); predict.add_argument("--precision", choices=["fp32", "fp16"], default="fp32")
 
     evaluate = commands.add_parser("evaluate", help="Unified COCO/scale/FPPI evaluator")
     evaluate.add_argument("--ground-truth", type=_path, required=True); evaluate.add_argument("--predictions", type=_path, required=True)
@@ -60,6 +63,13 @@ def build_parser() -> argparse.ArgumentParser:
     diagnostic.add_argument("--output", type=_path, default=Path("outputs/phase3"))
 
     commands.add_parser("status", help="Show detector presets and Phase 2 reproduction status")
+
+    check = commands.add_parser("preflight", help="Verify dataset identity, integrity and runtime dependencies")
+    check.add_argument("--data", type=_path, default=Path("HRP4K")); check.add_argument("--output", type=_path)
+    check.add_argument("--weights", type=_path); check.add_argument("--device"); check.add_argument("--require-official", action="store_true")
+
+    run = commands.add_parser("run", help="Run an inference experiment from YAML/JSON config")
+    run.add_argument("--config", type=_path, required=True)
 
     smoke = commands.add_parser("run-smoke", help="Run Phase 0–3 end-to-end smoke pipeline")
     smoke.add_argument("--data", type=_path, default=Path("HRP4K")); smoke.add_argument("--output", type=_path, default=Path("outputs/smoke"))
@@ -81,11 +91,41 @@ def main(argv: list[str] | None = None) -> int:
         weights = args.weights or Path(preset["weights"] if preset else "yolo11m.pt")
         output = args.output or Path("outputs/runs") / (args.preset or Path(weights).stem)
         _print(train_yolo(args.dataset, weights, output, args.smoke, args.epochs, args.imgsz, args.batch, args.device,
-                          args.allow_full, args.allow_incomplete_train, preset))
-    elif args.command == "predict": _print(predict_yolo(args.data, args.split, args.weights, args.output, args.method, args.limit, args.imgsz, args.confidence, args.tile_size, args.overlap, args.device)["summary"])
+                          args.allow_full, preset))
+    elif args.command == "predict":
+        if args.detector in {"yolov5m-official", "rt-detr-v1", "rt-detr-v2", "d-fine"}:
+            location = "yolov5" if args.detector == "yolov5m-official" else "rtdetr" if args.detector.startswith("rt-detr") else "dfine"
+            raise RuntimeError(f"{args.detector} requires its official external runtime; use canonical export contract in external/{location}")
+        if METHOD_REGISTRY[args.method]["status"] == "external-required":
+            raise RuntimeError(f"{args.method} requires its paper-faithful external training/runtime; no heuristic substitute is enabled")
+        _print(predict_yolo(args.data, args.split, args.weights, args.output, args.method, args.limit, args.imgsz,
+                            args.confidence, args.tile_size, args.overlap, args.device, args.warmup, args.detector, args.precision)["summary"])
     elif args.command == "evaluate": _print(evaluate_files(args.ground_truth, args.predictions, args.output, args.confidence))
     elif args.command == "diagnose": _print(diagnose(args.ground_truth, args.predictions, args.output))
-    elif args.command == "status": _print({"baseline_presets": BASELINE_PRESETS, "detectors": DETECTOR_STATUS, "processors": METHOD_STATUS})
+    elif args.command == "status": _print({"baseline_presets": BASELINE_PRESETS, "detectors": DETECTOR_STATUS,
+                                             "methods": METHOD_REGISTRY, "method_summary": METHOD_STATUS})
+    elif args.command == "preflight":
+        result = preflight(args.data, output_dir=args.output, weights=args.weights,
+                           device=args.device, require_official=args.require_official)
+        _print(result)
+        if result["status"] != "pass": return 2
+    elif args.command == "run":
+        try:
+            import yaml
+        except ImportError as exc:
+            raise RuntimeError("Config runner requires PyYAML from the vision dependencies") from exc
+        config = yaml.safe_load(args.config.read_text(encoding="utf-8"))
+        detector = config["detector"]; method = config["method"]; runtime = config.get("runtime", {}); output = config["output"]
+        if detector["name"] in {"yolov5m-official", "rt-detr-v1", "rt-detr-v2", "d-fine"}:
+            raise RuntimeError(f"{detector['name']} requires its official external runtime and canonical export contract")
+        if METHOD_REGISTRY[method["name"]]["status"] == "external-required":
+            raise RuntimeError(f"{method['name']} requires its paper-faithful external training/runtime")
+        _print(predict_yolo(Path(config["dataset"]["root"]), config["dataset"].get("split", "test"),
+                            Path(detector["checkpoint"]), Path(output["predictions"]), method["name"],
+                            runtime.get("limit"), int(detector.get("input_size", 640)), float(detector.get("confidence", 0.05)),
+                            int(method.get("slice_width", method.get("tile_size", 960))), float(method.get("overlap", 0.2)),
+                            detector.get("device"), int(runtime.get("warmup_images", 20)), detector["name"],
+                            runtime.get("precision", "fp32"))["summary"])
     elif args.command == "run-smoke":
         root = args.output; dataset_dir = root / "dataset"
         analyze_dataset(args.data, root / "phase0", quality_samples=4)
@@ -94,7 +134,7 @@ def main(argv: list[str] | None = None) -> int:
         prediction_paths = []
         for method in ("resize", "sliced-nms", "perspective-grid"):
             prediction_path = root / "predictions" / f"{method}.json"
-            predict_yolo(dataset_dir, "test", training["best"], prediction_path, method, args.eval_limit, args.imgsz, 0.01, device=args.device)
+            predict_yolo(dataset_dir, "test", training["best"], prediction_path, method, args.eval_limit, args.imgsz, 0.01, device=args.device, warmup=1)
             metrics_path = prediction_path.with_name(prediction_path.stem + "_metrics.json")
             evaluate_files(dataset_dir / "test.json", prediction_path, metrics_path, 0.25)
             prediction_paths.append(prediction_path)

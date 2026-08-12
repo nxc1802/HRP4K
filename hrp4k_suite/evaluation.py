@@ -10,6 +10,7 @@ from typing import Any
 import numpy as np
 
 from .dataset import SCALE_ORDER, scale_class
+from .predictions import validate_predictions
 
 
 def _xywh_to_xyxy(box):
@@ -57,11 +58,7 @@ def _evaluate_at(gt: dict[str, Any], predictions: list[dict[str, Any]], threshol
 
 
 def evaluate(gt: dict[str, Any], predictions: list[dict[str, Any]], confidence: float = 0.25) -> dict[str, Any]:
-    category_ids = {int(category["id"]) for category in gt.get("categories", [])}
-    prediction_category_ids = {int(prediction["category_id"]) for prediction in predictions}
-    unknown_categories = prediction_category_ids - category_ids
-    if unknown_categories:
-        raise ValueError(f"Prediction category IDs {sorted(unknown_categories)} do not exist in ground truth {sorted(category_ids)}")
+    predictions = validate_predictions(gt, predictions)
     thresholds = np.arange(0.5, 0.96, 0.05)
     evaluations = {f"{t:.2f}": _evaluate_at(gt, predictions, float(t)) for t in thresholds}
     active = [p for p in predictions if float(p.get("score", 0)) >= confidence]
@@ -147,7 +144,7 @@ def match_diagnostics(gt: dict[str, Any], predictions: list[dict[str, Any]], con
 
 def evaluate_files(gt_path: Path, prediction_path: Path, output_path: Path, confidence: float = 0.25):
     gt = json.loads(gt_path.read_text(encoding="utf-8")); raw = json.loads(prediction_path.read_text(encoding="utf-8"))
-    predictions = raw.get("predictions", raw) if isinstance(raw, dict) else raw
+    predictions = validate_predictions(gt, raw.get("predictions", raw) if isinstance(raw, dict) else raw)
     metrics = evaluate(gt, predictions, confidence)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(metrics, indent=2), encoding="utf-8")

@@ -1,0 +1,6 @@
+name: yolo11m
+framework: ultralytics
+checkpoint: outputs/runs/yolo11m/weights/best.pt
+input_size: 640
+confidence: 0.05
+device: cpu

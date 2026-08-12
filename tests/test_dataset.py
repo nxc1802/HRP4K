@@ -4,6 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from hrp4k_suite.dataset import dataset_completeness, prepare_dataset_view
 
@@ -33,6 +34,27 @@ class DatasetTests(unittest.TestCase):
                 (source / f"{split}.json").write_text(json.dumps(payload), encoding="utf-8")
             manifest = prepare_dataset_view(source, output)
             self.assertEqual([manifest["splits"][split]["selected_images"] for split in ("train", "valid", "test")], [3, 2, 1])
+
+    def test_only_unbounded_verified_view_is_official(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); source = root / "source"
+            for split in ("train", "valid", "test"):
+                image_dir = source / split / "images"; image_dir.mkdir(parents=True)
+                (image_dir / "one.jpg").write_bytes(b"image")
+                (source / f"{split}.json").write_text(json.dumps({
+                    "categories": [{"id": 0}], "images": [{"id": 1, "file_name": "one.jpg", "width": 1, "height": 1}],
+                    "annotations": [],
+                }), encoding="utf-8")
+            identity = {"annotation_hash_match": {s: True for s in ("train", "valid", "test")},
+                        "official_dataset_identity": True, "official_training_complete": True,
+                        "official_benchmark_complete": True, "dataset_note": "test"}
+            with patch("hrp4k_suite.dataset.verify_dataset_identity", return_value=identity):
+                official = prepare_dataset_view(source, root / "official")
+                smoke = prepare_dataset_view(source, root / "smoke", 1, 1, 1)
+            self.assertEqual(official["benchmark_label"], "official")
+            self.assertTrue(official["official_dataset_view"])
+            self.assertEqual(smoke["benchmark_label"], "smoke")
+            self.assertFalse(smoke["official_dataset_view"])
 
 
 if __name__ == "__main__":

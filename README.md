@@ -31,7 +31,7 @@ Lệnh này chạy tuần tự:
 3. Phase 2: smoke inference `resize`, `sliced-nms`, `perspective-grid` và export unified COCO JSON.
 4. Phase 3: evaluate + sinh diagnostic report từ prediction đã lưu.
 
-Full training cần cờ xác nhận `--allow-full`. Nếu manifest thiếu bất kỳ phần nào trong 4.203 train image chính thức, lệnh còn yêu cầu `--allow-incomplete-train` và run phải được gọi là **local-available**, không phải official reproduction.
+Full training cần cờ xác nhận `--allow-full` và manifest của single official downloaded release đã khớp ba annotation hash. Bản release hiện thiếu một số file train từ nguồn tải; dự án coi đây là official version duy nhất trong khi liên hệ tác giả để xin archive đầy đủ. Smoke subset vẫn luôn mang nhãn `smoke`.
 
 ## CLI theo phase
 
@@ -47,11 +47,17 @@ venv/bin/python -m hrp4k_suite train --smoke \
   --dataset outputs/smoke/dataset/dataset.yaml \
   --weights yolo11n.pt --output outputs/smoke/runs/yolo11n
 
-# Phase 2 inference: resize | uniform-2 | uniform-3 | sliced-nms | perspective-grid
+# Preflight identity/dependencies
+venv/bin/python -m hrp4k_suite preflight --data HRP4K --require-official
+
+# Phase 2 inference: resize | uniform-2 | uniform-3 | sliced-nms | sahi | perspective-grid
 venv/bin/python -m hrp4k_suite predict \
   --data outputs/smoke/dataset --split test \
   --weights outputs/smoke/runs/yolo11n/weights/best.pt \
   --method sliced-nms --output outputs/smoke/predictions/sliced_nms.json
+
+# Config-driven equivalent
+venv/bin/python -m hrp4k_suite run --config configs/experiments/yolo11m_resize_smoke.yaml
 
 # Unified evaluator
 venv/bin/python -m hrp4k_suite evaluate \
@@ -71,13 +77,15 @@ venv/bin/python -m hrp4k_suite diagnose \
 
 Ba preset medium cho Phase 1 có thể được chọn bằng `--preset yolov5m-compat|yolov8m|yolo11m`. Preset YOLOv5 dùng compatibility checkpoint `yolov5mu.pt` và không được coi là exact reproduction của original YOLOv5 repository. `hrp4k status` hiển thị provenance và trạng thái của toàn bộ sáu baseline.
 
-`prepare-dataset` mặc định chọn toàn bộ ảnh local khả dụng; `prepare-smoke` mới dùng giới hạn 24/12/12. Diagnostics kiểm tra schema và bỏ qua metrics/per-image JSON nếu người dùng vô tình truyền wildcard rộng.
+`prepare-dataset` mặc định chọn toàn bộ ảnh official release khả dụng; `prepare-smoke` mới dùng giới hạn 24/12/12. Evaluator fail-fast với prediction lỗi; diagnostics cũng dùng cùng validator và bỏ qua metrics/per-image JSON nếu người dùng vô tình truyền wildcard rộng.
 
 `hrp4k status` cho biết baseline nào đã được triển khai và learned method nào còn cần reproduction từ official repository.
 
 ## Ranh giới kết quả
 
 - Các file COCO công khai không có metadata city/material trên từng ảnh, nên suite không suy đoán hai trường này.
-- `sliced-nms` là sliced inference tự triển khai với overlap + global NMS, không phải official SAHI hay SAHI sliced fine-tuning. `sahi` chỉ còn là alias tương thích cũ.
+- `sliced-nms` là sliced inference tự triển khai với overlap + global NMS. `sahi` là integration riêng qua optional official library (`pip install -e '.[sahi]'`).
 - `perspective-grid` là geometry baseline thủ công phân bổ nhiều detector crop hơn cho far field, không phải reproduction của learned Two-Plane Prior.
 - AutoFocus, AdaZoom, FOVEA, learned TPP và ZoomDet được giữ trong status matrix nhưng chưa tạo số liệu giả.
+
+Protocol đã freeze nằm tại [METHODS](docs/METHODS.md) và [REPRODUCIBILITY](docs/REPRODUCIBILITY.md). Generic runner lưu schema version, experiment ID, detector/method/runtime provenance, CUDA-synchronized latency và canonical predictions trong mỗi output.

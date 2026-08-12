@@ -33,8 +33,7 @@ def environment_snapshot() -> dict[str, Any]:
 def train_yolo(
     dataset_yaml: Path, weights: Path | str, run_dir: Path, smoke: bool = False,
     epochs: int = 150, image_size: int = 640, batch: int = 16, device: str | None = None,
-    allow_full: bool = False, allow_incomplete_train: bool = False,
-    experiment: dict[str, Any] | None = None,
+    allow_full: bool = False, experiment: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not smoke and not allow_full:
         raise ValueError("Full training requires explicit --allow-full; use --smoke for local verification")
@@ -46,9 +45,9 @@ def train_yolo(
     dataset_yaml = dataset_yaml.resolve()
     manifest_path = dataset_yaml.parent / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else None
-    if not smoke and (not manifest or not manifest.get("official_training_complete")) and not allow_incomplete_train:
+    if not smoke and (not manifest or not manifest.get("official_dataset_identity") or not manifest.get("official_dataset_view")):
         raise ValueError(
-            "Official training requires all 4,203 train images. Pass --allow-incomplete-train only for a clearly labelled local-available run."
+            "Official training requires the verified single official dataset view. Run `hrp4k prepare-dataset` without limits."
         )
     run_dir.mkdir(parents=True, exist_ok=True)
     actual_epochs = min(2, epochs) if smoke else epochs

@@ -9,6 +9,7 @@ import numpy as np
 
 from .dataset import scale_class
 from .processing import METHOD_STATUS
+from .predictions import validate_predictions
 
 
 def _load_predictions(path: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -68,6 +69,7 @@ def diagnose(gt_path: Path, prediction_paths: list[Path], output_dir: Path) -> d
         except (json.JSONDecodeError, OSError, ValueError) as exc:
             ignored_inputs.append({"path": str(path), "reason": str(exc)})
             continue
+        predictions = validate_predictions(gt, predictions)
         method = str(payload.get("method") or path.stem)
         metrics_path = path.with_name(path.stem + "_metrics.json")
         metrics = json.loads(metrics_path.read_text(encoding="utf-8")) if metrics_path.exists() else {}

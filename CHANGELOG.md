@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.0
+
+- Recognize the hash-verified downloaded HRP4K release as the single official dataset version while keeping bounded smoke views explicitly non-benchmark.
+- Add fail-fast canonical prediction validation shared by evaluation and diagnostics.
+- Add CUDA-synchronized timing, configurable warm-up, runtime provenance and richer latency statistics.
+- Route Ultralytics through a framework-agnostic detector runner with versioned experiment manifests and deterministic experiment IDs.
+- Add identity/crop/separable/grid coordinate transforms with round-trip tests.
+- Add structured method registry, optional official SAHI integration, config-driven `run`, and `preflight` CLI commands.
+- Document external contracts for RT-DETR, D-FINE and learned Phase 2 reproductions without claiming unexecuted methods.
+
 ## 0.3.0
 
 - Validate diagnostic input schemas and ignore metrics/per-image JSON accidentally supplied by broad wildcards.

@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+echo "=== [0/6] PREFLIGHT: OFFICIAL RELEASE IDENTITY ==="
+python -m hrp4k_suite preflight --data HRP4K --require-official
+
 echo "=== [1/6] PHASE 0: DATASET INTEGRITY & ANALYSIS ==="
 python -m hrp4k_suite analyze --data HRP4K --output outputs/phase0
 
 echo "=== [2/6] DATASET PREPARATION: FULL AVAILABLE SPLIT ==="
 python -m hrp4k_suite prepare-dataset \
   --data HRP4K \
-  --output outputs/full_dataset \
-  --train-limit 2286 \
-  --valid-limit 900 \
-  --test-limit 900
+  --output outputs/full_dataset
 
-echo "=== [3/6] PHASE 1: LOCAL-AVAILABLE TRAINING (NOT OFFICIAL REPRODUCTION) ==="
+echo "=== [3/6] PHASE 1: VERIFIED OFFICIAL RELEASE TRAINING ==="
 python -m hrp4k_suite train \
   --dataset outputs/full_dataset/dataset.yaml \
   --weights yolo11m.pt \
@@ -20,8 +20,7 @@ python -m hrp4k_suite train \
   --epochs 150 \
   --imgsz 640 \
   --batch 16 \
-  --allow-full \
-  --allow-incomplete-train
+  --allow-full
 
 echo "=== [4/6] PHASE 2: RESOLUTION ALLOCATION INFERENCES ==="
 mkdir -p outputs/predictions
