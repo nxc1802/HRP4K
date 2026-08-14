@@ -1,0 +1,6 @@
+method:
+  name: perspective-grid
+  parameters:
+    boundaries: [0.0, 0.45, 0.72, 1.0]
+    columns_by_band: [4, 3, 2]
+    overlap: 0.2

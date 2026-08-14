@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.0 (Upgrade 3.0)
+
+- Modernize repository to `src/` layout with `src/hrp4k/` and clean backward-compatibility shim `src/hrp4k_suite/`.
+- Introduce 5 core first-class abstractions: Config, Experiment, Artifact, Phase, and Scientific Contract.
+- Implement modular YAML composition subsystem (`base.yaml` + `detectors/` + `methods/` + `profiles/` + CLI overrides → `resolved_config.yaml`).
+- Add `hrp4k config show`, `hrp4k config validate`, and `hrp4k experiment id` CLI commands.
+- Decompose monolithic `dataset.py`, `processing.py`, and `runner.py` into dedicated sub-packages (`data/`, `detectors/`, `methods/`, `inference/`, `evaluation/`, `phases/`, `diagnostics/`, `protocol/`, `infra/`).
+- Implement 4-tier test architecture (`tests/unit/`, `tests/contracts/`, `tests/scientific/`, `tests/integration/`) with 37 automated tests passing.
+- Reorganize `docs/` into 5 structured categories (`paper/`, `architecture/`, `phases/`, `methodology/`, `guides/`) with a Master Documentation Hub.
+- Update `pyproject.toml` with `src` package discovery, dev dependencies, and pytest configuration.
+
 ## 0.4.0
 
 - Recognize the hash-verified downloaded HRP4K release as the single official dataset version while keeping bounded smoke views explicitly non-benchmark.

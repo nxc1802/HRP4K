@@ -1,22 +1,22 @@
 # HRP4K Benchmark & Analysis Suite
 
-CLI tái lập pipeline Phase 0–3 cho HRP4K. Repository ưu tiên dữ liệu thật, official split và unified COCO prediction; không tự động split lại hay coi smoke result là benchmark khoa học.
+CLI tái lập pipeline Phase 0–3 cho HRP4K (v0.5.0 - Architecture Upgrade 3.0). Repository ưu tiên dữ liệu thật, official split và unified COCO prediction; không tự động split lại hay coi smoke result là benchmark khoa học.
 
 ## Cài đặt
 
 ```bash
-python -m venv .venv
-.venv/bin/pip install -e '.[vision]'
+python -m venv venv
+venv/bin/pip install -e '.[vision,sahi,dev]'
 ```
 
-Môi trường smoke đã xác minh được pin tại `requirements/benchmark-lock.txt`. Mỗi run còn lưu toàn bộ `pip freeze`, phiên bản Torch/CUDA/Ultralytics, Git commit và dataset manifest/hash trong thư mục run.
+Môi trường smoke đã xác minh được pin tại `requirements/benchmark-lock.txt`. Mỗi run lưu toàn bộ `pip freeze`, phiên bản Torch/CUDA/Ultralytics, Git commit và dataset manifest/hash trong thư mục run.
 
-Trong workspace hiện tại có thể dùng trực tiếp `venv/bin/python -m hrp4k_suite`.
+Trong workspace hiện tại có thể dùng trực tiếp binary `venv/bin/hrp4k` hoặc module `venv/bin/python -m hrp4k` (hỗ trợ tương thích ngược `hrp4k_suite`).
 
 ## Chạy nhanh toàn pipeline
 
 ```bash
-venv/bin/python -m hrp4k_suite run-smoke \
+venv/bin/hrp4k run-smoke \
   --data HRP4K \
   --weights yolo11n.pt \
   --train-limit 24 \
@@ -33,40 +33,53 @@ Lệnh này chạy tuần tự:
 
 Full training cần cờ xác nhận `--allow-full` và manifest của single official downloaded release đã khớp ba annotation hash. Bản release hiện thiếu một số file train từ nguồn tải; dự án coi đây là official version duy nhất trong khi liên hệ tác giả để xin archive đầy đủ. Smoke subset vẫn luôn mang nhãn `smoke`.
 
+## Modular Configuration (Upgrade 3.0)
+
+```bash
+# Xem cấu hình hợp nhất (base + detector + method + profile)
+venv/bin/hrp4k config show --detector yolo11m --method sliced_nms --profile smoke
+
+# Kiểm tra hợp lệ trước khi khởi tạo GPU
+venv/bin/hrp4k config validate --detector yolo11m --method sliced_nms --profile smoke
+
+# Tính experiment ID bất biến
+venv/bin/hrp4k experiment id --config configs/base.yaml
+```
+
 ## CLI theo phase
 
 ```bash
 # Phase 0
-venv/bin/python -m hrp4k_suite analyze --data HRP4K --output outputs/phase0
+venv/bin/hrp4k analyze --data HRP4K --output outputs/phase0
 
 # Chuẩn bị subset deterministic, giữ official split
-venv/bin/python -m hrp4k_suite prepare-smoke --data HRP4K --output outputs/smoke/dataset
+venv/bin/hrp4k prepare-smoke --data HRP4K --output outputs/smoke/dataset
 
 # Phase 1 smoke training
-venv/bin/python -m hrp4k_suite train --smoke \
+venv/bin/hrp4k train --smoke \
   --dataset outputs/smoke/dataset/dataset.yaml \
   --weights yolo11n.pt --output outputs/smoke/runs/yolo11n
 
 # Preflight identity/dependencies
-venv/bin/python -m hrp4k_suite preflight --data HRP4K --require-official
+venv/bin/hrp4k preflight --data HRP4K --require-official
 
 # Phase 2 inference: resize | uniform-2 | uniform-3 | sliced-nms | sahi | perspective-grid
-venv/bin/python -m hrp4k_suite predict \
+venv/bin/hrp4k predict \
   --data outputs/smoke/dataset --split test \
   --weights outputs/smoke/runs/yolo11n/weights/best.pt \
   --method sliced-nms --output outputs/smoke/predictions/sliced_nms.json
 
 # Config-driven equivalent
-venv/bin/python -m hrp4k_suite run --config configs/experiments/yolo11m_resize_smoke.yaml
+venv/bin/hrp4k run --config configs/experiments/yolo11m_resize_smoke.yaml
 
 # Unified evaluator
-venv/bin/python -m hrp4k_suite evaluate \
+venv/bin/hrp4k evaluate \
   --ground-truth outputs/smoke/dataset/test.json \
   --predictions outputs/smoke/predictions/sliced_nms.json \
   --output outputs/smoke/predictions/sliced_nms_metrics.json
 
 # Phase 3: không inference lại
-venv/bin/python -m hrp4k_suite diagnose \
+venv/bin/hrp4k diagnose \
   --ground-truth outputs/smoke/dataset/test.json \
   --predictions \
     outputs/smoke/predictions/resize.json \
@@ -88,4 +101,4 @@ Ba preset medium cho Phase 1 có thể được chọn bằng `--preset yolov5m-
 - `perspective-grid` là geometry baseline thủ công phân bổ nhiều detector crop hơn cho far field, không phải reproduction của learned Two-Plane Prior.
 - AutoFocus, AdaZoom, FOVEA, learned TPP và ZoomDet được giữ trong status matrix nhưng chưa tạo số liệu giả.
 
-Protocol đã freeze nằm tại [METHODS](docs/METHODS.md) và [REPRODUCIBILITY](docs/REPRODUCIBILITY.md). Generic runner lưu schema version, experiment ID, detector/method/runtime provenance, CUDA-synchronized latency và canonical predictions trong mỗi output.
+Protocol đã freeze nằm tại [METHODS](docs/methodology/methods.md) và [REPRODUCIBILITY](docs/architecture/reproducibility.md). Toàn bộ hệ thống tài liệu được tổ chức tại [docs/](docs/README.md). Generic runner lưu schema version, experiment ID, detector/method/runtime provenance, CUDA-synchronized latency và canonical predictions trong mỗi output.

@@ -1,0 +1,40 @@
+# HRP4K base configuration defaults
+schema_version: "hrp4k.config.v1"
+
+experiment:
+  seed: 42
+
+dataset:
+  root: HRP4K
+  split: test
+
+detector:
+  name: ultralytics
+  framework: ultralytics
+  input_size: 640
+  confidence: 0.05
+
+method:
+  name: resize
+  parameters: {}
+
+runtime:
+  precision: fp32
+  warmup: 20
+  batch_size: 1
+  deterministic: true
+
+training:
+  epochs: 150
+  image_size: 640
+  batch: 16
+  seed: 42
+
+evaluation:
+  coco: true
+  fppi: true
+  scale_metrics: true
+  confidence_threshold: 0.25
+
+output:
+  root: outputs

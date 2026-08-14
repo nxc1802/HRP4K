@@ -1,0 +1,5 @@
+detector:
+  name: dfine
+  framework: official external
+  input_size: 640
+  confidence: 0.05

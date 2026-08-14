@@ -1,0 +1,5 @@
+method:
+  name: sliced-nms
+  parameters:
+    tile_size: 960
+    overlap: 0.2

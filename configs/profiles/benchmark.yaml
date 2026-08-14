@@ -1,0 +1,12 @@
+# Benchmark profile: strict official dataset, full 150 epoch training
+experiment:
+  profile: benchmark
+
+runtime:
+  warmup: 20
+
+training:
+  epochs: 150
+  image_size: 640
+  batch: 16
+  allow_full: true

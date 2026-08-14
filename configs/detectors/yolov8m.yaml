@@ -1,0 +1,6 @@
+detector:
+  name: yolov8m
+  framework: ultralytics
+  checkpoint: yolov8m.pt
+  input_size: 640
+  confidence: 0.05

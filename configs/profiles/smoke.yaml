@@ -1,0 +1,13 @@
+# Smoke profile: fast local verification, never a scientific result
+experiment:
+  profile: smoke
+
+runtime:
+  warmup: 1
+  limit: 8
+
+training:
+  epochs: 1
+  image_size: 320
+  batch: 4
+  smoke: true

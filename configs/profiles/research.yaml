@@ -1,0 +1,11 @@
+# Research profile: full local available dataset, moderate training
+experiment:
+  profile: research
+
+runtime:
+  warmup: 20
+
+training:
+  epochs: 50
+  image_size: 640
+  batch: 16
