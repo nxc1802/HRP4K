@@ -37,9 +37,33 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
 
 
 def _build_section(cls, raw: dict[str, Any]):
-    """Instantiate a dataclass from a dict, ignoring unknown fields."""
+    """Instantiate a dataclass from a dict, failing fast on unknown fields."""
     valid = {f.name for f in fields(cls)}
-    return cls(**{k: v for k, v in raw.items() if k in valid})
+    unknown = set(raw) - valid
+    if unknown:
+        raise ValueError(f"Unknown fields in {cls.__name__}: {sorted(unknown)}")
+    return cls(**raw)
+
+
+def _find_layer_file(dir_path: Path, name: str) -> Path | None:
+    candidates = [
+        dir_path / f"{name}.yaml",
+        dir_path / f"{name.replace('-', '_')}.yaml",
+        dir_path / f"{name.replace('_', '-')}.yaml",
+    ]
+    for p in candidates:
+        if p.is_file():
+            return p
+    return None
+
+
+def _load_layer(path: Path, section_name: str | None = None) -> dict[str, Any]:
+    data = load_yaml(path)
+    if not isinstance(data, dict):
+        return {}
+    if section_name and section_name not in data and not any(k in _SECTION_CLASSES for k in data):
+        return {section_name: data}
+    return data
 
 
 def resolve(
@@ -62,29 +86,29 @@ def resolve(
     # Base defaults
     base_path = root / "base.yaml"
     if base_path.is_file():
-        layers.append(load_yaml(base_path))
+        layers.append(_load_layer(base_path))
 
     # Detector layer
     if detector:
-        detector_path = root / "detectors" / f"{detector}.yaml"
-        if detector_path.is_file():
-            layers.append(load_yaml(detector_path))
+        det_file = _find_layer_file(root / "detectors", detector)
+        if det_file:
+            layers.append(_load_layer(det_file, "detector"))
 
     # Method layer
     if method:
-        method_path = root / "methods" / f"{method}.yaml"
-        if method_path.is_file():
-            layers.append(load_yaml(method_path))
+        meth_file = _find_layer_file(root / "methods", method)
+        if meth_file:
+            layers.append(_load_layer(meth_file, "method"))
 
     # Profile layer
     if profile:
-        profile_path = root / "profiles" / f"{profile}.yaml"
-        if profile_path.is_file():
-            layers.append(load_yaml(profile_path))
+        prof_file = _find_layer_file(root / "profiles", profile)
+        if prof_file:
+            layers.append(_load_layer(prof_file))
 
     # Experiment file (full config)
     if config_path:
-        layers.append(load_yaml(config_path))
+        layers.append(_load_layer(config_path))
 
     # CLI / programmatic overrides
     if overrides:

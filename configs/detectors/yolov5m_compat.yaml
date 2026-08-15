@@ -1,6 +1,6 @@
 detector:
-  name: yolo11m
+  name: yolov5m-compat
   framework: ultralytics
-  checkpoint: yolo11m.pt
+  checkpoint: yolov5mu.pt
   input_size: 640
   confidence: 0.05

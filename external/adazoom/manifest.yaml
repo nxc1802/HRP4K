@@ -1,0 +1,7 @@
+name: adazoom
+method_type: adaptive-crop
+upstream_repo: "tjiiv-cprg/AdaZoom"
+upstream_commit: "master"
+status: external-required
+adaptation:
+  policy_gradient_zoom: true

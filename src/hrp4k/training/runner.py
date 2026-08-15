@@ -10,7 +10,7 @@ from ..infra.environment import environment_snapshot
 def train_yolo(
     dataset_yaml: Path, weights: Path | str, run_dir: Path, smoke: bool = False,
     epochs: int = 150, image_size: int = 640, batch: int = 16, device: str | None = None,
-    allow_full: bool = False, experiment: dict[str, Any] | None = None,
+    allow_full: bool = False, experiment: dict[str, Any] | None = None, seed: int = 42,
 ) -> dict[str, Any]:
     if not smoke and not allow_full:
         raise ValueError("Full training requires explicit --allow-full; use --smoke for local verification")
@@ -33,7 +33,7 @@ def train_yolo(
         "dataset": str(dataset_yaml.resolve()), "weights": str(weights), "smoke": smoke,
         "epochs": actual_epochs, "image_size": actual_imgsz, "batch": batch,
         "amp": True, "optimizer": "SGD", "lr0": 0.01, "lrf": 0.01, "momentum": 0.937, "weight_decay": 0.0005,
-        "warmup_epochs": 3.0, "mosaic": 1.0, "mixup": 0.0, "fliplr": 0.5, "device": device, "seed": 42,
+        "warmup_epochs": 3.0, "mosaic": 1.0, "mixup": 0.0, "fliplr": 0.5, "device": device, "seed": seed,
         "dataset_manifest": manifest, "benchmark_label": "smoke" if smoke else (manifest or {}).get("benchmark_label", "unverified"),
         "experiment": experiment,
     }
@@ -46,7 +46,7 @@ def train_yolo(
         warmup_epochs=3.0, warmup_momentum=0.8, warmup_bias_lr=0.1,
         mosaic=1.0, mixup=0.0, degrees=0.0, translate=0.1, scale=0.5,
         hsv_h=0.015, hsv_s=0.7, hsv_v=0.4, fliplr=0.5,
-        seed=42, deterministic=True, workers=0 if smoke else 8, cache=False, plots=not smoke,
+        seed=seed, deterministic=True, workers=0 if smoke else 8, cache=False, plots=not smoke,
         project=str(run_dir.parent), name=run_dir.name, exist_ok=True, device=device, verbose=True,
     )
     best = run_dir / "weights" / "best.pt"; last = run_dir / "weights" / "last.pt"

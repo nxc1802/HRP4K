@@ -108,14 +108,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     config_show = config_sub.add_parser("show", help="Show resolved configuration")
     config_show.add_argument("--config", type=_path)
-    config_show.add_argument("--detector", choices=["yolov5m", "yolov8m", "yolo11m", "rtdetr", "dfine"])
-    config_show.add_argument("--method", choices=["resize", "sliced_nms", "sahi", "perspective_grid", "learned_tpp"])
+    config_show.add_argument("--detector", choices=["yolov5m", "yolov5m_compat", "yolov5m_official", "yolov8m", "yolo11m", "rt_detr_v1", "rt_detr_v2", "rtdetr", "d_fine", "dfine"])
+    config_show.add_argument("--method", choices=["resize", "sliced_nms", "sliced-nms", "sahi", "perspective_grid", "perspective-grid", "learned_tpp", "two-plane-prior"])
     config_show.add_argument("--profile", choices=["smoke", "research", "benchmark"])
 
     config_val = config_sub.add_parser("validate", help="Validate configuration before execution")
     config_val.add_argument("--config", type=_path)
-    config_val.add_argument("--detector", choices=["yolov5m", "yolov8m", "yolo11m", "rtdetr", "dfine"])
-    config_val.add_argument("--method", choices=["resize", "sliced_nms", "sahi", "perspective_grid", "learned_tpp"])
+    config_val.add_argument("--detector", choices=["yolov5m", "yolov5m_compat", "yolov5m_official", "yolov8m", "yolo11m", "rt_detr_v1", "rt_detr_v2", "rtdetr", "d_fine", "dfine"])
+    config_val.add_argument("--method", choices=["resize", "sliced_nms", "sliced-nms", "sahi", "perspective_grid", "perspective-grid", "learned_tpp", "two-plane-prior"])
     config_val.add_argument("--profile", choices=["smoke", "research", "benchmark"])
 
     # Experiment Subcommand
@@ -189,28 +189,29 @@ def main(argv: list[str] | None = None) -> int:
             resolved = resolve(config_path=args.config)
             _print({"experiment_id": experiment_id(to_dict(resolved))})
     elif args.command == "run":
-        try:
-            import yaml
-        except ImportError as exc:
-            raise RuntimeError("Config runner requires PyYAML from the vision dependencies") from exc
-        config = yaml.safe_load(args.config.read_text(encoding="utf-8"))
-        detector = config["detector"]
-        method = config["method"]
-        runtime = config.get("runtime", {})
-        output = config["output"]
-        if detector["name"] in {"yolov5m-official", "rt-detr-v1", "rt-detr-v2", "d-fine"}:
-            raise RuntimeError(f"{detector['name']} requires its official external runtime and canonical export contract")
-        if METHOD_REGISTRY[method["name"]]["status"] == "external-required":
-            raise RuntimeError(f"{method['name']} requires its paper-faithful external training/runtime")
+        resolved = resolve(config_path=args.config)
+        errors = validate(resolved)
+        if errors:
+            raise ValueError(f"Invalid configuration:\n" + "\n".join(errors))
+        detector = resolved.detector
+        method = resolved.method
+        runtime = resolved.runtime
+        output = resolved.output
+        if detector.name in {"yolov5m-official", "rt-detr-v1", "rt-detr-v2", "d-fine"}:
+            raise RuntimeError(f"{detector.name} requires its official external runtime and canonical export contract")
+        if method.name in METHOD_REGISTRY and METHOD_REGISTRY[method.name]["status"] == "external-required":
+            raise RuntimeError(f"{method.name} requires its paper-faithful external training/runtime")
+        if not output.predictions:
+            raise ValueError("output.predictions must be specified in the configuration")
         _print(run_phase_2(
-            data_dir=Path(config["dataset"]["root"]), split=config["dataset"].get("split", "test"),
-            weights=Path(detector["checkpoint"]), output_path=Path(output["predictions"]),
-            method=method["name"], limit=runtime.get("limit"), image_size=int(detector.get("input_size", 640)),
-            confidence=float(detector.get("confidence", 0.05)),
-            tile_size=int(method.get("slice_width", method.get("tile_size", 960))),
-            overlap=float(method.get("overlap", 0.2)), device=detector.get("device"),
-            warmup=int(runtime.get("warmup_images", 20)), detector_name=detector["name"],
-            precision=runtime.get("precision", "fp32"),
+            data_dir=Path(resolved.dataset.root), split=resolved.dataset.split,
+            weights=Path(detector.checkpoint), output_path=Path(output.predictions),
+            method=method.name, limit=runtime.limit, image_size=int(detector.input_size),
+            confidence=float(detector.confidence),
+            tile_size=method.tile_size,
+            overlap=method.overlap, device=runtime.device or detector.device,
+            warmup=runtime.warmup, detector_name=detector.name,
+            precision=runtime.precision,
         )["summary"])
     elif args.command == "run-smoke":
         _print(run_smoke_pipeline(

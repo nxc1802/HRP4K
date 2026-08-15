@@ -49,5 +49,39 @@ class TestConfigContract(unittest.TestCase):
         self.assertEqual(len(id1), 12)
 
 
+    def test_unknown_fields_raise_error(self):
+        with self.assertRaises(ValueError) as ctx:
+            resolve(overrides={"runtime": {"invalid_field_xyz": 123}})
+        self.assertIn("invalid_field_xyz", str(ctx.exception))
+
+    def test_nested_method_parameters(self):
+        config = resolve(overrides={
+            "method": {
+                "name": "sliced-nms",
+                "parameters": {
+                    "tile_size": 1280,
+                    "overlap": 0.25,
+                }
+            }
+        })
+        self.assertEqual(config.method.name, "sliced-nms")
+        self.assertEqual(config.method.tile_size, 1280)
+        self.assertEqual(config.method.overlap, 0.25)
+
+    def test_experiment_yaml_resolution(self):
+        exp_path = Path(__file__).resolve().parents[2] / "configs" / "experiments" / "yolo11m_resize_smoke.yaml"
+        config = resolve(config_path=exp_path)
+        errors = validate(config)
+        self.assertEqual(errors, [])
+        self.assertEqual(config.experiment.experiment_name, "yolo11m_resize_smoke")
+        self.assertEqual(config.runtime.limit, 2)
+        self.assertEqual(config.runtime.warmup, 1)
+
+    def test_canonical_detectors_resolve(self):
+        for det in ("yolo11m", "yolov8m", "yolov5m", "yolov5m_compat", "yolov5m_official", "rt_detr_v1", "rt_detr_v2", "d_fine"):
+            cfg = resolve(detector=det)
+            self.assertTrue(bool(cfg.detector.name))
+
+
 if __name__ == "__main__":
     unittest.main()

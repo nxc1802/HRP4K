@@ -1,0 +1,13 @@
+name: fovea
+method_type: nonlinear-warp
+upstream_repo: "tchittesh/fovea"
+upstream_commit: "main"
+status: external-required
+environment:
+  python_version: "3.8.5"
+  torch: "1.6.0"
+  mmdet: "2.7.0"
+adaptation:
+  prior_type: "spatial-train-set"
+  warp_type: "separable-1d"
+  input_canvas: [640, 640]

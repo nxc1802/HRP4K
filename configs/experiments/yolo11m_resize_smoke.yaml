@@ -1,19 +1,26 @@
 experiment:
-  name: yolo11m_resize_smoke
+  experiment_name: yolo11m_resize_smoke
+  profile: smoke
+
 dataset:
-  root: outputs/full_dataset
+  root: HRP4K
   split: test
+
 detector:
   name: yolo11m
   checkpoint: outputs/runs/yolo11m_full/weights/best.pt
   input_size: 320
   confidence: 0.01
-  device: cpu
+
 method:
   name: resize
+  parameters: {}
+
 runtime:
-  warmup_images: 1
+  device: cpu
+  warmup: 1
   precision: fp32
   limit: 2
+
 output:
   predictions: outputs/config_smoke/yolo11m_resize.json

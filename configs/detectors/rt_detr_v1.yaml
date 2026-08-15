@@ -1,6 +1,6 @@
 detector:
-  name: rt-detr-v2
+  name: rt-detr-v1
   framework: official external
-  checkpoint: rtdetrv2_r50vd_6x_coco.pth
+  checkpoint: rtdetr_r50vd_6x_coco.pth
   input_size: 640
   confidence: 0.05

@@ -23,6 +23,7 @@ class DetectorConfig:
     checkpoint_hash: str | None = None
     input_size: int = 640
     confidence: float = 0.05
+    device: str | None = None
 
 
 @dataclass
@@ -44,9 +45,14 @@ class RuntimeConfig:
     device: str | None = None
     precision: str = "fp32"
     warmup: int = 20
+    warmup_images: int | None = None
     batch_size: int = 1
     deterministic: bool = True
     limit: int | None = None
+
+    def __post_init__(self):
+        if self.warmup_images is not None:
+            self.warmup = self.warmup_images
 
 
 @dataclass
@@ -79,8 +85,15 @@ class OutputConfig:
 class ExperimentConfig:
     study_id: str | None = None
     experiment_name: str | None = None
+    name: str | None = None
     seed: int = 42
     profile: str = "smoke"
+
+    def __post_init__(self):
+        if self.experiment_name is None and self.name is not None:
+            self.experiment_name = self.name
+        elif self.name is None and self.experiment_name is not None:
+            self.name = self.experiment_name
 
 
 @dataclass

@@ -1,0 +1,10 @@
+name: d-fine
+framework: official external
+upstream_repo: "Peterande/D-FINE"
+upstream_commit: "master"
+status: external-required
+model:
+  config: "dfine_m_coco.yaml"
+  weights: "dfine_m_coco.pth"
+  image_size: 640
+  confidence: 0.05

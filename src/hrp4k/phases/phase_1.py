@@ -11,7 +11,7 @@ def run_phase_1(
     dataset_yaml: Path, weights: Path | str | None, output_dir: Path | None,
     smoke: bool = False, epochs: int = 150, image_size: int = 640,
     batch: int = 16, device: str | None = None, allow_full: bool = False,
-    preset: str | None = None,
+    preset: str | None = None, seed: int = 42,
 ) -> dict[str, Any]:
     """Execute Phase 1 baseline detector training with safeguards."""
     preset_dict = get_baseline_preset(preset) if preset else None
@@ -20,5 +20,5 @@ def run_phase_1(
     return train_yolo(
         dataset_yaml=dataset_yaml, weights=resolved_weights, run_dir=resolved_output,
         smoke=smoke, epochs=epochs, image_size=image_size, batch=batch,
-        device=device, allow_full=allow_full, experiment=preset_dict,
+        device=device, allow_full=allow_full, experiment=preset_dict, seed=seed,
     )

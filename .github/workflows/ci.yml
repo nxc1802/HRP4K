@@ -28,7 +28,7 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -e '.[evaluation]'
-      - run: python -m unittest tests.test_coco_integration -v
+      - run: python -m unittest tests.integration.test_coco_integration -v
         env:
           HRP4K_REQUIRE_PYCOCOTOOLS: "1"
 
@@ -41,4 +41,4 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -e . opencv-python-headless
-      - run: python -m unittest tests.test_runner tests.test_transforms -v
+      - run: python -m unittest tests.contracts.test_runner tests.unit.test_transforms -v

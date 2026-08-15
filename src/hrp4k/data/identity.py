@@ -32,6 +32,12 @@ def verify_dataset_identity(
     return {
         "annotation_hash_match": matches,
         "official_dataset_identity": identity,
+        "official_release_identity": identity,
+        "official_release_scope": "available-upstream-release",
+        "release_file_completeness": "partial",
+        "known_missing_train_images": 1917,
+        "benchmark_label": "official" if identity else "unverified",
+        "upstream_limitation": True,
         "official_training_complete": identity,
         "official_benchmark_complete": identity,
         "dataset_note": OFFICIAL_DATASET_NOTE,

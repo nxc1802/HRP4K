@@ -16,6 +16,13 @@ def _available(module: str) -> bool:
     return importlib.util.find_spec(module) is not None
 
 
+def _external_ready(name: str) -> bool:
+    external_dir = Path(__file__).resolve().parents[3] / "external" / name
+    if (external_dir / "manifest.yaml").is_file() and (external_dir / "run.py").is_file():
+        return True
+    return _available(name)
+
+
 def preflight(
     data_dir: Path, *, output_dir: Path | None = None, weights: Path | None = None,
     device: str | None = None, require_official: bool = False,
@@ -63,6 +70,6 @@ def preflight(
         "status": "pass" if not errors else "fail", "dataset": "pass" if not errors else "fail",
         **identity, "cuda": cuda, "pycocotools": _available("pycocotools"),
         "ultralytics": _available("ultralytics"), "sahi": _available("sahi"),
-        "rtdetr": _available("src") or _available("rtdetr"), "dfine": _available("dfine"),
+        "rtdetr": _external_ready("rtdetr"), "dfine": _external_ready("dfine"),
         "disk_free_gb": disk_free_gb, "integrity": integrity, "errors": errors, "warnings": warnings,
     }

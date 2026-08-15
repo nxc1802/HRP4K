@@ -1,6 +1,6 @@
 detector:
-  name: rt-detr-v2
+  name: yolov5m-official
   framework: official external
-  checkpoint: rtdetrv2_r50vd_6x_coco.pth
+  checkpoint: yolov5m.pt
   input_size: 640
   confidence: 0.05
