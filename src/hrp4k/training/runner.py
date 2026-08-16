@@ -51,6 +51,27 @@ def train_yolo(
         project=str(run_dir.parent), name=run_dir.name, exist_ok=True, device=device, verbose=True,
     )
     best = run_dir / "weights" / "best.pt"; last = run_dir / "weights" / "last.pt"
-    metrics = getattr(result, "results_dict", {})
-    return {"run_dir": str(run_dir), "best": str(best if best.exists() else last),
-            "metrics": {str(key): float(value) for key, value in metrics.items()}}
+    eval_model_path = best if best.exists() else last
+    val_metrics = {str(key): float(value) for key, value in getattr(result, "results_dict", {}).items()}
+    (run_dir / "val_metrics.json").write_text(json.dumps(val_metrics, indent=2), encoding="utf-8")
+
+    test_metrics: dict[str, Any] = {}
+    if eval_model_path.exists():
+        try:
+            eval_model = YOLO(str(eval_model_path))
+            test_res = eval_model.val(
+                data=str(dataset_yaml), split="test", imgsz=actual_imgsz, batch=batch,
+                device=device, plots=not smoke, verbose=True,
+            )
+            test_metrics = {str(key): float(value) for key, value in getattr(test_res, "results_dict", {}).items()}
+            (run_dir / "test_metrics.json").write_text(json.dumps(test_metrics, indent=2), encoding="utf-8")
+        except Exception as exc:
+            test_metrics = {"error": str(exc)}
+
+    return {
+        "run_dir": str(run_dir),
+        "best": str(eval_model_path),
+        "val_metrics": val_metrics,
+        "test_metrics": test_metrics,
+        "metrics": val_metrics,
+    }
