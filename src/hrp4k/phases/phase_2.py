@@ -34,7 +34,7 @@ def run_phase_2(
     if detector_name in {"d-fine", "dfine"}:
         raise RuntimeError(f"{detector_name} requires its official external runtime; use canonical export contract in external/dfine")
     
-    resolved_imgsz = 3840 if str(image_size).strip().lower() in {"original", "4k", "native"} else image_size
+    resolved_imgsz = (2176, 3840) if str(image_size).strip().lower() in {"original", "4k", "native"} else image_size
 
     if method == "all":
         results = []

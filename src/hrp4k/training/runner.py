@@ -26,13 +26,18 @@ def train_yolo(
         raise ValueError(
             "Official training requires the verified single official dataset view. Run `hrp4k prepare-dataset` without limits."
         )
+    import os
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
     run_dir.mkdir(parents=True, exist_ok=True)
     actual_epochs = min(2, epochs) if smoke else epochs
-    resolved_imgsz = 3840 if str(image_size).strip().lower() in {"original", "4k", "native"} else image_size
-    actual_imgsz = min(640, resolved_imgsz) if (smoke and isinstance(resolved_imgsz, int)) else resolved_imgsz
+    resolved_imgsz = (2176, 3840) if str(image_size).strip().lower() in {"original", "4k", "native"} else image_size
+    actual_imgsz = min(640, resolved_imgsz) if (smoke and isinstance(resolved_imgsz, int)) else (
+        (320, 640) if (smoke and isinstance(resolved_imgsz, (tuple, list))) else resolved_imgsz
+    )
+    is_rect = isinstance(actual_imgsz, (tuple, list)) or (isinstance(actual_imgsz, int) and actual_imgsz >= 1280)
     config = {
         "dataset": str(dataset_yaml.resolve()), "weights": str(weights), "smoke": smoke,
-        "epochs": actual_epochs, "image_size": actual_imgsz, "batch": batch,
+        "epochs": actual_epochs, "image_size": actual_imgsz, "batch": batch, "rect": is_rect,
         "amp": True, "optimizer": "SGD", "lr0": 0.01, "lrf": 0.01, "momentum": 0.937, "weight_decay": 0.0005,
         "warmup_epochs": 3.0, "mosaic": 1.0, "mixup": 0.0, "fliplr": 0.5, "device": device, "seed": seed,
         "dataset_manifest": manifest, "benchmark_label": "smoke" if smoke else (manifest or {}).get("benchmark_label", "unverified"),
@@ -43,11 +48,11 @@ def train_yolo(
     model = YOLO(str(weights))
     result = model.train(
         data=str(dataset_yaml), epochs=actual_epochs, imgsz=actual_imgsz, batch=batch,
-        amp=True, optimizer="SGD", lr0=0.01, lrf=0.01, momentum=0.937, weight_decay=0.0005,
+        rect=is_rect, amp=True, optimizer="SGD", lr0=0.01, lrf=0.01, momentum=0.937, weight_decay=0.0005,
         warmup_epochs=3.0, warmup_momentum=0.8, warmup_bias_lr=0.1,
         mosaic=1.0, mixup=0.0, degrees=0.0, translate=0.1, scale=0.5,
         hsv_h=0.015, hsv_s=0.7, hsv_v=0.4, fliplr=0.5,
-        seed=seed, deterministic=True, workers=0 if smoke else 8, cache=False, plots=not smoke,
+        seed=seed, deterministic=True, workers=0 if smoke else 2, cache=False, plots=not smoke,
         project=str(run_dir.parent), name=run_dir.name, exist_ok=True, device=device, verbose=True,
     )
     best = run_dir / "weights" / "best.pt"; last = run_dir / "weights" / "last.pt"

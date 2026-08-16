@@ -33,7 +33,7 @@ def _print(payload: Any) -> None:
 def parse_imgsz(value: Any) -> int | tuple[int, int]:
     val = str(value).strip().lower()
     if val in {"original", "4k", "native"}:
-        return 3840  # Native 4K UHD max dimension (3840x2160)
+        return (2176, 3840)  # Native 4K UHD 16:9 ratio (2160 rounded to stride 32 = 2176, 3840)
     if "," in val:
         parts = [int(p.strip()) for p in val.split(",")]
         return (parts[0], parts[1])

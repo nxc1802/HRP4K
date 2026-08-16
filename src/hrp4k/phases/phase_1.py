@@ -32,7 +32,7 @@ def run_phase_1(
 ) -> dict[str, Any]:
     """Execute Phase 1 baseline detector training with single-model or all-models support."""
     target_preset = preset or ("all" if weights == "all" else None)
-    resolved_imgsz = 3840 if str(image_size).strip().lower() in {"original", "4k", "native"} else image_size
+    resolved_imgsz = (2176, 3840) if str(image_size).strip().lower() in {"original", "4k", "native"} else image_size
     
     if target_preset == "all":
         base_output = output_dir or Path("outputs/phase1_runs")
