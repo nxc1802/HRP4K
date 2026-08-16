@@ -52,6 +52,15 @@ def build_parser() -> argparse.ArgumentParser:
     setup = commands.add_parser("setup-data", help="Auto-link dataset from Kaggle input or download from Hugging Face")
     setup.add_argument("--data", type=_path, default=Path("HRP4K"))
 
+    # Push to Hugging Face
+    for cmd_name in ("push-hf", "upload-hf"):
+        push_hf = commands.add_parser(cmd_name, help="Push checkpoints and evaluation outputs to Hugging Face Hub")
+        push_hf.add_argument("--token", required=True, help="Hugging Face write access token")
+        push_hf.add_argument("--repo", default="Cuong2004/HRP4K", help="Target Hugging Face repository ID (default: Cuong2004/HRP4K)")
+        push_hf.add_argument("--path", type=_path, default=Path("outputs"), help="Local directory or file path to upload (default: outputs)")
+        push_hf.add_argument("--repo-type", choices=["dataset", "model", "space"], default="dataset", help="Hugging Face repo type")
+        push_hf.add_argument("--path-in-repo", help="Target folder path inside repository (default: same as folder name)")
+
     # Phase 0: Dataset Audit & Analysis
     for cmd_name in ("phase0", "analyze"):
         analyze = commands.add_parser(cmd_name, help="Phase 0 dataset integrity and statistics")
@@ -176,6 +185,15 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "setup-data":
         path, source = ensure_dataset(args.data, auto_download=True)
         _print({"status": "ready", "dataset_path": str(path), "source": source})
+    elif args.command in {"push-hf", "upload-hf"}:
+        from .infra.upload import upload_to_hf
+        _print(upload_to_hf(
+            repo_id=args.repo,
+            local_path=args.path,
+            token=args.token,
+            repo_type=args.repo_type,
+            path_in_repo=args.path_in_repo,
+        ))
     elif args.command in {"phase0", "analyze"}:
         _print(analyze_dataset(args.data, args.output, args.quality_samples))
     elif args.command in {"prepare-smoke", "prepare-dataset"}:

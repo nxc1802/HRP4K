@@ -65,6 +65,7 @@
 ```
 
 ```bash
-# 7. Đóng Gói Toàn Bộ Checkpoints & Báo Cáo
+# 7. Đóng Gói Hoặc Đẩy Toàn Bộ Checkpoints & Kết Quả Lên Hugging Face
 !tar -czvf hrp4k_kaggle_results.tar.gz outputs/
+!hrp4k push-hf --repo Cuong2004/HRP4K --path outputs/ --token <YOUR_HF_WRITE_TOKEN>
 ```
