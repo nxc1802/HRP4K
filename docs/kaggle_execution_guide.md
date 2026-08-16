@@ -155,9 +155,9 @@ Lệnh này tự động kiểm tra xem dataset đã được đính kèm ở `/
 ## 7. Đóng Gói Hoặc Đẩy Toàn Bộ Checkpoints & Kết Quả Lên Hugging Face
 
 ```bash
-# Nén toàn bộ weights và báo cáo thành 1 file tar.gz (tải về thủ công)
-!tar -czvf hrp4k_kaggle_results.tar.gz outputs/
+# Nén toàn bộ weights và báo cáo thành 1 file tar.gz (chế độ im lặng, tự loại trừ dataset symlink)
+!tar -czf hrp4k_kaggle_results.tar.gz --exclude="outputs/full_dataset" outputs/
 
-# Hoặc đẩy trực tiếp toàn bộ checkpoints và outputs lên Hugging Face Hub bằng Token
+# Đẩy trực tiếp toàn bộ checkpoints và outputs lên Hugging Face Hub bằng Token
 !hrp4k push-hf --repo Cuong2004/HRP4K --path outputs/ --token <YOUR_HF_WRITE_TOKEN>
 ```

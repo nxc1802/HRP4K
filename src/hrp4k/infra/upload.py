@@ -32,6 +32,7 @@ def upload_to_hf(
             repo_type=repo_type,
             path_in_repo=path_in_repo or source.name,
             commit_message=commit_msg,
+            ignore_patterns=["full_dataset/**", "local_dataset/**", "smoke/**", "*.cache", "*.tmp", "__pycache__/**"],
         )
     else:
         print(f"Uploading file '{source}' to Hugging Face repository '{repo_id}' ({repo_type})...")

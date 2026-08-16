@@ -85,6 +85,9 @@
 
 ```bash
 # 7. Đóng Gói Hoặc Đẩy Toàn Bộ Checkpoints & Kết Quả Lên Hugging Face
-!tar -czvf hrp4k_kaggle_results.tar.gz outputs/
+# Lệnh nén im lặng (không in rác symlink full_dataset):
+!tar -czf hrp4k_kaggle_results.tar.gz --exclude="outputs/full_dataset" outputs/
+
+# Đẩy trực tiếp outputs lên Hugging Face (Tự động loại trừ dataset symlink):
 !hrp4k push-hf --repo Cuong2004/HRP4K --path outputs/ --token <YOUR_HF_WRITE_TOKEN>
 ```
