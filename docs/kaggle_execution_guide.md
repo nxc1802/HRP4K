@@ -53,6 +53,20 @@ Lệnh này tự động kiểm tra xem dataset đã được đính kèm ở `/
 
 ## 4. Phase 1: Huấn Luyện & Đánh Giá Baseline (Hỗ Trợ Kích Thước Gốc `--imgsz original` & `--imgsz 1280`)
 
+### 📋 Danh Sách Các Options Cho Parameter `--model`:
+
+| Option | Tên Mô Hình / Kiến Trúc | File Pretrained Weights | Batch Size Khuyến Nghị (4K) | Ghi Chú |
+| :--- | :--- | :--- | :--- | :--- |
+| `yolo11m` | YOLOv11 Medium | `yolo11m.pt` | `batch=2-4` | Kiến trúc mới nhất, cân bằng tốc độ & độ chính xác |
+| `yolov8m` | YOLOv8 Medium | `yolov8m.pt` | `batch=2-4` | Baseline Ultralytics tiêu chuẩn |
+| `yolov5m-compat` | YOLOv5 Medium (Ultralytics) | `yolov5mu.pt` | `batch=2-4` | Phiên bản port sang Ultralytics engine |
+| `yolov5m-official` | YOLOv5 Medium (Official) | `yolov5m.pt` | `batch=2-4` | Trọng số YOLOv5m gốc |
+| `rt-detr-v1` | RT-DETR-L (Transformer) | `rtdetr-l.pt` | `batch=2` | Mô hình Transformer thời gian thực v1 |
+| `rt-detr-v2` | RT-DETR-X (Transformer) | `rtdetr-x.pt` | `batch=2` | Mô hình Transformer SOTA trong bài báo ($AP_{50} = 44.01\%$) |
+| `all` | Chạy Toàn Bộ 6 Models | (Tuần tự) | `batch=2` | Tự động huấn luyện toàn bộ và xuất bảng so sánh |
+
+---
+
 ### 📌 Lựa chọn 1: Huấn luyện với Kích Thước Gốc 4K 3840x2160 (`--imgsz original`)
 
 ```bash

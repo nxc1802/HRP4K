@@ -28,17 +28,33 @@
 
 ```bash
 # 4. Phase 1: Huấn luyện Baseline (Kích Thước Gốc 4K hoặc 1280)
+#
+# 📋 Danh sách các options cho parameter --model:
+# -----------------------------------------------------------------------------------------
+# | Option              | Mô tả kiến trúc           | Pretrained Weights | Batch rec (4K) |
+# |---------------------|---------------------------|--------------------|----------------|
+# | yolo11m             | YOLOv11 Medium            | yolo11m.pt         | batch=2-4      |
+# | yolov8m             | YOLOv8 Medium             | yolov8m.pt         | batch=2-4      |
+# | yolov5m-compat      | YOLOv5m (Ultralytics)     | yolov5mu.pt        | batch=2-4      |
+# | yolov5m-official    | YOLOv5m (Official)        | yolov5m.pt         | batch=2-4      |
+# | rt-detr-v1          | RT-DETR-L (Transformer)   | rtdetr-l.pt        | batch=2        |
+# | rt-detr-v2          | RT-DETR-X (Transformer)   | rtdetr-x.pt        | batch=2        |
+# | all                 | Chạy TOÀN BỘ 6 models     | (tuần tự)          | batch=2        |
+# -----------------------------------------------------------------------------------------
 
 # Lựa chọn A: Huấn luyện YOLO11m với KÍCH THƯỚC GỐC 4K 3840x2160 (--imgsz original, batch 2-4 trên Kaggle GPU)
 !hrp4k phase1 --model yolo11m --imgsz original --batch 2 --epochs 150 --allow-full --output outputs/runs/yolo11m_4k
 
-# Lựa chọn B: Huấn luyện YOLO11m với Size Lớn 1280x1280 (--imgsz 1280, batch 16)
-!hrp4k phase1 --model yolo11m --imgsz 1280 --batch 16 --epochs 150 --allow-full --output outputs/runs/yolo11m_1280
+# Lựa chọn B: Huấn luyện YOLOv8m với Kích Thước Gốc 4K
+!hrp4k phase1 --model yolov8m --imgsz original --batch 2 --epochs 150 --allow-full --output outputs/runs/yolov8m_4k
 
-# Lựa chọn C: Huấn luyện RT-DETRv2 (Transformer) với kích thước gốc 4K (batch 2)
+# Lựa chọn C: Huấn luyện RT-DETRv2 (Transformer SOTA) với kích thước gốc 4K
 !hrp4k phase1 --model rt-detr-v2 --imgsz original --batch 2 --epochs 150 --allow-full --output outputs/runs/rtdetr_v2_4k
 
-# Lựa chọn D: Huấn luyện TẤT CẢ 6 mô hình Baseline tự động với --imgsz original
+# Lựa chọn D: Huấn luyện YOLO11m với Size 1280x1280 (Nhanh hơn, batch 16)
+!hrp4k phase1 --model yolo11m --imgsz 1280 --batch 16 --epochs 150 --allow-full --output outputs/runs/yolo11m_1280
+
+# Lựa chọn E: Huấn luyện TẤT CẢ 6 mô hình Baseline tự động (--model all)
 !hrp4k phase1 --model all --imgsz original --batch 2 --epochs 150 --allow-full --output outputs/phase1_all_4k
 ```
 
