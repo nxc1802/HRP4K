@@ -9,7 +9,7 @@ from typing import Any
 
 from .coco import available_image_ids, filtered_coco, load_split
 from . import identity as _identity_module
-from .paths import SPLITS, image_path
+from .paths import SPLITS, image_path, resolve_data_dir
 
 
 def _balanced_sample(data: dict[str, Any], limit: int, seed: int) -> set[int]:
@@ -40,6 +40,7 @@ def prepare_dataset_view(
     test_limit: int | None = None, seed: int = 42,
 ) -> dict[str, Any]:
     """Create a deterministic YOLO/COCO view using symlinks; None selects all available images."""
+    data_dir = resolve_data_dir(data_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     limits = {"train": train_limit, "valid": valid_limit, "test": test_limit}
     manifest: dict[str, Any] = {

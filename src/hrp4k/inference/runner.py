@@ -230,7 +230,7 @@ def predict_yolo(
         raise ValueError(f"Expected exactly one HRP4K category, found {category_ids}")
     category_id = category_ids[0]
     from ..detectors.base import create_detector
-    detector = create_detector(detector_name, weights, category_id, device, precision)
+    detector = create_detector(detector_name, weights, category_id, device, precision, allow_ultralytics=True)
     return predict_detector(data_dir, split, detector, output_path, method, limit=limit,
                             image_size=image_size, confidence=confidence, tile_size=tile_size,
                             overlap=overlap, warmup=warmup, precision=precision)

@@ -6,7 +6,7 @@ from typing import Any
 from .schema import HRP4KConfig
 
 
-def validate(config: HRP4KConfig) -> list[str]:
+def validate(config: HRP4KConfig, check_dataset: bool = False) -> list[str]:
     """Validate a resolved config before GPU initialization.
 
     Returns a list of error messages; empty means valid.
@@ -14,9 +14,10 @@ def validate(config: HRP4KConfig) -> list[str]:
     errors: list[str] = []
 
     # Dataset
-    data_root = Path(config.dataset.root)
-    if not data_root.is_dir():
-        errors.append(f"dataset root does not exist: {data_root}")
+    if check_dataset:
+        data_root = Path(config.dataset.root)
+        if not data_root.is_dir():
+            errors.append(f"dataset root does not exist: {data_root}")
 
     # Detector
     if not config.detector.name:

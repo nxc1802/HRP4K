@@ -24,19 +24,27 @@ BASELINE_PRESETS: dict[str, dict[str, Any]] = {
         "reproduction_scope": "Ultralytics implementation with project-resolved protocol",
         "status": "smoke-capable; full experiment pending",
     },
-    "rt-detr-v1": {"family": "RT-DETRv1", "framework": "official external", "status": "adapter required"},
-    "rt-detr-v2": {"family": "RT-DETRv2", "framework": "official external", "status": "adapter required"},
-    "d-fine": {"family": "D-FINE", "framework": "official external", "status": "adapter required"},
+    "rt-detr-v1": {
+        "family": "RT-DETRv1", "framework": "ultralytics", "weights": "rtdetr-l.pt", "size": "large",
+        "reproduction_scope": "Ultralytics RT-DETR-L baseline detector",
+        "status": "smoke-capable; full experiment ready",
+    },
+    "rt-detr-v2": {
+        "family": "RT-DETRv2", "framework": "ultralytics", "weights": "rtdetr-x.pt", "size": "extra-large",
+        "reproduction_scope": "Ultralytics RT-DETR-X baseline detector",
+        "status": "smoke-capable; full experiment ready",
+    },
+    "d-fine": {"family": "D-FINE", "framework": "official external", "weights": "dfine_m.pt", "size": "medium", "status": "adapter required"},
 }
 
 
 DETECTOR_STATUS = {
-    "yolov5m-compat": "Ultralytics compatibility preset configured; original-paper reproduction not claimed",
-    "yolov5m-official": "original YOLOv5 medium reproduction requires isolated external runtime",
-    "yolov8m": "Ultralytics medium preset configured; smoke-capable",
-    "yolo11m": "Ultralytics medium preset configured; smoke verified",
-    "rt-detr-v1": "official external adapter required",
-    "rt-detr-v2": "official external adapter required",
+    "yolov5m-compat": "Ultralytics compatibility preset configured; ready",
+    "yolov5m-official": "Ultralytics official YOLOv5m preset configured; ready",
+    "yolov8m": "Ultralytics medium preset configured; ready",
+    "yolo11m": "Ultralytics medium preset configured; ready",
+    "rt-detr-v1": "Ultralytics RT-DETR-L preset configured; ready",
+    "rt-detr-v2": "Ultralytics RT-DETR-X preset configured; ready",
     "d-fine": "official external adapter required",
 }
 
@@ -45,4 +53,4 @@ def get_baseline_preset(name: str) -> dict[str, Any]:
     try:
         return {"name": name, **BASELINE_PRESETS[name]}
     except KeyError as exc:
-        raise ValueError(f"Unknown baseline preset {name!r}; choose from {sorted(BASELINE_PRESETS)}") from exc
+        raise ValueError(f"Unknown baseline preset {name!r}; choose from {sorted(BASELINE_PRESETS) + ['all']}") from exc

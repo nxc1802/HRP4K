@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from ..data.paths import SPLITS
+from ..data.paths import SPLITS, resolve_data_dir
 from ..data.audit import analyze_dataset
 from ..data.identity import verify_dataset_identity
 
@@ -28,6 +28,7 @@ def preflight(
     device: str | None = None, require_official: bool = False,
 ) -> dict[str, Any]:
     """Run read-only launch checks, except for a small temporary analysis report."""
+    data_dir = resolve_data_dir(data_dir)
     errors: list[str] = []
     warnings: list[str] = []
     hashes: dict[str, str] = {}

@@ -3,19 +3,21 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from typing import Any
 
 from . import __version__
 from .config.resolver import resolve, to_dict
 from .config.validation import validate
 from .data.audit import analyze_dataset
+from .data.paths import ensure_dataset
 from .data.views import prepare_dataset_view
 from .detectors.registry import BASELINE_PRESETS, DETECTOR_STATUS, get_baseline_preset
 from .diagnostics.diagnostics import diagnose
 from .evaluation.coco import evaluate_files
 from .infra.hashing import experiment_id
 from .methods.base import METHOD_REGISTRY, METHOD_STATUS
-from .phases.phase_1 import run_phase_1
-from .phases.phase_2 import run_phase_2
+from .phases.phase_1 import run_phase_1, OFFICIAL_MODELS
+from .phases.phase_2 import run_phase_2, RUNNABLE_METHODS
 from .phases.pipeline import run_smoke_pipeline
 from .protocol.gates import preflight
 
@@ -24,20 +26,38 @@ def _path(value: str) -> Path:
     return Path(value).expanduser()
 
 
-def _print(payload):
+def _print(payload: Any) -> None:
     print(json.dumps(payload, indent=2, ensure_ascii=False))
 
 
+def parse_imgsz(value: Any) -> int | tuple[int, int]:
+    val = str(value).strip().lower()
+    if val in {"original", "4k", "native"}:
+        return 3840  # Native 4K UHD max dimension (3840x2160)
+    if "," in val:
+        parts = [int(p.strip()) for p in val.split(",")]
+        return (parts[0], parts[1])
+    if "x" in val:
+        parts = [int(p.strip()) for p in val.split("x")]
+        return (parts[0], parts[1])
+    return int(val)
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="hrp4k", description="HRP4K Phase 0–3 benchmark CLI")
+    parser = argparse.ArgumentParser(prog="hrp4k", description="HRP4K Phase 0–3 Unified Benchmark CLI")
     parser.add_argument("--version", action="version", version=f"hrp4k {__version__}")
     commands = parser.add_subparsers(dest="command", required=True)
 
-    # Phase 0
-    analyze = commands.add_parser("analyze", help="Phase 0 dataset integrity and statistics")
-    analyze.add_argument("--data", type=_path, default=Path("HRP4K"))
-    analyze.add_argument("--output", type=_path, default=Path("outputs/phase0"))
-    analyze.add_argument("--quality-samples", type=int, default=12)
+    # Data Setup: Auto-detect Kaggle input or download from HF
+    setup = commands.add_parser("setup-data", help="Auto-link dataset from Kaggle input or download from Hugging Face")
+    setup.add_argument("--data", type=_path, default=Path("HRP4K"))
+
+    # Phase 0: Dataset Audit & Analysis
+    for cmd_name in ("phase0", "analyze"):
+        analyze = commands.add_parser(cmd_name, help="Phase 0 dataset integrity and statistics")
+        analyze.add_argument("--data", type=_path, default=Path("HRP4K"))
+        analyze.add_argument("--output", type=_path, default=Path("outputs/phase0"))
+        analyze.add_argument("--quality-samples", type=int, default=12)
 
     for name, help_text, default_output, defaults in (
         ("prepare-smoke", "Create a deterministic smoke dataset view using symlinks", Path("outputs/smoke/dataset"), (24, 12, 12)),
@@ -51,42 +71,50 @@ def build_parser() -> argparse.ArgumentParser:
         prepare.add_argument("--test-limit", type=int, default=defaults[2])
         prepare.add_argument("--seed", type=int, default=42)
 
-    # Phase 1
-    train = commands.add_parser("train", help="Phase 1 YOLO benchmark training")
-    train.add_argument("--dataset", type=_path, default=Path("outputs/full_dataset/dataset.yaml"))
-    train.add_argument("--weights", type=_path)
-    train.add_argument("--preset", choices=[name for name, value in BASELINE_PRESETS.items() if value.get("framework") == "ultralytics"])
-    train.add_argument("--output", type=_path)
-    train.add_argument("--smoke", action="store_true")
-    train.add_argument("--allow-full", action="store_true", help="Explicitly authorize a non-smoke training run")
-    train.add_argument("--epochs", type=int, default=150)
-    train.add_argument("--imgsz", type=int, default=640)
-    train.add_argument("--batch", type=int, default=16)
-    train.add_argument("--device")
+    # Phase 1: Baseline Training (Large-Size 1280 or original 4K)
+    model_choices = list(BASELINE_PRESETS) + ["all"]
+    for cmd_name in ("phase1", "train"):
+        train = commands.add_parser(cmd_name, help="Phase 1 Baseline training (supports large image sizes and multiple models)")
+        train.add_argument("--dataset", type=_path, default=Path("outputs/full_dataset/dataset.yaml"))
+        train.add_argument("--weights", type=_path, help="Path to weights or preset name")
+        train.add_argument("--model", "--preset", dest="model", choices=model_choices, default="yolo11m", help="Select model to train ('all' trains all 6 baseline models)")
+        train.add_argument("--output", type=_path, default=Path("outputs/phase1_runs"))
+        train.add_argument("--smoke", action="store_true", help="Fast smoke test (1-2 epochs)")
+        train.add_argument("--allow-full", action="store_true", help="Explicitly authorize a full 150-epoch training run")
+        train.add_argument("--epochs", type=int, default=150, help="Number of training epochs (default: 150)")
+        train.add_argument("--imgsz", type=parse_imgsz, default=1280, help="Input image size (e.g. 1280, 640, or 'original' for native 4K 3840)")
+        train.add_argument("--batch", type=int, default=16, help="Training batch size")
+        train.add_argument("--device", help="CUDA device index or 'cpu'")
+        train.add_argument("--seed", type=int, default=42)
 
-    # Phase 2
-    predict = commands.add_parser("predict", help="Phase 1/2 inference and unified COCO export")
-    predict.add_argument("--data", type=_path, default=Path("outputs/smoke/dataset"))
-    predict.add_argument("--split", choices=["train", "valid", "test"], default="test")
-    predict.add_argument("--detector", choices=["ultralytics", "yolov5m-compat", "yolov5m-official", "yolov8m", "yolo11m", "rt-detr-v1", "rt-detr-v2", "d-fine"], default="ultralytics")
-    predict.add_argument("--weights", type=_path, required=True)
-    predict.add_argument("--output", type=_path, required=True)
-    predict.add_argument("--method", choices=list(METHOD_REGISTRY), default="resize")
-    predict.add_argument("--limit", type=int)
-    predict.add_argument("--imgsz", type=int, default=320)
-    predict.add_argument("--confidence", type=float, default=0.05)
-    predict.add_argument("--tile-size", type=int, default=960)
-    predict.add_argument("--overlap", type=float, default=0.2)
-    predict.add_argument("--device")
-    predict.add_argument("--warmup", type=int, default=20)
-    predict.add_argument("--precision", choices=["fp32", "fp16"], default="fp32")
+    # Phase 2: High-Resolution Inference & Resolution Allocation
+    method_choices = list(METHOD_REGISTRY) + ["all"]
+    for cmd_name in ("phase2", "predict"):
+        predict = commands.add_parser(cmd_name, help="Phase 2 High-Resolution Inference and Slicing")
+        predict.add_argument("--data", type=_path, default=Path("HRP4K"))
+        predict.add_argument("--split", choices=["train", "valid", "test"], default="test")
+        predict.add_argument("--detector", "--model", dest="detector", choices=model_choices, default="yolo11m")
+        predict.add_argument("--weights", type=_path, help="Path to trained checkpoint (e.g. best.pt)")
+        predict.add_argument("--output", type=_path, default=Path("outputs/phase2_predictions.json"))
+        predict.add_argument("--method", choices=method_choices, default="resize", help="Resolution method ('all' runs resize, sliced-nms, perspective-grid, sahi)")
+        predict.add_argument("--limit", type=int, help="Optional image limit for fast evaluation")
+        predict.add_argument("--imgsz", type=parse_imgsz, default=640, help="Detector input image size (e.g. 640, 1280, or 'original' for native 4K)")
+        predict.add_argument("--confidence", type=float, default=0.05, help="Detection confidence threshold")
+        predict.add_argument("--tile-size", type=int, default=960, help="Tile size for slicing methods (default: 960)")
+        predict.add_argument("--overlap", type=float, default=0.2, help="Overlap ratio for slicing (default: 0.2)")
+        predict.add_argument("--device", help="CUDA device or 'cpu'")
+        predict.add_argument("--warmup", type=int, default=20)
+        predict.add_argument("--precision", choices=["fp32", "fp16"], default="fp32")
+        predict.add_argument("--evaluate", action="store_true", default=True, help="Automatically evaluate COCO metrics after prediction")
+        predict.add_argument("--ground-truth", type=_path, help="Optional path to ground truth JSON (default: <data>/<split>.json)")
 
     # Phase 3 / Evaluation
-    evaluate = commands.add_parser("evaluate", help="Unified COCO/scale/FPPI evaluator")
-    evaluate.add_argument("--ground-truth", type=_path, required=True)
-    evaluate.add_argument("--predictions", type=_path, required=True)
-    evaluate.add_argument("--output", type=_path, required=True)
-    evaluate.add_argument("--confidence", type=float, default=0.25)
+    for cmd_name in ("phase3", "evaluate"):
+        evaluate = commands.add_parser(cmd_name, help="Unified COCO/scale/FPPI evaluator")
+        evaluate.add_argument("--ground-truth", type=_path, required=True)
+        evaluate.add_argument("--predictions", type=_path, required=True)
+        evaluate.add_argument("--output", type=_path, required=True)
+        evaluate.add_argument("--confidence", type=float, default=0.25)
 
     diagnostic = commands.add_parser("diagnose", help="Phase 3 diagnostics from saved predictions")
     diagnostic.add_argument("--ground-truth", type=_path, required=True)
@@ -145,29 +173,74 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    if args.command == "analyze":
+    if args.command == "setup-data":
+        path, source = ensure_dataset(args.data, auto_download=True)
+        _print({"status": "ready", "dataset_path": str(path), "source": source})
+    elif args.command in {"phase0", "analyze"}:
         _print(analyze_dataset(args.data, args.output, args.quality_samples))
     elif args.command in {"prepare-smoke", "prepare-dataset"}:
         _print(prepare_dataset_view(args.data, args.output, args.train_limit, args.valid_limit, args.test_limit, args.seed))
-    elif args.command == "train":
-        _print(run_phase_1(args.dataset, args.weights, args.output, args.smoke, args.epochs, args.imgsz, args.batch, args.device, args.allow_full, args.preset))
-    elif args.command == "predict":
+    elif args.command in {"phase1", "train"}:
+        resolved_dataset = args.dataset
+        if not resolved_dataset.exists():
+            data_path, _ = ensure_dataset(auto_download=True)
+            view_out = resolved_dataset.parent if resolved_dataset.parent != Path(".") else Path("outputs/full_dataset")
+            prepare_dataset_view(data_path, view_out)
+            resolved_dataset = view_out / "dataset.yaml"
+
+        _print(run_phase_1(
+            dataset_yaml=resolved_dataset,
+            weights=args.weights,
+            output_dir=args.output,
+            smoke=args.smoke,
+            epochs=args.epochs,
+            image_size=args.imgsz,
+            batch=args.batch,
+            device=args.device,
+            allow_full=args.allow_full,
+            preset=args.model,
+            seed=args.seed,
+        ))
+    elif args.command in {"phase2", "predict"}:
+        resolved_weights = args.weights
+        if not resolved_weights:
+            preset_dict = get_baseline_preset(args.detector) if args.detector != "all" else None
+            resolved_weights = Path(preset_dict["weights"]) if preset_dict else Path("yolo11m.pt")
+        
         _print(run_phase_2(
-            data_dir=args.data, split=args.split, weights=args.weights, output_path=args.output,
-            method=args.method, limit=args.limit, image_size=args.imgsz, confidence=args.confidence,
-            tile_size=args.tile_size, overlap=args.overlap, device=args.device, warmup=args.warmup,
-            detector_name=args.detector, precision=args.precision,
-        )["summary"])
-    elif args.command == "evaluate":
+            data_dir=args.data,
+            split=args.split,
+            weights=resolved_weights,
+            output_path=args.output,
+            method=args.method,
+            limit=args.limit,
+            image_size=args.imgsz,
+            confidence=args.confidence,
+            tile_size=args.tile_size,
+            overlap=args.overlap,
+            device=args.device,
+            warmup=args.warmup,
+            detector_name=args.detector,
+            precision=args.precision,
+            evaluate_after=args.evaluate,
+            ground_truth=args.ground_truth,
+        ))
+    elif args.command in {"phase3", "evaluate"}:
         _print(evaluate_files(args.ground_truth, args.predictions, args.output, args.confidence))
     elif args.command == "diagnose":
         _print(diagnose(args.ground_truth, args.predictions, args.output))
     elif args.command == "status":
-        _print({"baseline_presets": BASELINE_PRESETS, "detectors": DETECTOR_STATUS,
-                "methods": METHOD_REGISTRY, "method_summary": METHOD_STATUS})
+        _print({
+            "baseline_presets": BASELINE_PRESETS,
+            "detectors": DETECTOR_STATUS,
+            "methods": METHOD_REGISTRY,
+            "method_summary": METHOD_STATUS,
+        })
     elif args.command == "preflight":
-        result = preflight(args.data, output_dir=args.output, weights=args.weights,
-                           device=args.device, require_official=args.require_official)
+        result = preflight(
+            args.data, output_dir=args.output, weights=args.weights,
+            device=args.device, require_official=args.require_official,
+        )
         _print(result)
         if result["status"] != "pass":
             return 2
@@ -192,25 +265,31 @@ def main(argv: list[str] | None = None) -> int:
         resolved = resolve(config_path=args.config)
         errors = validate(resolved)
         if errors:
-            raise ValueError(f"Invalid configuration:\n" + "\n".join(errors))
+            raise ValueError("Invalid configuration:\n" + "\n".join(errors))
         detector = resolved.detector
         method = resolved.method
         runtime = resolved.runtime
         output = resolved.output
-        if detector.name in {"yolov5m-official", "rt-detr-v1", "rt-detr-v2", "d-fine"}:
+        if detector.name in {"d-fine", "dfine"}:
             raise RuntimeError(f"{detector.name} requires its official external runtime and canonical export contract")
         if method.name in METHOD_REGISTRY and METHOD_REGISTRY[method.name]["status"] == "external-required":
             raise RuntimeError(f"{method.name} requires its paper-faithful external training/runtime")
         if not output.predictions:
             raise ValueError("output.predictions must be specified in the configuration")
         _print(run_phase_2(
-            data_dir=Path(resolved.dataset.root), split=resolved.dataset.split,
-            weights=Path(detector.checkpoint), output_path=Path(output.predictions),
-            method=method.name, limit=runtime.limit, image_size=int(detector.input_size),
+            data_dir=Path(resolved.dataset.root),
+            split=resolved.dataset.split,
+            weights=Path(detector.checkpoint),
+            output_path=Path(output.predictions),
+            method=method.name,
+            limit=runtime.limit,
+            image_size=int(detector.input_size),
             confidence=float(detector.confidence),
             tile_size=method.tile_size,
-            overlap=method.overlap, device=runtime.device or detector.device,
-            warmup=runtime.warmup, detector_name=detector.name,
+            overlap=method.overlap,
+            device=runtime.device or detector.device,
+            warmup=runtime.warmup,
+            detector_name=detector.name,
             precision=runtime.precision,
         )["summary"])
     elif args.command == "run-smoke":

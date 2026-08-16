@@ -10,7 +10,7 @@ from typing import Any
 import numpy as np
 
 from .coco import SCALE_ORDER, iter_master_rows, load_split, scale_class
-from .paths import SPLITS, image_path
+from .paths import SPLITS, image_path, resolve_data_dir
 
 
 def _summary(values: list[float]) -> dict[str, float | int]:
@@ -60,6 +60,7 @@ def _ks_distance(left: list[float], right: list[float]) -> float:
 
 
 def analyze_dataset(data_dir: Path, output_dir: Path, quality_samples: int = 24) -> dict[str, Any]:
+    data_dir = resolve_data_dir(data_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     rows = list(iter_master_rows(data_dir))
     integrity: dict[str, Any] = {"dataset_dir": str(data_dir.resolve()), "splits": {}, "errors": [], "warnings": []}

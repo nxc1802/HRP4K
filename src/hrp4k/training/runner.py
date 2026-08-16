@@ -28,7 +28,8 @@ def train_yolo(
         )
     run_dir.mkdir(parents=True, exist_ok=True)
     actual_epochs = min(2, epochs) if smoke else epochs
-    actual_imgsz = min(640, image_size) if smoke else image_size
+    resolved_imgsz = 3840 if str(image_size).strip().lower() in {"original", "4k", "native"} else image_size
+    actual_imgsz = min(640, resolved_imgsz) if (smoke and isinstance(resolved_imgsz, int)) else resolved_imgsz
     config = {
         "dataset": str(dataset_yaml.resolve()), "weights": str(weights), "smoke": smoke,
         "epochs": actual_epochs, "image_size": actual_imgsz, "batch": batch,
