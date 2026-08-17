@@ -14,7 +14,7 @@ dependencies = [
 
 [project.optional-dependencies]
 evaluation = ["pycocotools>=2.0.7"]
-vision = ["opencv-python>=4.8", "matplotlib>=3.7", "ultralytics>=8.3", "pycocotools>=2.0.7"]
+vision = ["opencv-python>=4.8", "matplotlib>=3.7", "ultralytics>=8.3", "pycocotools>=2.0.7", "huggingface_hub"]
 sahi = ["sahi==0.12.5", "ultralytics>=8.3", "opencv-python>=4.8"]
 dev = ["pytest>=7.4", "pytest-cov>=4.1", "ruff>=0.1.0"]
 

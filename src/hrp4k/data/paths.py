@@ -63,14 +63,17 @@ def ensure_dataset(data_dir: Path | str | None = None, auto_download: bool = Tru
         return resolved, "missing"
 
     # Auto download from Hugging Face
-    print("Dataset not found in Kaggle input or locally. Downloading from Hugging Face (Cuong2004/HRP4K)...")
+    repo_id = os.environ.get("HF_REPO", "Cuong2004/HRP4K")
+    token = os.environ.get("HF_TOKEN")
+    print(f"Dataset not found in Kaggle input or locally. Downloading from Hugging Face ({repo_id})...")
     try:
         from huggingface_hub import hf_hub_download
         zip_path = hf_hub_download(
-            repo_id="Cuong2004/HRP4K",
+            repo_id=repo_id,
             filename="HRP4K.zip",
             repo_type="dataset",
             local_dir=".",
+            token=token,
         )
         print("Extracting HRP4K.zip...")
         with zipfile.ZipFile(zip_path, "r") as zip_ref:

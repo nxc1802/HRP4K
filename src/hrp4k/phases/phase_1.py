@@ -23,12 +23,17 @@ def run_phase_1(
     output_dir: Path | None = None,
     smoke: bool = False,
     epochs: int = 150,
-    image_size: int | str = 1280,
+    image_size: int | tuple[int, int] | str = 1280,
     batch: int = 16,
     device: str | None = None,
     allow_full: bool = False,
     preset: str | None = None,
     seed: int = 42,
+    confidence: float = 0.001,
+    resume: bool = False,
+    hf_repo: str | None = None,
+    hf_token: str | None = None,
+    hf_sync: bool = True,
 ) -> dict[str, Any]:
     """Execute Phase 1 baseline detector training with single-model or all-models support."""
     target_preset = preset or ("all" if weights == "all" else None)
@@ -54,6 +59,12 @@ def run_phase_1(
                 allow_full=allow_full,
                 experiment=preset_dict,
                 seed=seed,
+                eval_confidence=confidence,
+                resume=resume,
+                hf_repo=hf_repo,
+                hf_token=hf_token,
+                hf_sync=hf_sync,
+                path_in_repo=f"checkpoints/{model_name}",
             )
             results.append({"model": model_name, **run_result})
         
@@ -76,4 +87,10 @@ def run_phase_1(
         allow_full=allow_full,
         experiment=preset_dict,
         seed=seed,
+        eval_confidence=confidence,
+        resume=resume,
+        hf_repo=hf_repo,
+        hf_token=hf_token,
+        hf_sync=hf_sync,
+        path_in_repo=f"checkpoints/{resolved_output.name}",
     )

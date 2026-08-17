@@ -95,6 +95,11 @@ def build_parser() -> argparse.ArgumentParser:
         train.add_argument("--batch", type=int, default=16, help="Training batch size")
         train.add_argument("--device", help="CUDA device index or 'cpu'")
         train.add_argument("--seed", type=int, default=42)
+        train.add_argument("--confidence", type=float, default=0.001, help="Validation/test evaluation confidence threshold (default: 0.001)")
+        train.add_argument("--resume", action="store_true", help="Resume training from last saved checkpoint")
+        train.add_argument("--hf-repo", help="Target Hugging Face repository for auto-syncing checkpoints (default: from .env or Cuong2004/HRP4K)")
+        train.add_argument("--hf-token", help="Hugging Face write access token (default: from .env or HF_TOKEN)")
+        train.add_argument("--no-hf-sync", action="store_true", help="Disable background Hugging Face checkpoint syncing")
 
     # Phase 2: High-Resolution Inference & Resolution Allocation
     method_choices = list(METHOD_REGISTRY) + ["all"]
@@ -218,6 +223,11 @@ def main(argv: list[str] | None = None) -> int:
             allow_full=args.allow_full,
             preset=args.model,
             seed=args.seed,
+            confidence=args.confidence,
+            resume=args.resume,
+            hf_repo=args.hf_repo,
+            hf_token=args.hf_token,
+            hf_sync=not args.no_hf_sync,
         ))
     elif args.command in {"phase2", "predict"}:
         resolved_weights = args.weights

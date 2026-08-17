@@ -33,3 +33,5 @@ venv/
 .DS_Store
 .vscode/
 .idea/
+__marimo__/
+
