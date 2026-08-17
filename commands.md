@@ -168,109 +168,51 @@ hrp4k phase0 --data HRP4K --output outputs/phase0 --quality-samples 12
 
 ```bash
 # Lựa chọn A (KHUYÊN DÙNG): Huấn luyện YOLO11m với Size Lớn 1280x1280
-hrp4k phase1 \
-  --model yolo11m \
-  --imgsz 1280 \
-  --batch 16 \
-  --epochs 150 \
-  --allow-full \
-  --confidence 0.001 \
-  --output outputs/runs/yolo11m_1280
+hrp4k phase1 --model yolo11m --imgsz 1280 --batch 16 --epochs 150 --allow-full --confidence 0.001 --output outputs/runs/yolo11m_1280
 
 # Lựa chọn B: Tiếp tục Huấn luyện khi bị ngắt (Continuous Training với --resume)
-hrp4k phase1 \
-  --model yolo11m \
-  --weights outputs/runs/yolo11m_1280/weights/last.pt \
-  --resume \
-  --output outputs/runs/yolo11m_1280
+hrp4k phase1 --model yolo11m --weights outputs/runs/yolo11m_1280/weights/last.pt --resume --output outputs/runs/yolo11m_1280
 
 # Lựa chọn C: Huấn luyện YOLOv5m với Size 1280x1280
-hrp4k phase1 \
-  --model yolov5m-compat \
-  --imgsz 1280 \
-  --batch 16 \
-  --epochs 150 \
-  --allow-full \
-  --output outputs/runs/yolov5m_1280
+hrp4k phase1 --model yolov5m-compat --imgsz 1280 --batch 16 --epochs 150 --allow-full --output outputs/runs/yolov5m_1280
 
 # Lựa chọn D: Huấn luyện YOLO11m với KÍCH THƯỚC GỐC 4K UHD (3840x2176, batch 1)
-hrp4k phase1 \
-  --model yolo11m \
-  --imgsz original \
-  --batch 1 \
-  --epochs 150 \
-  --allow-full \
-  --output outputs/runs/yolo11m_4k
+hrp4k phase1 --model yolo11m --imgsz original --batch 1 --epochs 150 --allow-full --output outputs/runs/yolo11m_4k
 
 # Lựa chọn E: Huấn luyện RT-DETRv2 (Transformer SOTA) với kích thước gốc 4K
-hrp4k phase1 \
-  --model rt-detr-v2 \
-  --imgsz original \
-  --batch 1 \
-  --epochs 150 \
-  --allow-full \
-  --output outputs/runs/rtdetr_v2_4k
+hrp4k phase1 --model rt-detr-v2 --imgsz original --batch 1 --epochs 150 --allow-full --output outputs/runs/rtdetr_v2_4k
 
 # Lựa chọn F: Huấn luyện TOÀN BỘ 6 mô hình Baseline tự động
-hrp4k phase1 \
-  --model all \
-  --imgsz 1280 \
-  --batch 16 \
-  --epochs 150 \
-  --allow-full \
-  --output outputs/phase1_all_1280
+hrp4k phase1 --model all --imgsz 1280 --batch 16 --epochs 150 --allow-full --output outputs/phase1_all_1280
 ```
 
 ### 5. Phase 2: High-Resolution Inference (Slicing 4K) & Chấm Điểm Tự Động
 
 ```bash
 # Lựa chọn A (KHUYÊN DÙNG): Chạy Sliced-NMS (Tile 960x960, overlap 20%)
-hrp4k phase2 \
-  --method sliced-nms \
-  --weights outputs/runs/yolo11m_1280/weights/best.pt \
-  --output outputs/predictions/yolo11m_sliced_nms.json
+hrp4k phase2 --method sliced-nms --weights outputs/runs/yolo11m_1280/weights/best.pt --output outputs/predictions/yolo11m_sliced_nms.json
 
 # Lựa chọn B: Chạy Perspective-Grid (Bám sát dải mặt đường ở xa)
-hrp4k phase2 \
-  --method perspective-grid \
-  --weights outputs/runs/yolo11m_1280/weights/best.pt \
-  --output outputs/predictions/yolo11m_perspective_grid.json
+hrp4k phase2 --method perspective-grid --weights outputs/runs/yolo11m_1280/weights/best.pt --output outputs/predictions/yolo11m_perspective_grid.json
 
 # Lựa chọn C: Chạy SAHI Inference
-hrp4k phase2 \
-  --method sahi \
-  --weights outputs/runs/yolo11m_1280/weights/best.pt \
-  --tile-size 640 \
-  --overlap 0.2 \
-  --output outputs/predictions/yolo11m_sahi.json
+hrp4k phase2 --method sahi --weights outputs/runs/yolo11m_1280/weights/best.pt --tile-size 640 --overlap 0.2 --output outputs/predictions/yolo11m_sahi.json
 
 # Lựa chọn D: Chạy TẤT CẢ các method Phase 2 cùng lúc
-hrp4k phase2 \
-  --method all \
-  --weights outputs/runs/yolo11m_1280/weights/best.pt \
-  --output outputs/phase2_benchmark/
+hrp4k phase2 --method all --weights outputs/runs/yolo11m_1280/weights/best.pt --output outputs/phase2_benchmark/
 ```
 
 ### 6. Phase 3: Đánh Giá Chi Tiết & Chẩn Đoán Lỗi
 
 ```bash
 # Đánh giá COCO mAP theo các Scale Bins
-hrp4k phase3 \
-  --ground-truth HRP4K/test.json \
-  --predictions outputs/predictions/yolo11m_sliced_nms.json \
-  --output outputs/metrics/yolo11m_sliced_nms_metrics.json
+hrp4k phase3 --ground-truth HRP4K/test.json --predictions outputs/predictions/yolo11m_sliced_nms.json --output outputs/metrics/yolo11m_sliced_nms_metrics.json
 
 # Chẩn đoán phân loại sai số phát hiện
-hrp4k diagnose \
-  --ground-truth HRP4K/test.json \
-  --predictions outputs/predictions/yolo11m_sliced_nms.json \
-  --output outputs/diagnostics
+hrp4k diagnose --ground-truth HRP4K/test.json --predictions outputs/predictions/yolo11m_sliced_nms.json --output outputs/diagnostics
 ```
 
 ### 7. Đóng Gói Hoặc Đẩy Toàn Bộ Checkpoints & Kết Quả Lên Hugging Face Thủ Công
 ```bash
-hrp4k push-hf \
-  --repo Cuong2004/HRP4K \
-  --path outputs/ \
-  --token <YOUR_HF_WRITE_TOKEN>
+hrp4k push-hf --repo Cuong2004/HRP4K --path outputs/ --token <YOUR_HF_WRITE_TOKEN>
 ```
