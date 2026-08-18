@@ -29,7 +29,7 @@ def train_yolo(
     path_in_repo: str | None = None,
 ) -> dict[str, Any]:
     """Execute YOLO baseline training with optional background Hugging Face synchronization."""
-    if not smoke and not allow_full:
+    if not smoke and not allow_full and not resume:
         raise ValueError("Full training requires explicit --allow-full; use --smoke for local verification")
     try:
         from ultralytics import YOLO

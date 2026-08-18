@@ -69,7 +69,7 @@ Chạy trực tiếp các cell lệnh dưới đây trong môi trường **Kaggl
 !hrp4k phase1 --model yolo11m --imgsz 1280 --batch 16 --epochs 150 --allow-full --confidence 0.001 --output outputs/runs/yolo11m_1280
 
 # Lựa chọn B: Tiếp tục Huấn luyện khi bị ngắt (Continuous Training với --resume)
-!hrp4k phase1 --model yolo11m --weights outputs/runs/yolo11m_1280/weights/last.pt --resume --output outputs/runs/yolo11m_1280
+!hrp4k phase1 --model yolo11m --weights outputs/runs/yolo11m_1280/weights/last.pt --resume --allow-full --output outputs/runs/yolo11m_1280
 
 # Lựa chọn C: Huấn luyện YOLOv5m với Size Lớn 1280x1280 (--imgsz 1280, batch 16)
 !hrp4k phase1 --model yolov5m-compat --imgsz 1280 --batch 16 --epochs 150 --allow-full --output outputs/runs/yolov5m_1280
@@ -171,7 +171,7 @@ hrp4k phase0 --data HRP4K --output outputs/phase0 --quality-samples 12
 hrp4k phase1 --model yolo11m --imgsz 1280 --batch 16 --epochs 150 --allow-full --confidence 0.001 --output outputs/runs/yolo11m_1280
 
 # Lựa chọn B: Tiếp tục Huấn luyện khi bị ngắt (Continuous Training với --resume)
-hrp4k phase1 --model yolo11m --weights outputs/runs/yolo11m_1280/weights/last.pt --resume --output outputs/runs/yolo11m_1280
+hrp4k phase1 --model yolo11m --weights outputs/runs/yolo11m_1280/weights/last.pt --resume --allow-full --output outputs/runs/yolo11m_1280
 
 # Lựa chọn C: Huấn luyện YOLOv5m với Size 1280x1280
 hrp4k phase1 --model yolov5m-compat --imgsz 1280 --batch 16 --epochs 150 --allow-full --output outputs/runs/yolov5m_1280
