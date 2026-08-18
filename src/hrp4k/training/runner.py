@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from ..infra.environment import environment_snapshot
-from ..infra.upload import BackgroundHFSyncer
+from ..infra.upload import BackgroundHFSyncer, ensure_weights
 
 
 def train_yolo(
@@ -98,7 +98,8 @@ def train_yolo(
     (run_dir / "resolved_config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
     (run_dir / "environment.json").write_text(json.dumps(environment_snapshot(), indent=2), encoding="utf-8")
 
-    model = YOLO(str(weights))
+    resolved_weights = ensure_weights(weights, repo_id=hf_repo, token=hf_token)
+    model = YOLO(str(resolved_weights))
 
     # Register background epoch-end callback for Ultralytics
     def on_fit_epoch_end_callback(trainer: Any) -> None:

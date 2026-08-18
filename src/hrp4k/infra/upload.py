@@ -287,3 +287,73 @@ class BackgroundHFSyncer:
         self._queue.put(None)
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=5.0)
+
+
+def ensure_weights(
+    weights_path: Path | str,
+    repo_id: str | None = None,
+    token: str | None = None,
+    repo_type: str = "dataset",
+) -> Path:
+    """Ensure weights file exists locally. If missing, automatically download from Hugging Face."""
+    path_obj = Path(weights_path)
+    
+    # 1. Check local paths
+    if path_obj.is_file():
+        return path_obj
+    
+    # Check under HRP4K subdirectory if run from parent directory
+    if (Path("HRP4K") / path_obj).is_file():
+        return Path("HRP4K") / path_obj
+
+    # If it's a standard ultralytics asset (like yolo11m.pt, yolov8m.pt), let ultralytics download
+    if str(weights_path) in {
+        "yolo11n.pt", "yolo11s.pt", "yolo11m.pt", "yolo11l.pt", "yolo11x.pt",
+        "yolov8n.pt", "yolov8s.pt", "yolov8m.pt", "yolov8l.pt", "yolov8x.pt",
+        "yolov5nu.pt", "yolov5su.pt", "yolov5mu.pt", "yolov5lu.pt", "yolov5xu.pt",
+        "yolov5n.pt", "yolov5s.pt", "yolov5m.pt", "yolov5l.pt", "yolov5x.pt",
+        "rtdetr-l.pt", "rtdetr-x.pt",
+    }:
+        return path_obj
+
+    # 2. Search and auto-download from Hugging Face
+    resolved_token, resolved_repo, resolved_type = get_hf_credentials(token, repo_id, repo_type)
+    
+    print(f"Weight checkpoint '{weights_path}' not found locally. Checking Hugging Face ({resolved_repo})...")
+    
+    # Candidate paths in repo
+    filename_candidates = [
+        str(path_obj).replace("\\", "/"),
+        f"checkpoints/{path_obj.parent.name}/{path_obj.name}",
+        f"checkpoints/{path_obj.name}",
+        f"{path_obj.parent.name}/{path_obj.name}",
+        f"{path_obj.parent.parent.name}/{path_obj.name}" if len(path_obj.parts) >= 3 else None,
+        path_obj.name,
+    ]
+    filename_candidates = [c for c in filename_candidates if c is not None]
+
+    try:
+        from huggingface_hub import hf_hub_download
+        for candidate_filename in filename_candidates:
+            try:
+                downloaded_file = hf_hub_download(
+                    repo_id=resolved_repo,
+                    filename=candidate_filename,
+                    repo_type=resolved_type,
+                    token=resolved_token,
+                )
+                if downloaded_file and Path(downloaded_file).is_file():
+                    print(f"Successfully downloaded '{candidate_filename}' from Hugging Face -> {downloaded_file}")
+                    target_dest = path_obj
+                    if not target_dest.is_absolute():
+                        target_dest.parent.mkdir(parents=True, exist_ok=True)
+                        import shutil
+                        shutil.copy2(downloaded_file, target_dest)
+                        return target_dest
+                    return Path(downloaded_file)
+            except Exception:
+                continue
+    except Exception as exc:
+        print(f"[Cloud Warning] Hugging Face checkpoint download check failed: {exc}")
+
+    return path_obj

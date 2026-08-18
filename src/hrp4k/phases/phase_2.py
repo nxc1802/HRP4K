@@ -6,6 +6,7 @@ from typing import Any
 
 from ..inference.runner import predict_yolo
 from ..evaluation.coco import evaluate_files
+from ..infra.upload import ensure_weights
 from ..methods.base import METHOD_REGISTRY
 
 RUNNABLE_METHODS = ["resize", "sliced-nms", "perspective-grid", "sahi"]
@@ -34,6 +35,7 @@ def run_phase_2(
     if detector_name in {"d-fine", "dfine"}:
         raise RuntimeError(f"{detector_name} requires its official external runtime; use canonical export contract in external/dfine")
     
+    weights = ensure_weights(weights)
     resolved_imgsz = (2176, 3840) if str(image_size).strip().lower() in {"original", "4k", "native"} else image_size
 
     if method == "all":
