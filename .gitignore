@@ -34,4 +34,5 @@ venv/
 .vscode/
 .idea/
 __marimo__/
+commands.md
 
