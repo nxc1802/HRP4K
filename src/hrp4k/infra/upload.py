@@ -18,6 +18,10 @@ def load_dotenv(dotenv_path: Path | str | None = None) -> dict[str, str]:
     else:
         cwd = Path.cwd()
         candidate_paths.append(cwd / ".env")
+        candidate_paths.append(cwd / "HRP4K" / ".env")
+        candidate_paths.append(Path.home() / ".env")
+        candidate_paths.append(Path("/marimo/.env"))
+        candidate_paths.append(Path("/marimo/HRP4K/.env"))
         # Check parents up to workspace root
         for parent in cwd.parents:
             candidate_paths.append(parent / ".env")
