@@ -51,12 +51,8 @@ def train_yolo(
     run_dir.mkdir(parents=True, exist_ok=True)
 
     actual_epochs = min(2, epochs) if smoke else epochs
-    resolved_imgsz = (2176, 3840) if str(image_size).strip().lower() in {"original", "4k", "native"} else image_size
-    actual_imgsz = (
-        min(640, resolved_imgsz)
-        if (smoke and isinstance(resolved_imgsz, int))
-        else ((320, 640) if (smoke and isinstance(resolved_imgsz, (tuple, list))) else resolved_imgsz)
-    )
+    resolved_imgsz = 3840 if str(image_size).strip().lower() in {"original", "4k", "native"} else image_size
+    actual_imgsz = min(640, resolved_imgsz) if (smoke and isinstance(resolved_imgsz, int)) else resolved_imgsz
     is_rect = rect
 
     # Initialize Cloud Syncer (Background thread uploading checkpoints to HF)
