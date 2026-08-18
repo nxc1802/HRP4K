@@ -96,8 +96,24 @@ def train_yolo(
     (run_dir / "environment.json").write_text(json.dumps(environment_snapshot(), indent=2), encoding="utf-8")
 
     resolved_weights = ensure_weights(weights, repo_id=hf_repo, token=hf_token)
-
-    # Register background epoch-end callback for Ultralytics
+    if not Path(resolved_weights).is_file() and str(resolved_weights) not in {
+        "yolo11n.pt", "yolo11s.pt", "yolo11m.pt", "yolo11l.pt", "yolo11x.pt",
+        "yolov8n.pt", "yolov8s.pt", "yolov8m.pt", "yolov8l.pt", "yolov8x.pt",
+        "yolov5nu.pt", "yolov5su.pt", "yolov5mu.pt", "yolov5lu.pt", "yolov5xu.pt",
+        "yolov5n.pt", "yolov5s.pt", "yolov5m.pt", "yolov5l.pt", "yolov5x.pt",
+        "rtdetr-l.pt", "rtdetr-x.pt",
+    }:
+        if resume:
+            raise FileNotFoundError(
+                f"Checkpoint '{weights}' not found locally or on Hugging Face ({hf_repo or 'Cuong2004/HRP4K'}).\n"
+                f"👉 Cannot resume because no previous checkpoint exists yet for '{run_dir.name}'.\n"
+                f"👉 To start training from scratch, run Lựa chọn A (bỏ '--resume' và '--weights'):\n"
+                f"   hrp4k phase1 --model {manifest.get('model', 'yolo11m') if manifest else 'yolo11m'} --imgsz original --batch 16 --epochs 150 --allow-full --confidence 0.001 --rect --output {run_dir}"
+            )
+        raise FileNotFoundError(
+            f"Weight file '{weights}' not found locally or on Hugging Face ({hf_repo or 'Cuong2004/HRP4K'}). "
+            f"Please verify the file path."
+        )
     def on_fit_epoch_end_callback(trainer: Any) -> None:
         if not syncer.enabled:
             return
