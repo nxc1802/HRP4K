@@ -55,6 +55,23 @@ def load_dotenv(dotenv_path: Path | str | None = None) -> dict[str, str]:
     return env_vars
 
 
+def is_placeholder_token(token: str | None) -> bool:
+    """Check if token is empty or a placeholder string from documentation."""
+    if not token:
+        return True
+    t = str(token).strip().lower()
+    placeholders = {
+        "your_huggingface_write_token",
+        "<your_hf_write_token>",
+        "hf_your_write_token_here",
+        "your_token_here",
+        "none",
+        "null",
+        "",
+    }
+    return t in placeholders or "your_write_token" in t or "<your" in t or t.startswith("<")
+
+
 def get_hf_credentials(
     token: str | None = None,
     repo_id: str | None = None,
@@ -69,6 +86,9 @@ def get_hf_credentials(
         or os.environ.get("HUGGING_FACE_HUB_TOKEN")
         or os.environ.get("HUGGINGFACE_TOKEN")
     )
+    if is_placeholder_token(resolved_token):
+        resolved_token = None
+
     resolved_repo = (
         repo_id
         or os.environ.get("HF_REPO")
@@ -89,6 +109,9 @@ def upload_to_hf(
 ) -> dict[str, Any]:
     """Upload checkpoints and artifacts folder or file to Hugging Face Hub."""
     from huggingface_hub import HfApi
+
+    if is_placeholder_token(token):
+        raise ValueError("Invalid HF_TOKEN: Token is empty or contains a placeholder. Please provide a valid Hugging Face write token.")
 
     api = HfApi(token=token)
     source = Path(local_path).expanduser()
