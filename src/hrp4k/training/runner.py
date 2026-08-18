@@ -23,6 +23,7 @@ def train_yolo(
     seed: int = 42,
     eval_confidence: float = 0.001,
     resume: bool = False,
+    rect: bool = True,
     hf_repo: str | None = None,
     hf_token: str | None = None,
     hf_sync: bool = True,
@@ -56,7 +57,7 @@ def train_yolo(
         if (smoke and isinstance(resolved_imgsz, int))
         else ((320, 640) if (smoke and isinstance(resolved_imgsz, (tuple, list))) else resolved_imgsz)
     )
-    is_rect = isinstance(actual_imgsz, (tuple, list)) or (isinstance(actual_imgsz, int) and actual_imgsz >= 1280)
+    is_rect = rect
 
     # Initialize Cloud Syncer (Background thread uploading checkpoints to HF)
     target_repo_path = path_in_repo or run_dir.name

@@ -128,25 +128,25 @@ Chạy trực tiếp các cell lệnh dưới đây trong môi trường **Kaggl
 
 ```bash
 # Lựa chọn A (KHUYÊN DÙNG): Huấn luyện YOLO11m với Size Lớn 1280x1280 (--imgsz 1280, batch 16, nhanh & không OOM)
-!hrp4k phase1 --model yolo11m --imgsz 1280 --batch 16 --epochs 150 --allow-full --confidence 0.001 --output outputs/runs/yolo11m_1280
+!hrp4k phase1 --model yolo11m --imgsz 1280 --batch 16 --epochs 150 --allow-full --confidence 0.001 --rect --output outputs/runs/yolo11m_1280
 
 # Lựa chọn B: Tiếp tục Huấn luyện khi bị ngắt (Continuous Training với --resume)
-!hrp4k phase1 --model yolo11m --weights outputs/runs/yolo11m_1280/weights/last.pt --resume --allow-full --confidence 0.001 --output outputs/runs/yolo11m_1280
+!hrp4k phase1 --model yolo11m --weights outputs/runs/yolo11m_1280/weights/last.pt --resume --allow-full --confidence 0.001 --rect --output outputs/runs/yolo11m_1280
 
 # Lựa chọn C: Huấn luyện YOLOv8m với Size Lớn 1280x1280 (--imgsz 1280, batch 16)
-!hrp4k phase1 --model yolov8m --imgsz 1280 --batch 16 --epochs 150 --allow-full --confidence 0.001 --output outputs/runs/yolov8m_1280
+!hrp4k phase1 --model yolov8m --imgsz 1280 --batch 16 --epochs 150 --allow-full --confidence 0.001 --rect --output outputs/runs/yolov8m_1280
 
 # Lựa chọn D: Huấn luyện YOLOv5m với Size Lớn 1280x1280 (--imgsz 1280, batch 16)
-!hrp4k phase1 --model yolov5m-compat --imgsz 1280 --batch 16 --epochs 150 --allow-full --confidence 0.001 --output outputs/runs/yolov5m_1280
+!hrp4k phase1 --model yolov5m-compat --imgsz 1280 --batch 16 --epochs 150 --allow-full --confidence 0.001 --rect --output outputs/runs/yolov5m_1280
 
 # Lựa chọn E: Huấn luyện YOLO11m với KÍCH THƯỚC GỐC 4K (--imgsz original, bắt buộc --batch 1 trên T4 GPU)
-!hrp4k phase1 --model yolo11m --imgsz original --batch 1 --epochs 150 --allow-full --confidence 0.001 --output outputs/runs/yolo11m_4k
+!hrp4k phase1 --model yolo11m --imgsz original --batch 1 --epochs 150 --allow-full --confidence 0.001 --rect --output outputs/runs/yolo11m_4k
 
 # Lựa chọn F: Huấn luyện RT-DETRv2 (Transformer SOTA) với kích thước gốc 4K (--batch 1)
-!hrp4k phase1 --model rt-detr-v2 --imgsz original --batch 1 --epochs 150 --allow-full --confidence 0.001 --output outputs/runs/rtdetr_v2_4k
+!hrp4k phase1 --model rt-detr-v2 --imgsz original --batch 1 --epochs 150 --allow-full --confidence 0.001 --rect --output outputs/runs/rtdetr_v2_4k
 
 # Lựa chọn G: Huấn luyện TẤT CẢ 6 mô hình Baseline tự động (--model all, --imgsz 1280)
-!hrp4k phase1 --model all --imgsz 1280 --batch 16 --epochs 150 --allow-full --confidence 0.001 --output outputs/phase1_all_1280
+!hrp4k phase1 --model all --imgsz 1280 --batch 16 --epochs 150 --allow-full --confidence 0.001 --rect --output outputs/phase1_all_1280
 ```
 
 ### 5. Phase 2: High-Resolution Inference (Slicing 4K) & Chấm Điểm Tự Động
@@ -233,25 +233,25 @@ hrp4k phase0 --data HRP4K --output outputs/phase0 --quality-samples 12
 
 ```bash
 # Lựa chọn A (KHUYÊN DÙNG): Huấn luyện YOLO11m với Size Lớn 1280x1280 (batch 16)
-hrp4k phase1 --model yolo11m --imgsz 1280 --batch 16 --epochs 150 --allow-full --confidence 0.001 --output outputs/runs/yolo11m_1280
+hrp4k phase1 --model yolo11m --imgsz 1280 --batch 16 --epochs 150 --allow-full --confidence 0.001 --rect --output outputs/runs/yolo11m_1280
 
 # Lựa chọn B: Tiếp tục Huấn luyện khi bị ngắt (Continuous Training với --resume)
-hrp4k phase1 --model yolo11m --weights outputs/runs/yolo11m_1280/weights/last.pt --resume --allow-full --confidence 0.001 --output outputs/runs/yolo11m_1280
+hrp4k phase1 --model yolo11m --weights outputs/runs/yolo11m_1280/weights/last.pt --resume --allow-full --confidence 0.001 --rect --output outputs/runs/yolo11m_1280
 
 # Lựa chọn C: Huấn luyện YOLOv8m với Size 1280x1280 (batch 16)
-hrp4k phase1 --model yolov8m --imgsz 1280 --batch 16 --epochs 150 --allow-full --confidence 0.001 --output outputs/runs/yolov8m_1280
+hrp4k phase1 --model yolov8m --imgsz 1280 --batch 16 --epochs 150 --allow-full --confidence 0.001 --rect --output outputs/runs/yolov8m_1280
 
 # Lựa chọn D: Huấn luyện YOLOv5m với Size 1280x1280 (batch 16)
-hrp4k phase1 --model yolov5m-compat --imgsz 1280 --batch 16 --epochs 150 --allow-full --confidence 0.001 --output outputs/runs/yolov5m_1280
+hrp4k phase1 --model yolov5m-compat --imgsz 1280 --batch 16 --epochs 150 --allow-full --confidence 0.001 --rect --output outputs/runs/yolov5m_1280
 
 # Lựa chọn E: Huấn luyện YOLO11m với KÍCH THƯỚC GỐC 4K UHD (3840x2176, batch 4 trên GPU 96GB)
-hrp4k phase1 --model yolo11m --imgsz original --batch 4 --epochs 150 --allow-full --confidence 0.001 --output outputs/runs/yolo11m_4k
+hrp4k phase1 --model yolo11m --imgsz original --batch 4 --epochs 150 --allow-full --confidence 0.001 --rect --output outputs/runs/yolo11m_4k
 
 # Lựa chọn F: Huấn luyện RT-DETRv2 (Transformer SOTA) với kích thước gốc 4K (batch 2)
-hrp4k phase1 --model rt-detr-v2 --imgsz original --batch 2 --epochs 150 --allow-full --confidence 0.001 --output outputs/runs/rtdetr_v2_4k
+hrp4k phase1 --model rt-detr-v2 --imgsz original --batch 2 --epochs 150 --allow-full --confidence 0.001 --rect --output outputs/runs/rtdetr_v2_4k
 
 # Lựa chọn G: Huấn luyện TOÀN BỘ 6 mô hình Baseline tự động
-hrp4k phase1 --model all --imgsz 1280 --batch 16 --epochs 150 --allow-full --confidence 0.001 --output outputs/phase1_all_1280
+hrp4k phase1 --model all --imgsz 1280 --batch 16 --epochs 150 --allow-full --confidence 0.001 --rect --output outputs/phase1_all_1280
 ```
 
 ### 5. Phase 2: High-Resolution Inference (Slicing 4K) & Chấm Điểm Tự Động
