@@ -100,7 +100,6 @@ def train_yolo(
     (run_dir / "environment.json").write_text(json.dumps(environment_snapshot(), indent=2), encoding="utf-8")
 
     resolved_weights = ensure_weights(weights, repo_id=hf_repo, token=hf_token)
-    model = YOLO(str(resolved_weights))
 
     # Register background epoch-end callback for Ultralytics
     def on_fit_epoch_end_callback(trainer: Any) -> None:
@@ -121,45 +120,85 @@ def train_yolo(
         except Exception as cb_exc:
             print(f"[Cloud Sync Warning] Failed to trigger epoch sync: {cb_exc}")
 
-    if syncer.enabled:
-        model.add_callback("on_fit_epoch_end", on_fit_epoch_end_callback)
+    # Build gradient accumulation candidates: target batch falls back as 16 -> 8 -> 4 -> 2 -> 1 on OOM
+    target_batch = max(1, batch)
+    candidate_batches: list[int] = []
+    for b in [target_batch, 16, 8, 4, 2, 1]:
+        if b <= target_batch and b not in candidate_batches:
+            candidate_batches.append(b)
 
-    result = model.train(
-        data=str(dataset_yaml),
-        epochs=actual_epochs,
-        imgsz=actual_imgsz,
-        batch=batch,
-        rect=is_rect,
-        amp=True,
-        optimizer="SGD",
-        lr0=0.01,
-        lrf=0.01,
-        momentum=0.937,
-        weight_decay=0.0005,
-        warmup_epochs=3.0,
-        warmup_momentum=0.8,
-        warmup_bias_lr=0.1,
-        mosaic=1.0,
-        mixup=0.0,
-        degrees=0.0,
-        translate=0.1,
-        scale=0.5,
-        hsv_h=0.015,
-        hsv_s=0.7,
-        hsv_v=0.4,
-        fliplr=0.5,
-        seed=seed,
-        deterministic=True,
-        workers=0 if smoke else 2,
-        cache=False,
-        plots=not smoke,
-        project=str(run_dir.parent),
-        name=run_dir.name,
-        exist_ok=True,
-        device=device,
-        verbose=True,
-        resume=resume,
-    )
+    result = None
+    actual_batch = candidate_batches[0]
+
+    for current_batch in candidate_batches:
+        accumulate_steps = max(1, round(target_batch / current_batch))
+        effective_batch = current_batch * accumulate_steps
+        print(f"\n[Training Engine] Launching batch={current_batch} (Target: {target_batch}, Gradient Accumulation: {accumulate_steps}x -> Effective Batch: {effective_batch})")
+
+        try:
+            model = YOLO(str(resolved_weights))
+            if syncer.enabled:
+                model.add_callback("on_fit_epoch_end", on_fit_epoch_end_callback)
+
+            result = model.train(
+                data=str(dataset_yaml),
+                epochs=actual_epochs,
+                imgsz=actual_imgsz,
+                batch=current_batch,
+                nbs=target_batch,
+                rect=is_rect,
+                amp=True,
+                optimizer="SGD",
+                lr0=0.01,
+                lrf=0.01,
+                momentum=0.937,
+                weight_decay=0.0005,
+                warmup_epochs=3.0,
+                warmup_momentum=0.8,
+                warmup_bias_lr=0.1,
+                mosaic=1.0,
+                mixup=0.0,
+                degrees=0.0,
+                translate=0.1,
+                scale=0.5,
+                hsv_h=0.015,
+                hsv_s=0.7,
+                hsv_v=0.4,
+                fliplr=0.5,
+                seed=seed,
+                deterministic=True,
+                workers=0 if smoke else 2,
+                cache=False,
+                plots=not smoke,
+                project=str(run_dir.parent),
+                name=run_dir.name,
+                exist_ok=True,
+                device=device,
+                verbose=True,
+                resume=resume,
+            )
+            actual_batch = current_batch
+            break
+        except (RuntimeError, Exception) as exc:
+            err_msg = str(exc).lower()
+            if "out of memory" in err_msg or "cuda out of memory" in err_msg or "cuda oom" in err_msg:
+                try:
+                    import torch
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                except Exception:
+                    pass
+                next_batches = [b for b in candidate_batches if b < current_batch]
+                if next_batches:
+                    next_batch = next_batches[0]
+                    next_accumulate = max(1, round(target_batch / next_batch))
+                    print(f"\n⚠️ [CUDA OOM Detected] Batch size {current_batch} exceeded GPU VRAM.")
+                    print(f"🔄 Auto-Fallback: Reducing batch size to {next_batch} with gradient accumulation {next_accumulate}x (Effective batch preserved at {target_batch})...\n")
+                    continue
+                else:
+                    raise RuntimeError(f"CUDA Out Of Memory occurred even with batch=1. Please reduce image resolution or free GPU memory.") from exc
+            else:
+                raise exc
 
     best = run_dir / "weights" / "best.pt"
     last = run_dir / "weights" / "last.pt"
@@ -177,7 +216,7 @@ def train_yolo(
                 data=str(dataset_yaml),
                 split="test",
                 imgsz=actual_imgsz,
-                batch=batch,
+                batch=actual_batch,
                 device=device,
                 plots=not smoke,
                 verbose=True,
@@ -188,6 +227,13 @@ def train_yolo(
             (run_dir / "test_metrics.json").write_text(json.dumps(test_metrics, indent=2), encoding="utf-8")
         except Exception as exc:
             test_metrics = {"error": str(exc)}
+
+    accumulate_steps = max(1, round(target_batch / actual_batch))
+    config["target_batch"] = target_batch
+    config["actual_batch"] = actual_batch
+    config["gradient_accumulation_steps"] = accumulate_steps
+    config["effective_batch"] = actual_batch * accumulate_steps
+    (run_dir / "resolved_config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
 
     # Perform final sync of weights, test metrics, and results
     if syncer.enabled:
@@ -211,6 +257,10 @@ def train_yolo(
     return {
         "run_dir": str(run_dir),
         "best": str(eval_model_path),
+        "target_batch": target_batch,
+        "actual_batch": actual_batch,
+        "gradient_accumulation_steps": accumulate_steps,
+        "effective_batch": actual_batch * accumulate_steps,
         "val_metrics": val_metrics,
         "test_metrics": test_metrics,
         "metrics": val_metrics,
