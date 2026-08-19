@@ -114,6 +114,21 @@ def train_yolo(
             f"Weight file '{weights}' not found locally or on Hugging Face ({hf_repo or 'Cuong2004/HRP4K'}). "
             f"Please verify the file path."
         )
+
+    # Inspect resume checkpoint to inform user of exact embedded configuration
+    if resume and Path(resolved_weights).is_file():
+        try:
+            import torch
+            ckpt_dict = torch.load(str(resolved_weights), map_location="cpu", weights_only=False)
+            ckpt_args = ckpt_dict.get("train_args", {})
+            ckpt_imgsz = ckpt_args.get("imgsz")
+            ckpt_epoch = ckpt_dict.get("epoch", 0)
+            if ckpt_imgsz is not None and str(ckpt_imgsz) != str(actual_imgsz):
+                print(f"\n⚠️ [Resume Notice] Checkpoint '{weights}' on HF was recorded at imgsz={ckpt_imgsz} (Epoch {ckpt_epoch + 1}).")
+                print(f"👉 Ultralytics will resume with checkpoint's native imgsz={ckpt_imgsz}.")
+                print(f"👉 To train a fresh 4K (3840x2176) model from Epoch 1, run without '--resume' and '--weights'.\n")
+        except Exception:
+            pass
     def on_fit_epoch_end_callback(trainer: Any) -> None:
         if not syncer.enabled:
             return
