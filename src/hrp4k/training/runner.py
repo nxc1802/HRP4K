@@ -115,7 +115,7 @@ def train_yolo(
             f"Please verify the file path."
         )
 
-    # Inspect resume checkpoint to inform user of exact embedded configuration
+    # Inspect resume checkpoint to synchronize exact embedded configuration
     if resume and Path(resolved_weights).is_file():
         try:
             import torch
@@ -123,12 +123,16 @@ def train_yolo(
             ckpt_args = ckpt_dict.get("train_args", {})
             ckpt_imgsz = ckpt_args.get("imgsz")
             ckpt_epoch = ckpt_dict.get("epoch", 0)
-            if ckpt_imgsz is not None and str(ckpt_imgsz) != str(actual_imgsz):
-                print(f"\n⚠️ [Resume Notice] Checkpoint '{weights}' on HF was recorded at imgsz={ckpt_imgsz} (Epoch {ckpt_epoch + 1}).")
-                print(f"👉 Ultralytics will resume with checkpoint's native imgsz={ckpt_imgsz}.")
-                print(f"👉 To train a fresh 4K (3840x2176) model from Epoch 1, run without '--resume' and '--weights'.\n")
-        except Exception:
-            pass
+            if ckpt_imgsz:
+                if str(image_size).strip().lower() in {"original", "4k", "native"}:
+                    actual_imgsz = 3840
+                elif str(image_size) in {"1280", "None", ""} and (ckpt_imgsz == 3840 or ckpt_imgsz == [2176, 3840] or ckpt_imgsz == (2176, 3840)):
+                    actual_imgsz = 3840
+                else:
+                    actual_imgsz = 3840 if (isinstance(ckpt_imgsz, (list, tuple)) and 3840 in ckpt_imgsz) else ckpt_imgsz
+                print(f"[Resume Auto-Sync] Native checkpoint resolution: imgsz={actual_imgsz} (Resuming from Epoch {ckpt_epoch + 1})")
+        except Exception as exc:
+            print(f"[Resume Warning] Could not inspect checkpoint metadata: {exc}")
     def on_fit_epoch_end_callback(trainer: Any) -> None:
         if not syncer.enabled:
             return
