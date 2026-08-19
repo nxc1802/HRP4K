@@ -324,20 +324,56 @@ def ensure_weights(
     resolved_token, resolved_repo, resolved_type = get_hf_credentials(token, repo_id, repo_type)
     
     print(f"Weight checkpoint '{weights_path}' not found locally. Checking Hugging Face ({resolved_repo})...")
-    
-    # Candidate paths in repo
-    filename_candidates = [
-        str(path_obj).replace("\\", "/"),
-        f"checkpoints/{path_obj.parent.name}/{path_obj.name}",
-        f"checkpoints/{path_obj.name}",
-        f"{path_obj.parent.name}/{path_obj.name}",
-        f"{path_obj.parent.parent.name}/{path_obj.name}" if len(path_obj.parts) >= 3 else None,
-        path_obj.name,
-    ]
-    filename_candidates = [c for c in filename_candidates if c is not None]
+
+    filename = path_obj.name
+    filename_candidates: list[str] = []
 
     try:
-        from huggingface_hub import hf_hub_download
+        from huggingface_hub import list_repo_files, hf_hub_download
+        
+        # Query existing files in remote repo for fast exact matching
+        try:
+            repo_files = list_repo_files(repo_id=resolved_repo, repo_type=resolved_type, token=resolved_token)
+            # Find any repo file ending with this filename where parent directory matches any part of path_obj
+            for rf in repo_files:
+                rf_parts = rf.split("/")
+                if filename in rf_parts:
+                    for part in path_obj.parts[:-1]:
+                        if part not in {"outputs", "runs", "weights"} and part in rf_parts:
+                            if rf not in filename_candidates:
+                                filename_candidates.append(rf)
+            # Also add any direct match ending with filename
+            for rf in repo_files:
+                if rf.endswith(f"/{filename}") and rf not in filename_candidates:
+                    filename_candidates.append(rf)
+        except Exception:
+            pass
+
+        # Add structured rule-based candidates
+        for part in path_obj.parts[:-1]:
+            if part not in {"outputs", "runs", "weights"}:
+                for pattern in [
+                    f"checkpoints/{part}/{filename}",
+                    f"{part}/weights/{filename}",
+                    f"{part}/{filename}",
+                ]:
+                    if pattern not in filename_candidates:
+                        filename_candidates.append(pattern)
+
+        if len(path_obj.parts) >= 3:
+            cand = f"checkpoints/{path_obj.parent.parent.name}/{filename}"
+            if cand not in filename_candidates:
+                filename_candidates.append(cand)
+
+        for fallback in [
+            f"checkpoints/{path_obj.parent.name}/{filename}",
+            f"checkpoints/{filename}",
+            str(path_obj).replace("\\", "/"),
+            filename,
+        ]:
+            if fallback not in filename_candidates:
+                filename_candidates.append(fallback)
+
         for candidate_filename in filename_candidates:
             try:
                 downloaded_file = hf_hub_download(
