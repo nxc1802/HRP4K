@@ -97,14 +97,26 @@ def predict_detector(
                 views = make_views(source, method, tile_size, overlap)
             candidates: list[dict[str, Any]] = []
             detector_latency = 0.0
-            for view in views:
+            if hasattr(detector, "predict_batch") and len(views) > 1:
+                view_imgsz = max(views[0].source_width, views[0].source_height)
                 with Timer() as detector_timer:
-                    detections = detector.predict(view.image, image_size, confidence)
-                detector_latency += detector_timer.elapsed_ms
-                for raw_detection in detections:
-                    detection = _as_detection(raw_detection)
-                    candidates.append({"image_id": int(image["id"]), "category_id": detection.category_id,
-                                       "bbox": view.map_box(detection.xyxy), "score": detection.score})
+                    batch_dets = detector.predict_batch([v.image for v in views], view_imgsz, confidence)
+                detector_latency = detector_timer.elapsed_ms
+                for view, detections in zip(views, batch_dets):
+                    for raw_detection in detections:
+                        detection = _as_detection(raw_detection)
+                        candidates.append({"image_id": int(image["id"]), "category_id": detection.category_id,
+                                           "bbox": view.map_box(detection.xyxy), "score": detection.score})
+            else:
+                for view in views:
+                    view_imgsz = image_size if method == "resize" else max(view.source_width, view.source_height)
+                    with Timer() as detector_timer:
+                        detections = detector.predict(view.image, view_imgsz, confidence)
+                    detector_latency += detector_timer.elapsed_ms
+                    for raw_detection in detections:
+                        detection = _as_detection(raw_detection)
+                        candidates.append({"image_id": int(image["id"]), "category_id": detection.category_id,
+                                           "bbox": view.map_box(detection.xyxy), "score": detection.score})
             with Timer() as fusion_timer:
                 merged, suppressed = nms(candidates)
         predictions.extend(merged)
@@ -165,7 +177,7 @@ def _predict_sahi(
         except ImportError:
             device = "cpu"
     model = AutoDetectionModel.from_pretrained(model_type="ultralytics", model_path=str(detector.weights),
-                                                confidence_threshold=confidence, device=device, image_size=image_size)
+                                                confidence_threshold=confidence, device=device, image_size=tile_size)
     def infer(source):
         return get_sliced_prediction(source, model, slice_height=tile_size, slice_width=tile_size,
                                      overlap_height_ratio=overlap, overlap_width_ratio=overlap,

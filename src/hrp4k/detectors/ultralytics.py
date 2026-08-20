@@ -28,14 +28,30 @@ class UltralyticsAdapter:
         self.predict(image, image_size, 0.01)
 
     def predict(self, image: np.ndarray, image_size: int, confidence: float) -> list[Detection]:
-        result = self.model.predict(image, imgsz=image_size, conf=confidence, verbose=False, device=self.device,
-                                    half=self.precision == "fp16")[0]
+        predict_kwargs = {"half": True} if self.precision == "fp16" else {}
+        result = self.model.predict(image, imgsz=image_size, conf=confidence, verbose=False, device=self.device, **predict_kwargs)[0]
         if result.boxes is None:
             return []
         return [
             Detection(tuple(map(float, xyxy)), float(score), self.category_id)
             for xyxy, score in zip(result.boxes.xyxy.cpu().numpy(), result.boxes.conf.cpu().numpy())
         ]
+
+    def predict_batch(self, images: list[np.ndarray], image_size: int, confidence: float) -> list[list[Detection]]:
+        if not images:
+            return []
+        predict_kwargs = {"half": True} if self.precision == "fp16" else {}
+        results = self.model.predict(images, imgsz=image_size, conf=confidence, verbose=False, device=self.device, batch=len(images), **predict_kwargs)
+        batch_detections = []
+        for result in results:
+            if result.boxes is None or len(result.boxes) == 0:
+                batch_detections.append([])
+            else:
+                batch_detections.append([
+                    Detection(tuple(map(float, xyxy)), float(score), self.category_id)
+                    for xyxy, score in zip(result.boxes.xyxy.cpu().numpy(), result.boxes.conf.cpu().numpy())
+                ])
+        return batch_detections
 
     def metadata(self) -> dict[str, Any]:
         import ultralytics

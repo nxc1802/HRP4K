@@ -202,17 +202,25 @@ def make_views(image, method: str, tile_size: int = 960, overlap: float = 0.2) -
         boundaries = [0, round(height * 0.45), round(height * 0.72), height]
         return [ProcessedView(image[y0:y1], CropTransform(0, y0), width, y1 - y0) for y0, y1 in zip(boundaries, boundaries[1:])]
     if method == "perspective-grid":
-        # Hand-designed ground-plane baseline. Far bands receive more horizontal crops and therefore more detector pixels.
+        # Hand-designed ground-plane baseline with 2D (horizontal + vertical) overlap.
+        # Far bands receive more horizontal crops and therefore more detector pixels.
         boundaries = [0, round(height * 0.45), round(height * 0.72), height]
         columns_by_band = [4, 3, 2]
         views = []
-        for (y0, y1), columns in zip(zip(boundaries, boundaries[1:]), columns_by_band):
+        for idx, ((y0, y1), columns) in enumerate(zip(zip(boundaries, boundaries[1:]), columns_by_band)):
+            band_h = y1 - y0
+            pad_y = round(band_h * overlap * 0.5)
+            y0_crop = max(0, y0 - pad_y) if idx > 0 else 0
+            y1_crop = min(height, y1 + pad_y) if idx < len(columns_by_band) - 1 else height
+            crop_h = y1_crop - y0_crop
+
             window_w = min(width, int(np.ceil(width / (columns - (columns - 1) * overlap))))
             starts = _starts(width, window_w, overlap)
             if len(starts) > columns:
                 starts = np.linspace(0, width - window_w, columns, dtype=int).tolist()
             for x0 in starts:
-                views.append(ProcessedView(image[y0:y1, x0:x0 + window_w], CropTransform(x0, y0), window_w, y1 - y0,
-                                           {"crop": [x0, y0, x0 + window_w, y1]}))
+                views.append(ProcessedView(image[y0_crop:y1_crop, x0:x0 + window_w],
+                                           CropTransform(x0, y0_crop), window_w, crop_h,
+                                           {"crop": [x0, y0_crop, x0 + window_w, y1_crop]}))
         return views
     raise ValueError(f"Unknown processing method: {method}")
