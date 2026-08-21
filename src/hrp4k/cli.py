@@ -154,6 +154,13 @@ def build_parser() -> argparse.ArgumentParser:
     patches.add_argument("--min-visibility", type=float, default=0.25, help="Minimum visible fraction to keep cropped box")
     patches.add_argument("--output", type=_path, default=Path("outputs/dataset_patches_640"))
 
+    # Prepare Warped Dataset (ZoomDet Warped Training 640)
+    warped = commands.add_parser("prepare-warped", help="Generate 2D continuous deformation warped dataset for ZoomDet training")
+    warped.add_argument("--data", type=_path, default=Path("HRP4K"))
+    warped.add_argument("--canvas-size", type=int, default=640, help="Canvas size for warped images (default: 640)")
+    warped.add_argument("--horizon-ratio", type=float, default=0.40, help="Horizon boundary ratio for road expansion (default: 0.40)")
+    warped.add_argument("--output", type=_path, default=Path("outputs/dataset_zoomdet_640"))
+
     # Config Subcommands (Upgrade 3.0)
     config_parser = commands.add_parser("config", help="Inspect and validate modular configurations")
     config_sub = config_parser.add_subparsers(dest="config_command", required=True)
@@ -220,6 +227,14 @@ def main(argv: list[str] | None = None) -> int:
             overlap=args.overlap,
             bg_ratio=args.bg_ratio,
             min_visibility=args.min_visibility,
+        ))
+    elif args.command == "prepare-warped":
+        from .data.warped import create_warped_dataset
+        _print(create_warped_dataset(
+            data_dir=args.data,
+            output_dir=args.output,
+            canvas_size=args.canvas_size,
+            horizon_ratio=args.horizon_ratio,
         ))
     elif args.command in {"prepare-smoke", "prepare-dataset"}:
         _print(prepare_dataset_view(args.data, args.output, args.train_limit, args.valid_limit, args.test_limit, args.seed))
