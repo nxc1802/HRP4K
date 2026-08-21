@@ -9,7 +9,7 @@ from ..evaluation.coco import evaluate_files
 from ..infra.upload import ensure_weights
 from ..methods.base import METHOD_REGISTRY
 
-RUNNABLE_METHODS = ["resize", "sliced-nms", "perspective-grid", "sahi"]
+RUNNABLE_METHODS = ["resize", "sliced-nms", "perspective-grid", "sahi", "zoomdet"]
 
 
 def run_phase_2(

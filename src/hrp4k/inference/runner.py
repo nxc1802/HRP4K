@@ -98,25 +98,29 @@ def predict_detector(
             candidates: list[dict[str, Any]] = []
             detector_latency = 0.0
             if hasattr(detector, "predict_batch") and len(views) > 1:
-                view_imgsz = max(views[0].source_width, views[0].source_height)
+                view_imgsz = max(views[0].image.shape[:2])
                 with Timer() as detector_timer:
                     batch_dets = detector.predict_batch([v.image for v in views], view_imgsz, confidence)
                 detector_latency = detector_timer.elapsed_ms
                 for view, detections in zip(views, batch_dets):
                     for raw_detection in detections:
                         detection = _as_detection(raw_detection)
-                        candidates.append({"image_id": int(image["id"]), "category_id": detection.category_id,
-                                           "bbox": view.map_box(detection.xyxy), "score": detection.score})
+                        mapped_box = view.map_box(detection.xyxy)
+                        if mapped_box[2] > 0.01 and mapped_box[3] > 0.01:
+                            candidates.append({"image_id": int(image["id"]), "category_id": detection.category_id,
+                                               "bbox": mapped_box, "score": detection.score})
             else:
                 for view in views:
-                    view_imgsz = image_size if method == "resize" else max(view.source_width, view.source_height)
+                    view_imgsz = image_size if method == "resize" else max(view.image.shape[:2])
                     with Timer() as detector_timer:
                         detections = detector.predict(view.image, view_imgsz, confidence)
                     detector_latency += detector_timer.elapsed_ms
                     for raw_detection in detections:
                         detection = _as_detection(raw_detection)
-                        candidates.append({"image_id": int(image["id"]), "category_id": detection.category_id,
-                                           "bbox": view.map_box(detection.xyxy), "score": detection.score})
+                        mapped_box = view.map_box(detection.xyxy)
+                        if mapped_box[2] > 0.01 and mapped_box[3] > 0.01:
+                            candidates.append({"image_id": int(image["id"]), "category_id": detection.category_id,
+                                               "bbox": mapped_box, "score": detection.score})
             with Timer() as fusion_timer:
                 merged, suppressed = nms(candidates)
         predictions.extend(merged)

@@ -70,8 +70,10 @@ class SeparableWarpTransform:
 @dataclass
 class GridWarpTransform:
     """Dense source/warped point maps for ZoomDet-style non-separable warps."""
-    forward_grid: np.ndarray
-    inverse_grid: np.ndarray
+    forward_grid: np.ndarray  # [canvas_h, canvas_w, 2] -> maps canvas (u, v) to source (x, y)
+    inverse_grid: np.ndarray  # [sample_h, sample_w, 2] -> maps source (x, y) to canvas (u, v)
+    source_size: tuple[int, int] = (3840, 2160)  # (w, h)
+    canvas_size: tuple[int, int] = (640, 640)    # (w, h)
 
     def __post_init__(self):
         self.forward_grid = np.asarray(self.forward_grid, dtype=float)
@@ -81,29 +83,33 @@ class GridWarpTransform:
                 raise ValueError(f"{name} must have shape [height,width,2]")
 
     @staticmethod
-    def _sample(grid: np.ndarray, points: np.ndarray) -> np.ndarray:
-        height, width = grid.shape[:2]
-        x = np.clip(points[:, 0], 0, width - 1); y = np.clip(points[:, 1], 0, height - 1)
-        x0 = np.floor(x).astype(int); y0 = np.floor(y).astype(int)
-        x1 = np.minimum(x0 + 1, width - 1); y1 = np.minimum(y0 + 1, height - 1)
-        wx = (x - x0)[:, None]; wy = (y - y0)[:, None]
+    def _sample(grid: np.ndarray, points: np.ndarray, domain_w: float, domain_h: float) -> np.ndarray:
+        gh, gw = grid.shape[:2]
+        gx = np.clip(points[:, 0] / max(1.0, domain_w - 1.0) * (gw - 1), 0, gw - 1)
+        gy = np.clip(points[:, 1] / max(1.0, domain_h - 1.0) * (gh - 1), 0, gh - 1)
+        x0 = np.floor(gx).astype(int); y0 = np.floor(gy).astype(int)
+        x1 = np.minimum(x0 + 1, gw - 1); y1 = np.minimum(y0 + 1, gh - 1)
+        wx = (gx - x0)[:, None]; wy = (gy - y0)[:, None]
         top = grid[y0, x0] * (1 - wx) + grid[y0, x1] * wx
         bottom = grid[y1, x0] * (1 - wx) + grid[y1, x1] * wx
         return top * (1 - wy) + bottom * wy
 
-    @classmethod
-    def _boxes(cls, grid: np.ndarray, boxes: np.ndarray) -> np.ndarray:
+    def _map_boxes(self, grid: np.ndarray, boxes: np.ndarray, domain_w: float, domain_h: float) -> np.ndarray:
         boxes = np.asarray(boxes, dtype=float)
+        if len(boxes) == 0:
+            return np.empty((0, 4), dtype=float)
         corners = np.stack((boxes[:, [0, 1]], boxes[:, [2, 1]], boxes[:, [2, 3]], boxes[:, [0, 3]]), axis=1)
-        mapped = cls._sample(grid, corners.reshape(-1, 2)).reshape(-1, 4, 2)
+        mapped = self._sample(grid, corners.reshape(-1, 2), domain_w, domain_h).reshape(-1, 4, 2)
         return np.column_stack((mapped[:, :, 0].min(1), mapped[:, :, 1].min(1),
                                 mapped[:, :, 0].max(1), mapped[:, :, 1].max(1)))
 
     def forward_boxes(self, boxes_xyxy: np.ndarray) -> np.ndarray:
-        return self._boxes(self.forward_grid, boxes_xyxy)
+        """Map source 4K boxes -> canvas boxes."""
+        return self._map_boxes(self.inverse_grid, boxes_xyxy, self.source_size[0], self.source_size[1])
 
     def inverse_boxes(self, boxes_xyxy: np.ndarray) -> np.ndarray:
-        return self._boxes(self.inverse_grid, boxes_xyxy)
+        """Map canvas boxes -> source 4K boxes."""
+        return self._map_boxes(self.forward_grid, boxes_xyxy, self.canvas_size[0], self.canvas_size[1])
 
 
 @dataclass
@@ -117,7 +123,9 @@ class ProcessedView:
     def map_box(self, xyxy) -> list[float]:
         source = self.transform.inverse_boxes(np.asarray([xyxy], dtype=float))[0]
         x1, y1, x2, y2 = source
-        return [float(x1), float(y1), float(x2 - x1), float(y2 - y1)]
+        w = max(0.01, float(x2 - x1))
+        h = max(0.01, float(y2 - y1))
+        return [float(x1), float(y1), w, h]
 
 
 def nms(predictions: list[dict[str, Any]], threshold: float = 0.5) -> tuple[list[dict[str, Any]], int]:
@@ -162,7 +170,7 @@ METHOD_REGISTRY = {
     "adazoom": {"type": "adaptive-crop", "requires_training": True, "implementation": "paper-reproduction", "status": "external-required"},
     "fovea": {"type": "nonlinear-warp", "requires_training": True, "implementation": "paper-reproduction", "status": "external-required"},
     "two-plane-prior": {"type": "nonlinear-warp", "requires_training": True, "implementation": "paper-reproduction", "status": "external-required"},
-    "zoomdet": {"type": "nonlinear-warp", "requires_training": True, "implementation": "official-code-adaptation", "status": "external-required"},
+    "zoomdet": {"type": "nonlinear-warp", "requires_training": False, "implementation": "native", "status": "ready"},
 }
 
 METHOD_STATUS = {
@@ -178,6 +186,9 @@ def make_views(image, method: str, tile_size: int = 960, overlap: float = 0.2) -
         raise ValueError("Official SAHI is executed by the generic runner, not make_views()")
     if method == "resize":
         return [ProcessedView(image, IdentityTransform(), width, height)]
+    if method == "zoomdet":
+        from .zoomdet import make_zoomdet_view
+        return [make_zoomdet_view(image, canvas_size=tile_size if tile_size <= 1280 else 640)]
     if method.startswith("uniform"):
         grid = int(method.split("-", 1)[1]) if "-" in method else 2
         views = []

@@ -50,9 +50,9 @@ def train_yolo(
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    actual_epochs = min(2, epochs) if smoke else epochs
+    actual_epochs = min(1, epochs) if smoke else epochs
     resolved_imgsz = 3840 if str(image_size).strip().lower() in {"original", "4k", "native"} else image_size
-    actual_imgsz = min(640, resolved_imgsz) if (smoke and isinstance(resolved_imgsz, int)) else resolved_imgsz
+    actual_imgsz = min(320, resolved_imgsz) if (smoke and isinstance(resolved_imgsz, int)) else resolved_imgsz
     is_rect = rect
 
     # Initialize Cloud Syncer (Background thread uploading checkpoints to HF)

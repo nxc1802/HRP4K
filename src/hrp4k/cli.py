@@ -145,6 +145,15 @@ def build_parser() -> argparse.ArgumentParser:
     check.add_argument("--device")
     check.add_argument("--require-official", action="store_true")
 
+    # Prepare Patch Dataset (Crop Before Training 640)
+    patches = commands.add_parser("prepare-patches", help="Generate patch dataset from 4K images for Patch-Based training")
+    patches.add_argument("--data", type=_path, default=Path("HRP4K"))
+    patches.add_argument("--tile-size", type=int, default=640, help="Tile size for patches (default: 640)")
+    patches.add_argument("--overlap", type=float, default=0.2, help="Overlap ratio between patches (default: 0.2)")
+    patches.add_argument("--bg-ratio", type=float, default=0.20, help="Background-to-positive patches ratio (default: 0.20)")
+    patches.add_argument("--min-visibility", type=float, default=0.25, help="Minimum visible fraction to keep cropped box")
+    patches.add_argument("--output", type=_path, default=Path("outputs/dataset_patches_640"))
+
     # Config Subcommands (Upgrade 3.0)
     config_parser = commands.add_parser("config", help="Inspect and validate modular configurations")
     config_sub = config_parser.add_subparsers(dest="config_command", required=True)
@@ -176,10 +185,10 @@ def build_parser() -> argparse.ArgumentParser:
     smoke.add_argument("--data", type=_path, default=Path("HRP4K"))
     smoke.add_argument("--output", type=_path, default=Path("outputs/smoke"))
     smoke.add_argument("--weights", type=_path, default=Path("yolo11n.pt"))
-    smoke.add_argument("--train-limit", type=int, default=24)
-    smoke.add_argument("--eval-limit", type=int, default=8)
-    smoke.add_argument("--imgsz", type=int, default=320)
-    smoke.add_argument("--device")
+    smoke.add_argument("--train-limit", type=int, default=2, help="Number of training samples for smoke test (default: 2)")
+    smoke.add_argument("--eval-limit", type=int, default=1, help="Number of evaluation samples for smoke test (default: 1)")
+    smoke.add_argument("--imgsz", type=int, default=256, help="Image size for smoke test (default: 256)")
+    smoke.add_argument("--device", default="cpu", help="Device for smoke test (default: cpu)")
 
     return parser
 
@@ -202,6 +211,16 @@ def main(argv: list[str] | None = None) -> int:
         ))
     elif args.command in {"phase0", "analyze"}:
         _print(analyze_dataset(args.data, args.output, args.quality_samples))
+    elif args.command == "prepare-patches":
+        from .data.patches import create_patch_dataset
+        _print(create_patch_dataset(
+            data_dir=args.data,
+            output_dir=args.output,
+            tile_size=args.tile_size,
+            overlap=args.overlap,
+            bg_ratio=args.bg_ratio,
+            min_visibility=args.min_visibility,
+        ))
     elif args.command in {"prepare-smoke", "prepare-dataset"}:
         _print(prepare_dataset_view(args.data, args.output, args.train_limit, args.valid_limit, args.test_limit, args.seed))
     elif args.command in {"phase1", "train"}:
