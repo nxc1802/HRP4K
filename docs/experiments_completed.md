@@ -35,6 +35,7 @@ Tất cả các mô hình dưới đây đều được huấn luyện đầy đ
 | **`sliced-nms`** | Lưới ô vuông $960\times 960$, overlap 20% | $36.88\%$ | $24.35\%$ | $22.84\%$ | $65.59\%$ | $33.12\%$ | $44.01\%$ | 25.0 | 912.6 ms | 0.103 |
 | **`perspective-grid`** 🌟 | Lưới phối cảnh 3 dải, 2D overlap | **$42.02\%$** | **$27.10\%$** | **$25.40\%$** | **$65.67\%$** | **$38.00\%$** | **$48.14\%$** | **9.0** | **830.6 ms** | **0.113** |
 | **`sahi`** | Slicing Aided Hyper Inference đa cấp | **$42.80\%$** | $28.03\%$ | $26.24\%$ | $67.59\%$ | $37.13\%$ | $47.93\%$ | 15.0 | 1054.7 ms | 0.083 |
+| **`zoomdet-neural`** | Official Neural ConvNet 2D Grid Warp (1-Pass) | **$7.81\%$** | $4.65\%$ | $4.49\%$ | **$83.33\%$** | $4.34\%$ | $8.26\%$ | **1.0** | **85.3 ms** | **0.007** |
 
 ---
 
@@ -46,6 +47,7 @@ Tất cả các mô hình dưới đây đều được huấn luyện đầy đ
 | **`sliced-nms`** | $\text{AP}_{50} = 27.95\%$ ($\text{R}=48.5\%$) | $\text{AP}_{50} = 39.67\%$ ($\text{R}=61.0\%$) | $\text{AP}_{50} = 35.37\%$ ($\text{R}=59.9\%$) | $\text{AP}_{50} = 8.73\%$ ($\text{R}=30.1\%$) |
 | **`perspective-grid`** 🌟 | $\mathbf{\text{AP}_{50} = 31.26\%}$ ($\mathbf{\text{R}=55.3\%}$) | $\mathbf{\text{AP}_{50} = 37.07\%}$ ($\mathbf{\text{R}=62.7\%}$) | $\mathbf{\text{AP}_{50} = 33.76\%}$ ($\mathbf{\text{R}=64.0\%}$) | $\mathbf{\text{AP}_{50} = 14.57\%}$ ($\mathbf{\text{R}=43.6\%}$) |
 | **`sahi`** | $\mathbf{\text{AP}_{50} = 34.35\%}$ ($\mathbf{\text{R}=55.1\%}$) | $\mathbf{\text{AP}_{50} = 42.24\%}$ ($\mathbf{\text{R}=62.1\%}$) | $\mathbf{\text{AP}_{50} = 36.08\%}$ ($\mathbf{\text{R}=65.3\%}$) | $\mathbf{\text{AP}_{50} = 10.74\%}$ ($\mathbf{\text{R}=35.3\%}$) |
+| **`zoomdet-neural`** | $\text{AP}_{50} = 0.57\%$ ($\text{R}=0.0\%$) | $\text{AP}_{50} = 6.42\%$ ($\text{R}=0.0\%$) | $\text{AP}_{50} = 13.83\%$ ($\text{R}=0.0\%$) | $\text{AP}_{50} = 11.11\%$ ($\text{R}=0.0\%$) |
 
 ---
 
