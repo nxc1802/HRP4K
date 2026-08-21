@@ -138,8 +138,11 @@ hrp4k phase2 --method sahi --weights outputs/runs/yolo11m_patch640/weights/best.
 ## 🔍 5. Phase 2: High-Resolution Inference & Learned SOTA Warping (900 Ảnh Test 4K)
 
 ```bash
-# Lựa chọn A (SOTA LEARNED WARP): Chạy ZoomDet (Lưới biến dạng 2D liên tục, 1-Pass Inference)
-hrp4k phase2 --method zoomdet --weights outputs/runs/yolo11m_4k/weights/best.pt --output outputs/predictions/yolo11m_zoomdet.json
+# Lựa chọn A1 (ZOOMDET OPTION 1 - OFFICIAL NEURAL): Dùng Mạng Neural ConvNet nhẹ tự sinh lưới biến dạng
+hrp4k phase2 --method zoomdet-neural --weights outputs/runs/yolo11m_4k/weights/best.pt --output outputs/predictions/yolo11m_zoomdet_neural.json
+
+# Lựa chọn A2 (ZOOMDET OPTION 2 - ROAD GEOMETRY PRIOR): Dùng hàm phối cảnh mặt đường từ phân tích dataset
+hrp4k phase2 --method zoomdet-geometry --weights outputs/runs/yolo11m_4k/weights/best.pt --output outputs/predictions/yolo11m_zoomdet_geometry.json
 
 # Lựa chọn B (KHUYÊN DÙNG SLICING): Chạy Perspective-Grid (Bám sát dải phối cảnh mặt đường ở xa, 9 calls)
 hrp4k phase2 --method perspective-grid --weights outputs/runs/yolo11m_4k/weights/best.pt --output outputs/predictions/yolo11m_perspective_grid.json
@@ -150,7 +153,7 @@ hrp4k phase2 --method sahi --weights outputs/runs/yolo11m_4k/weights/best.pt --t
 # Lựa chọn D: Chạy Sliced-NMS (Lưới ô vuông đều 960x960, 25 calls)
 hrp4k phase2 --method sliced-nms --weights outputs/runs/yolo11m_4k/weights/best.pt --output outputs/predictions/yolo11m_sliced_nms.json
 
-# Lựa chọn E: Chạy TẤT CẢ 5 phương pháp Phase 2 cùng lúc để xuất bảng Benchmark tổng hợp
+# Lựa chọn E: Chạy TẤT CẢ các phương pháp Phase 2 cùng lúc để xuất bảng Benchmark tổng hợp
 hrp4k phase2 --method all --weights outputs/runs/yolo11m_4k/weights/best.pt --output outputs/phase2_benchmark/
 ```
 

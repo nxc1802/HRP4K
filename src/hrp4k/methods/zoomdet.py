@@ -124,8 +124,22 @@ def make_zoomdet_view(
     image: np.ndarray,
     canvas_size: int = 640,
     horizon_ratio: float = 0.40,
+    mode: str = "geometry",
+    generator_weights: str | None = None,
+    device: str = "cpu",
 ) -> ProcessedView:
-    """Generate a single 2D Continuous Deformation ZoomDet ProcessedView for 1-pass inference."""
+    """Generate a 2D Continuous Deformation ZoomDet ProcessedView for 1-pass inference.
+    
+    Supports 2 options:
+      - 'geometry' (Road-Prior Continuous Warp based on Dataset Spatial Prior)
+      - 'neural' (Official Neural Network Zoom Generator from Paper)
+    """
+    if mode == "neural":
+        from ..models.zoom_generator import make_neural_zoomdet_view, load_neural_zoom_generator
+        generator = load_neural_zoom_generator(weights_path=generator_weights, canvas_size=canvas_size, device=device)
+        return make_neural_zoomdet_view(image, generator=generator, canvas_size=canvas_size, device=device)
+
+    # Default 'geometry' mode (Road-Geometry Non-Uniform Grid Warp)
     h, w = image.shape[:2]
     remap_x, remap_y, transform = generate_deformation_grid(
         source_h=h, source_w=w, canvas_h=canvas_size, canvas_w=canvas_size, horizon_ratio=horizon_ratio
@@ -136,5 +150,5 @@ def make_zoomdet_view(
         transform=transform,
         source_width=w,
         source_height=h,
-        metadata={"method": "zoomdet", "canvas_size": canvas_size, "horizon_ratio": horizon_ratio},
+        metadata={"method": "zoomdet-geometry", "canvas_size": canvas_size, "horizon_ratio": horizon_ratio},
     )

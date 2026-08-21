@@ -171,6 +171,8 @@ METHOD_REGISTRY = {
     "fovea": {"type": "nonlinear-warp", "requires_training": True, "implementation": "paper-reproduction", "status": "external-required"},
     "two-plane-prior": {"type": "nonlinear-warp", "requires_training": True, "implementation": "paper-reproduction", "status": "external-required"},
     "zoomdet": {"type": "nonlinear-warp", "requires_training": False, "implementation": "native", "status": "ready"},
+    "zoomdet-geometry": {"type": "nonlinear-warp", "requires_training": False, "implementation": "road-geometry-prior", "status": "ready"},
+    "zoomdet-neural": {"type": "nonlinear-warp", "requires_training": True, "implementation": "official-neural-network", "status": "ready"},
 }
 
 METHOD_STATUS = {
@@ -186,9 +188,12 @@ def make_views(image, method: str, tile_size: int = 960, overlap: float = 0.2) -
         raise ValueError("Official SAHI is executed by the generic runner, not make_views()")
     if method == "resize":
         return [ProcessedView(image, IdentityTransform(), width, height)]
-    if method == "zoomdet":
+    if method in {"zoomdet", "zoomdet-geometry"}:
         from .zoomdet import make_zoomdet_view
-        return [make_zoomdet_view(image, canvas_size=tile_size if tile_size <= 1280 else 640)]
+        return [make_zoomdet_view(image, canvas_size=tile_size if tile_size <= 1280 else 640, mode="geometry")]
+    if method == "zoomdet-neural":
+        from .zoomdet import make_zoomdet_view
+        return [make_zoomdet_view(image, canvas_size=tile_size if tile_size <= 1280 else 640, mode="neural")]
     if method.startswith("uniform"):
         grid = int(method.split("-", 1)[1]) if "-" in method else 2
         views = []
