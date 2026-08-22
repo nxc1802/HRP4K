@@ -19,10 +19,14 @@ class UltralyticsAdapter:
 
     def __post_init__(self):
         try:
-            from ultralytics import YOLO
+            from ultralytics import YOLO, RTDETR
         except ImportError as exc:
             raise RuntimeError("Ultralytics prediction requires the 'vision' dependencies") from exc
-        self.model = YOLO(str(self.weights))
+        weights_str = str(self.weights).lower()
+        if "rtdetr" in weights_str or "dfine" in weights_str or "d-fine" in weights_str:
+            self.model = RTDETR(str(self.weights))
+        else:
+            self.model = YOLO(str(self.weights))
 
     def warmup(self, image: np.ndarray, image_size: int) -> None:
         self.predict(image, image_size, 0.01)

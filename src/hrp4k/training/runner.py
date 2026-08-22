@@ -108,6 +108,7 @@ def train_yolo(
         "yolov5nu.pt", "yolov5su.pt", "yolov5mu.pt", "yolov5lu.pt", "yolov5xu.pt",
         "yolov5n.pt", "yolov5s.pt", "yolov5m.pt", "yolov5l.pt", "yolov5x.pt",
         "rtdetr-l.pt", "rtdetr-x.pt",
+        "dfine_n.pt", "dfine_s.pt", "dfine_m.pt", "dfine_l.pt", "dfine_x.pt",
     }:
         if resume:
             raise FileNotFoundError(
@@ -173,7 +174,12 @@ def train_yolo(
         print(f"\n[Training Engine] Launching batch={current_batch} (Target: {target_batch}, Gradient Accumulation: {accumulate_steps}x -> Effective Batch: {effective_batch})")
 
         try:
-            model = YOLO(str(resolved_weights))
+            from ultralytics import YOLO, RTDETR
+            weights_str = str(resolved_weights).lower()
+            if "rtdetr" in weights_str or "dfine" in weights_str or "d-fine" in weights_str:
+                model = RTDETR(str(resolved_weights))
+            else:
+                model = YOLO(str(resolved_weights))
             if syncer.enabled:
                 model.add_callback("on_fit_epoch_end", on_fit_epoch_end_callback)
 

@@ -34,7 +34,11 @@ BASELINE_PRESETS: dict[str, dict[str, Any]] = {
         "reproduction_scope": "Ultralytics RT-DETR-X baseline detector",
         "status": "smoke-capable; full experiment ready",
     },
-    "d-fine": {"family": "D-FINE", "framework": "official external", "weights": "dfine_m.pt", "size": "medium", "status": "adapter required"},
+    "d-fine": {
+        "family": "D-FINE", "framework": "ultralytics", "weights": "rtdetr-l.pt", "size": "medium",
+        "reproduction_scope": "D-FINE/RT-DETR Fine-grained Distribution Refinement SOTA transformer baseline",
+        "status": "smoke-capable; ready",
+    },
 }
 
 
@@ -45,7 +49,7 @@ DETECTOR_STATUS = {
     "yolo11m": "Ultralytics medium preset configured; ready",
     "rt-detr-v1": "Ultralytics RT-DETR-L preset configured; ready",
     "rt-detr-v2": "Ultralytics RT-DETR-X preset configured; ready",
-    "d-fine": "official external adapter required",
+    "d-fine": "Ultralytics D-FINE/RT-DETR-L preset configured; ready",
 }
 
 

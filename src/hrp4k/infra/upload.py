@@ -104,9 +104,9 @@ def get_hf_credentials(
 
 
 def upload_to_hf(
-    repo_id: str | None = None,
-    local_path: Path | str = "outputs",
-    token: str | None = None,
+    repo_id: str,
+    local_path: Path | str,
+    token: str,
     repo_type: str = "dataset",
     path_in_repo: str | None = None,
     commit_message: str | None = None,
@@ -114,44 +114,40 @@ def upload_to_hf(
     """Upload checkpoints and artifacts folder or file to Hugging Face Hub."""
     from huggingface_hub import HfApi
 
-    resolved_token, resolved_repo, resolved_type = get_hf_credentials(token=token, repo_id=repo_id, repo_type=repo_type)
-
-    if not resolved_token or is_placeholder_token(resolved_token):
+    if is_placeholder_token(token):
         raise ValueError("Invalid HF_TOKEN: Token is empty or contains a placeholder. Please provide a valid Hugging Face write token.")
 
-    api = HfApi(token=resolved_token)
+    api = HfApi(token=token)
     source = Path(local_path).expanduser()
 
     if not source.exists():
         raise FileNotFoundError(f"Path does not exist: {source}")
 
     commit_msg = commit_message or f"Upload checkpoints and artifacts from {source.name}"
-    final_repo_id = resolved_repo or "Cuong2004/HRP4K"
-    final_repo_type = resolved_type or "dataset"
 
     if source.is_dir():
-        print(f"Uploading directory '{source}' to Hugging Face repository '{final_repo_id}' ({final_repo_type})...")
+        print(f"Uploading directory '{source}' to Hugging Face repository '{repo_id}' ({repo_type})...")
         api.upload_folder(
             folder_path=str(source),
-            repo_id=final_repo_id,
-            repo_type=final_repo_type,
+            repo_id=repo_id,
+            repo_type=repo_type,
             path_in_repo=path_in_repo or source.name,
             commit_message=commit_msg,
             ignore_patterns=["full_dataset/**", "local_dataset/**", "smoke/**", "*.cache", "*.tmp", "__pycache__/**"],
         )
     else:
-        print(f"Uploading file '{source}' to Hugging Face repository '{final_repo_id}' ({final_repo_type})...")
+        print(f"Uploading file '{source}' to Hugging Face repository '{repo_id}' ({repo_type})...")
         api.upload_file(
             path_or_fileobj=str(source),
             path_in_repo=path_in_repo or source.name,
-            repo_id=final_repo_id,
-            repo_type=final_repo_type,
+            repo_id=repo_id,
+            repo_type=repo_type,
             commit_message=commit_msg,
         )
 
     return {
         "status": "success",
-        "repo_id": final_repo_id,
+        "repo_id": repo_id,
         "repo_type": repo_type,
         "source": str(source),
         "path_in_repo": path_in_repo or source.name,
