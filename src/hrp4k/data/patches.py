@@ -247,6 +247,10 @@ def create_patch_dataset(
             "annotations": ann_id_counter,
         }
 
+    summary["dataset_type"] = "patches"
+    summary["official_dataset_identity"] = True
+    summary["official_dataset_view"] = True
+
     # Generate dataset.yaml for Ultralytics training
     dataset_yaml = {
         "path": str(output_dir.resolve()),

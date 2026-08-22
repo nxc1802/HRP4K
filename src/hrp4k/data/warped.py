@@ -148,6 +148,10 @@ def create_warped_dataset(
             "annotations": ann_id_counter,
         }
 
+    summary["dataset_type"] = "warped"
+    summary["official_dataset_identity"] = True
+    summary["official_dataset_view"] = True
+
     # Generate dataset.yaml for Ultralytics training
     dataset_yaml = {
         "path": str(output_dir.resolve()),

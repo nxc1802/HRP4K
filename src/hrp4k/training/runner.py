@@ -42,9 +42,15 @@ def train_yolo(
     manifest_path = dataset_yaml.parent / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else None
 
-    if not smoke and (not manifest or not manifest.get("official_dataset_identity") or not manifest.get("official_dataset_view")):
+    is_derived_or_patch = manifest and (
+        manifest.get("official_dataset_view")
+        or manifest.get("dataset_type") in {"patches", "warped", "derived"}
+        or manifest.get("tile_size") is not None
+        or manifest.get("splits") is not None
+    )
+    if not smoke and not is_derived_or_patch:
         raise ValueError(
-            "Official training requires the verified single official dataset view. Run `hrp4k prepare-dataset` without limits."
+            "Official training requires the verified single official dataset view or a generated patch dataset. Run `hrp4k prepare-dataset` or `hrp4k prepare-patches` without limits."
         )
 
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
