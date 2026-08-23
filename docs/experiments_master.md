@@ -10,7 +10,7 @@ Bảng này cung cấp cái nhìn tổng quan, dễ hiểu nhất về toàn b�
 
 | STT | Trụ Cột Nghiên Cứu | Phương Pháp / Mô Hình | Độ Phân Giải Train | Cơ Chế Suy Luận | $\mathbf{\text{mAP}_{50}}$ | $\mathbf{\text{mAP}_{50-95}}$ | Recall | Latency | Trạng Thái |
 | :---: | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **1** | **Trụ Cột 1: Native 4K e2e**<br>*(Upper Bound)* | **`dfine_4k`** 👑 🏆 | $3840 \times 2176$ | Native 4K (1 call) | **$\mathbf{59.18\%}$** | **$\mathbf{36.43\%}$** | **$\mathbf{56.03\%}$** | $\approx 35\text{ ms}$ | 👑 **KỶ LỤC DỰ ÁN** (18/150) |
+| **1** | **Trụ Cột 1: Native 4K e2e**<br>*(Upper Bound)* | **`dfine_4k`** 👑 🏆 | $3840 \times 2176$ | Native 4K (1 call) | **$\mathbf{59.37\%}$** | **$\mathbf{36.43\%}$** | **$\mathbf{57.72\%}$** | $\approx 35\text{ ms}$ | 👑 **KỶ LỤC DỰ ÁN** (23/150) |
 | **2** |  | **`yolo11m_4k`** ⭐ | $3840 \times 2176$ | Native 4K (1 call) | **$\mathbf{55.05\%}$** | **$\mathbf{33.27\%}$** | **$49.19\%$** | $27.3\text{ ms}$ | ✅ **ĐÃ XONG** |
 | **3** |  | **`yolov8m_4k`** | $3840 \times 2176$ | Native 4K (1 call) | *[Đang chờ]* | *[Đang chờ]* | *[Đang chờ]* | $\approx 30\text{ ms}$ | ⏳ **CẦN CHẠY** |
 | **4** |  | **`yolov5m_4k`** | $3840 \times 2176$ | Native 4K (1 call) | *[Đang chờ]* | *[Đang chờ]* | *[Đang chờ]* | $\approx 26\text{ ms}$ | ⏳ **CẦN CHẠY** |
@@ -19,12 +19,11 @@ Bảng này cung cấp cái nhìn tổng quan, dễ hiểu nhất về toàn b�
 | **7** |  | **`yolov5m_640`** | $640 \times 640$ | Resize 640 (1 call) | **$35.94\%$** | $18.07\%$ | $34.53\%$ | $7.8\text{ ms}$ | ✅ **ĐÃ XONG** |
 | **8** |  | **`yolo11m_1280`** ⭐ | $1280 \times 1280$ | Resize 1280 (1 call) | **$48.98\%$** | $25.40\%$ | $45.50\%$ | $14.6\text{ ms}$ | ✅ **ĐÃ XONG** |
 | **9** | **Trụ Cột 3: Patch-Train 640**<br>*(Crop Before Training)* | **`yolo11m_patch640`** + Perspective-Grid | Tiles $640 \times 640$ | 3 dải phối cảnh (9 calls) | **$\mathbf{14.90\%}$** | **$\mathbf{7.10\%}$** | **$18.57\%$** | $840\text{ ms}$ | ✅ **ĐÃ XONG** |
-| **10** |  | **`yolo11m_patch640`** + SAHI | Tiles $640 \times 640$ | SAHI (15 calls) | **$6.49\%$** | $2.78\%$ | $11.07\%$ | $1060\text{ ms}$ | ✅ **ĐÃ XONG** |
-| **11** |  | **`dfine_patch640`** | Tiles $640 \times 640$ | Slicing / SAHI | *[Đang huấn luyện]* | *[Đang huấn luyện]* | *[Đang huấn luyện]* | $\approx 950\text{ ms}$ | 🔥 **ĐANG HUẤN LUYỆN** |
+| **11** |  | **`dfine_patch640`** + Perspective-Grid 👑 | Tiles $640 \times 640$ | 3 dải phối cảnh (9 calls) | **$\mathbf{15.86\%}$** | **$\mathbf{5.55\%}$** | **$29.53\%$** | $\approx 920\text{ ms}$ | ✅ **ĐÃ XONG** |
 | **12** | **Trụ Cột 4: Warped ZoomDet**<br>*(Deformation Geometry)* | **`yolo11m_zoomdet640`** 🚀 | $640 \times 640$ | ZoomDet 1-Pass (1 call) | **$\mathbf{26.04\%}$** | **$\mathbf{10.39\%}$** | **$29.32\%$** | **$18.4\text{ ms}$** | ✅ **ĐÃ XONG** |
 | **13** |  | **`dfine_zoomdet640`** 👑 | $640 \times 640$ | ZoomDet 1-Pass (1 call) | **$\mathbf{42.07\%}$** | **$\mathbf{18.42\%}$** | **$\mathbf{54.72\%}$** | **$\approx 22.0\text{ ms}$** | ✅ **ĐÃ XONG** |
 | **14** | **Trụ Cột 5: Vision Transformers**<br>*(D-FINE DETR Architectures)* | **`dfine_640`** 🚀 | $640 \times 640$ | Resize 640 (1 call) | **$\mathbf{37.37\%}$** | **$\mathbf{18.18\%}$** | **$47.56\%$** | **$\approx 21.5\text{ ms}$** | ✅ **ĐÃ XONG** |
-| **15** |  | **`dfine_patch640`** 👑 | Tiles $640 \times 640$ | Slicing / SAHI | **$\mathbf{47.68\%}$ (Val)** | **$\mathbf{21.60\%}$ (Val)** | **$\mathbf{44.36\%}$** | $\approx 950\text{ ms}$ | ✅ **ĐÃ XONG** |
+| **15** |  | **`dfine_patch640`** 👑 | Tiles $640 \times 640$ | Slicing / SAHI | **$\mathbf{47.68\%}$ (Val)** | **$\mathbf{21.60\%}$ (Val)** | **$\mathbf{44.36\%}$** | $\approx 920\text{ ms}$ | ✅ **ĐÃ XONG** |
 | **16** | **Inference Slicing on 4K Model** | **`perspective-grid` (Model 4K)** 🌟 | $3840 \times 2176$ | 3 dải phối cảnh (**9 calls**) | **$\mathbf{42.02\%}$** | **$\mathbf{25.40\%}$** | **$\mathbf{38.00\%}$** | **$830.6\text{ ms}$** | ✅ **ĐÃ XONG** |
 | **17** |  | **`sahi` (Model 4K)** | $3840 \times 2176$ | SAHI đa cấp (15 calls) | **$42.80\%$** | $26.24\%$ | $37.13\%$ | $1054.7\text{ ms}$ | ✅ **ĐÃ XONG** |
 | **18** |  | **`sliced-nms` (Model 4K)** | $3840 \times 2176$ | Lưới đều (25 calls) | **$36.88\%$** | $22.84\%$ | $33.12\%$ | $912.6\text{ ms}$ | ✅ **ĐÃ XONG** |
