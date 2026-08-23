@@ -176,10 +176,22 @@ def train_yolo(
         try:
             from ultralytics import YOLO, RTDETR
             weights_str = str(resolved_weights).lower()
-            if "rtdetr" in weights_str or "dfine" in weights_str or "d-fine" in weights_str:
+            is_transformer = "rtdetr" in weights_str or "dfine" in weights_str or "d-fine" in weights_str
+            if is_transformer:
                 model = RTDETR(str(resolved_weights))
+                opt_name = "AdamW"
+                base_lr0 = 0.0001
+                base_warmup_bias_lr = 0.0
+                base_weight_decay = 0.0001
+                use_amp = True
             else:
                 model = YOLO(str(resolved_weights))
+                opt_name = "SGD"
+                base_lr0 = 0.01
+                base_warmup_bias_lr = 0.1
+                base_weight_decay = 0.0005
+                use_amp = True
+
             if syncer.enabled:
                 model.add_callback("on_fit_epoch_end", on_fit_epoch_end_callback)
 
@@ -190,15 +202,15 @@ def train_yolo(
                 batch=current_batch,
                 nbs=target_batch,
                 rect=is_rect,
-                amp=True,
-                optimizer="SGD",
-                lr0=0.01,
+                amp=use_amp,
+                optimizer=opt_name,
+                lr0=base_lr0,
                 lrf=0.01,
                 momentum=0.937,
-                weight_decay=0.0005,
+                weight_decay=base_weight_decay,
                 warmup_epochs=3.0,
                 warmup_momentum=0.8,
-                warmup_bias_lr=0.1,
+                warmup_bias_lr=base_warmup_bias_lr,
                 mosaic=1.0,
                 mixup=0.0,
                 degrees=0.0,

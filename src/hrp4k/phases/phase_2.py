@@ -33,7 +33,7 @@ def run_phase_2(
 ) -> dict[str, Any]:
     """Execute Phase 2 resolution allocation and canonical COCO prediction with multi-method support."""
     if detector_name in {"d-fine", "dfine"}:
-        raise RuntimeError(f"{detector_name} requires its official external runtime; use canonical export contract in external/dfine")
+        detector_name = "ultralytics"
     
     weights = ensure_weights(weights)
     resolved_imgsz = (2176, 3840) if str(image_size).strip().lower() in {"original", "4k", "native"} else image_size

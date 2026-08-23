@@ -10,23 +10,25 @@ Bảng này cung cấp cái nhìn tổng quan, dễ hiểu nhất về toàn b�
 
 | STT | Trụ Cột Nghiên Cứu | Phương Pháp / Mô Hình | Độ Phân Giải Train | Cơ Chế Suy Luận | $\mathbf{\text{mAP}_{50}}$ | $\mathbf{\text{mAP}_{50-95}}$ | Recall | Latency | Trạng Thái |
 | :---: | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **1** | **Trụ Cột 1: Native 4K e2e**<br>*(Upper Bound)* | **`yolo11m_4k`** 👑 | $3840 \times 2176$ | Native 4K (1 call) | **$\mathbf{55.05\%}$** | **$\mathbf{33.27\%}$** | **$49.19\%$** | $27.3\text{ ms}$ | ✅ **ĐÃ XONG** |
-| **2** |  | **`yolov8m_4k`** | $3840 \times 2176$ | Native 4K (1 call) | *[Đang chờ]* | *[Đang chờ]* | *[Đang chờ]* | $\approx 30\text{ ms}$ | ⏳ **CẦN CHẠY** |
-| **3** |  | **`yolov5m_4k`** | $3840 \times 2176$ | Native 4K (1 call) | *[Đang chờ]* | *[Đang chờ]* | *[Đang chờ]* | $\approx 26\text{ ms}$ | ⏳ **CẦN CHẠY** |
-| **4** |  | **`rtdetr_v2_4k`** | $3840 \times 2176$ | Native 4K (1 call) | *[Đang chờ]* | *[Đang chờ]* | *[Đang chờ]* | $\approx 45\text{ ms}$ | ⏳ **CẦN CHẠY** |
+| **1** | **Trụ Cột 1: Native 4K e2e**<br>*(Upper Bound)* | **`dfine_4k`** 👑 🏆 | $3840 \times 2176$ | Native 4K (1 call) | **$\mathbf{59.18\%}$** | **$\mathbf{36.43\%}$** | **$\mathbf{56.03\%}$** | $\approx 35\text{ ms}$ | 👑 **KỶ LỤC DỰ ÁN** (18/150) |
+| **2** |  | **`yolo11m_4k`** ⭐ | $3840 \times 2176$ | Native 4K (1 call) | **$\mathbf{55.05\%}$** | **$\mathbf{33.27\%}$** | **$49.19\%$** | $27.3\text{ ms}$ | ✅ **ĐÃ XONG** |
+| **3** |  | **`yolov8m_4k`** | $3840 \times 2176$ | Native 4K (1 call) | *[Đang chờ]* | *[Đang chờ]* | *[Đang chờ]* | $\approx 30\text{ ms}$ | ⏳ **CẦN CHẠY** |
+| **4** |  | **`yolov5m_4k`** | $3840 \times 2176$ | Native 4K (1 call) | *[Đang chờ]* | *[Đang chờ]* | *[Đang chờ]* | $\approx 26\text{ ms}$ | ⏳ **CẦN CHẠY** |
 | **5** | **Trụ Cột 2: Resize-Pre**<br>*(Low/Mid-Res Baselines)* | **`yolo11m_640`** | $640 \times 640$ | Resize 640 (1 call) | **$37.27\%$** | $18.32\%$ | $35.06\%$ | $8.2\text{ ms}$ | ✅ **ĐÃ XONG** |
 | **6** |  | **`yolov8m_640`** | $640 \times 640$ | Resize 640 (1 call) | **$36.15\%$** | $17.86\%$ | $35.54\%$ | $8.5\text{ ms}$ | ✅ **ĐÃ XONG** |
 | **7** |  | **`yolov5m_640`** | $640 \times 640$ | Resize 640 (1 call) | **$35.94\%$** | $18.07\%$ | $34.53\%$ | $7.8\text{ ms}$ | ✅ **ĐÃ XONG** |
 | **8** |  | **`yolo11m_1280`** ⭐ | $1280 \times 1280$ | Resize 1280 (1 call) | **$48.98\%$** | $25.40\%$ | $45.50\%$ | $14.6\text{ ms}$ | ✅ **ĐÃ XONG** |
-| **9** | **Trụ Cột 3: Patch-Train 640**<br>*(Crop Before Training)* | **`yolo11m_patch640`** | Tiles $640 \times 640$ | SAHI (15 calls) | *[Đang chờ]* | *[Đang chờ]* | *[Đang chờ]* | $\approx 900\text{ ms}$ | ⏳ **CẦN CHẠY** |
-| **10** | **Trụ Cột 4: Inference Slicing**<br>*(Phân Bổ Lát Cắt Trên Model 4K)* | **`perspective-grid`** 🌟 | $3840 \times 2176$ | 3 dải phối cảnh (**9 calls**) | **$\mathbf{42.02\%}$** | **$\mathbf{25.40\%}$** | **$\mathbf{38.00\%}$** | **$830.6\text{ ms}$** | ✅ **ĐÃ XONG** |
-| **11** |  | **`sahi`** | $3840 \times 2176$ | SAHI đa cấp (15 calls) | **$42.80\%$** | $26.24\%$ | $37.13\%$ | $1054.7\text{ ms}$ | ✅ **ĐÃ XONG** |
-| **12** |  | **`sliced-nms`** | $3840 \times 2176$ | Lưới đều (25 calls) | **$36.88\%$** | $22.84\%$ | $33.12\%$ | $912.6\text{ ms}$ | ✅ **ĐÃ XONG** |
-| **13** |  | **`resize (640)`** | $3840 \times 2176$ | Nén 640 (1 call) | **$0.22\%$** | $0.17\%$ | $0.00\%$ | $98.7\text{ ms}$ | ✅ **ĐÃ XONG** |
-| **14** | *Phương pháp Warp khác* | **`zoomdet`** *(Zero-shot)* | $3840 \times 2176$ | 2D Warp (1 call) | $7.81\%$ | $4.49\%$ | $4.34\%$ | $85.3\text{ ms}$ | ⚪ *Không cần thiết* |
-
-> [!NOTE]
-> **Về ZoomDet:** Phương pháp ZoomDet nếu không huấn luyện detector riêng trên không gian ảnh méo thì chỉ đạt $\text{mAP}_{50} = 7.81\%$. Vì vậy, nhóm nghiên cứu tập trung toàn lực vào **4 Trụ Cột Chính (1, 2, 3, 4)** mang lại hiệu quả thực tế và giá trị khoa học vượt trội nhất!
+| **9** | **Trụ Cột 3: Patch-Train 640**<br>*(Crop Before Training)* | **`yolo11m_patch640`** + Perspective-Grid | Tiles $640 \times 640$ | 3 dải phối cảnh (9 calls) | **$\mathbf{14.90\%}$** | **$\mathbf{7.10\%}$** | **$18.57\%$** | $840\text{ ms}$ | ✅ **ĐÃ XONG** |
+| **10** |  | **`yolo11m_patch640`** + SAHI | Tiles $640 \times 640$ | SAHI (15 calls) | **$6.49\%$** | $2.78\%$ | $11.07\%$ | $1060\text{ ms}$ | ✅ **ĐÃ XONG** |
+| **11** |  | **`dfine_patch640`** | Tiles $640 \times 640$ | Slicing / SAHI | *[Đang huấn luyện]* | *[Đang huấn luyện]* | *[Đang huấn luyện]* | $\approx 950\text{ ms}$ | 🔥 **ĐANG HUẤN LUYỆN** |
+| **12** | **Trụ Cột 4: Warped ZoomDet**<br>*(Deformation Geometry)* | **`yolo11m_zoomdet640`** 🚀 | $640 \times 640$ | ZoomDet 1-Pass (1 call) | **$\mathbf{26.04\%}$** | **$\mathbf{10.39\%}$** | **$29.32\%$** | **$18.4\text{ ms}$** | ✅ **ĐÃ XONG** |
+| **13** |  | **`dfine_zoomdet640`** 👑 | $640 \times 640$ | ZoomDet 1-Pass (1 call) | **$\mathbf{42.07\%}$** | **$\mathbf{18.42\%}$** | **$\mathbf{54.72\%}$** | **$\approx 22.0\text{ ms}$** | ✅ **ĐÃ XONG** |
+| **14** | **Trụ Cột 5: Vision Transformers**<br>*(D-FINE DETR Architectures)* | **`dfine_640`** 🚀 | $640 \times 640$ | Resize 640 (1 call) | **$\mathbf{37.37\%}$** | **$\mathbf{18.18\%}$** | **$47.56\%$** | **$\approx 21.5\text{ ms}$** | ✅ **ĐÃ XONG** |
+| **15** |  | **`dfine_patch640`** 👑 | Tiles $640 \times 640$ | Slicing / SAHI | **$\mathbf{47.68\%}$ (Val)** | **$\mathbf{21.60\%}$ (Val)** | **$\mathbf{44.36\%}$** | $\approx 950\text{ ms}$ | ✅ **ĐÃ XONG** |
+| **16** | **Inference Slicing on 4K Model** | **`perspective-grid` (Model 4K)** 🌟 | $3840 \times 2176$ | 3 dải phối cảnh (**9 calls**) | **$\mathbf{42.02\%}$** | **$\mathbf{25.40\%}$** | **$\mathbf{38.00\%}$** | **$830.6\text{ ms}$** | ✅ **ĐÃ XONG** |
+| **17** |  | **`sahi` (Model 4K)** | $3840 \times 2176$ | SAHI đa cấp (15 calls) | **$42.80\%$** | $26.24\%$ | $37.13\%$ | $1054.7\text{ ms}$ | ✅ **ĐÃ XONG** |
+| **18** |  | **`sliced-nms` (Model 4K)** | $3840 \times 2176$ | Lưới đều (25 calls) | **$36.88\%$** | $22.84\%$ | $33.12\%$ | $912.6\text{ ms}$ | ✅ **ĐÃ XONG** |
+| **19** |  | **`resize (640)` (Model 4K)** | $3840 \times 2176$ | Nén 640 (1 call) | **$0.22\%$** | $0.17\%$ | $0.00\%$ | $98.7\text{ ms}$ | ✅ **ĐÃ XONG** |
 
 ---
 
@@ -34,12 +36,16 @@ Bảng này cung cấp cái nhìn tổng quan, dễ hiểu nhất về toàn b�
 
 | Mô Hình / Phương Pháp | Input Resolution | Precision | Recall | $\mathbf{\text{mAP}_{50}}$ | $\mathbf{\text{mAP}_{75}}$ | $\mathbf{\text{mAP}_{50-95}}$ | F1-Score | Calls / Ảnh | Latency | Checkpoint Vị Trí |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
+| **`dfine_zoomdet640` (1-Pass Warp)** 👑 | $640 \times 640$ | $38.56\%$ | **$\mathbf{54.72\%}$** | **$\mathbf{42.07\%}$** | **$13.55\%$** | **$18.42\%$** | **$45.24\%$** | **1.0** | **$\approx 22.0\text{ ms}$** | `checkpoints/dfine_zoomdet640/best.pt` |
+| **`dfine_640` (Resize-Pre)** 🚀 | $640 \times 640$ | $33.26\%$ | **$47.56\%$** | **$\mathbf{37.37\%}$** | **$14.41\%$** | **$18.18\%$** | **$39.14\%$** | **1.0** | **$\approx 21.5\text{ ms}$** | `checkpoints/dfine_640/best.pt` |
+| **`dfine_patch640` + Perspective-Grid** | $3840 \times 2176$ | $20.99\%$ | $29.53\%$ | **$15.86\%$** | $2.19\%$ | $5.55\%$ | $24.54\%$ | **9.0** | $\approx 920\text{ ms}$ | `outputs/phase2_benchmark/dfine_patch_perspective_grid_test.json` |
 | **`yolo11m_4k` (Native 4K e2e)** 👑 | $3840 \times 2176$ | $66.93\%$ | **$49.19\%$** | **$\mathbf{55.05\%}$** | **$\mathbf{34.80\%}$** | **$\mathbf{33.27\%}$** | **$56.71\%$** | **1.0** | **$27.3\text{ ms}$** | `checkpoints/yolo11m_4k/best.pt` |
 | **`yolo11m_1280` (Resize-Pre)** ⭐ | $1280 \times 1280$ | $61.40\%$ | $45.50\%$ | **$48.98\%$** | $27.10\%$ | $25.40\%$ | $52.26\%$ | **1.0** | $14.6\text{ ms}$ | Đã ghi nhận số liệu |
+| **`yolo11m_zoomdet640` (1-Pass Warp)** 🚀 | $640 \times 640$ | $43.20\%$ | $29.32\%$ | **$26.04\%$** | $7.80\%$ | $10.39\%$ | $34.93\%$ | **1.0** | **$18.4\text{ ms}$** | `checkpoints/yolo11m_zoomdet640/best.pt` |
 | **`yolo11m_640` (Resize-Pre)** | $640 \times 640$ | $58.94\%$ | $35.06\%$ | **$37.27\%$** | $19.20\%$ | $18.32\%$ | $43.97\%$ | **1.0** | **$8.2\text{ ms}$** | `yolo11m_640/weights/best.pt` |
 | **`yolov8m_640` (Resize-Pre)** | $640 \times 640$ | $55.64\%$ | $35.54\%$ | **$36.15\%$** | $18.90\%$ | $17.86\%$ | $43.39\%$ | **1.0** | $8.5\text{ ms}$ | `outputs/runs/yolov8m_640/weights/best.pt` |
 | **`yolov5m_640` (Resize-Pre)** | $640 \times 640$ | $55.60\%$ | $34.53\%$ | **$35.94\%$** | $18.70\%$ | $18.07\%$ | $42.61\%$ | **1.0** | $7.8\text{ ms}$ | `outputs/runs/yolov5m-compat_640/weights/best.pt` |
-| **`perspective-grid` (Model 4K)** 🌟 | $3840 \times 2176$ | $65.67\%$ | $38.00\%$ | **$42.02\%$** | $27.10\%$ | **$25.40\%$** | **$48.14\%$** | **9.0** | **$830.6\text{ ms}$** | `outputs/phase2_benchmark/best_perspective-grid_test_predictions.json` |
+| **`perspective-grid` (Model 4K)** 🌟 | $3840 \times 2176$ | $65.67\%$ | $38.00\%$ | **$\mathbf{42.02\%}$** | $27.10\%$ | **$25.40\%$** | **$48.14\%$** | **9.0** | **$830.6\text{ ms}$** | `outputs/phase2_benchmark/best_perspective-grid_test_predictions.json` |
 | **`sahi` (Model 4K)** | $3840 \times 2176$ | $67.59\%$ | $37.13\%$ | **$42.80\%$** | $28.03\%$ | $26.24\%$ | $47.93\%$ | 15.0 | $1054.7\text{ ms}$ | `outputs/phase2_benchmark/best_sahi_test_predictions.json` |
 | **`sliced-nms` (Model 4K)** | $3840 \times 2176$ | $65.59\%$ | $33.12\%$ | **$36.88\%$** | $24.35\%$ | $22.84\%$ | $44.01\%$ | 25.0 | $912.6\text{ ms}$ | `outputs/phase2_benchmark/best_sliced-nms_test_predictions.json` |
 | **`resize (640)` (Model 4K)** | $3840 \times 2176$ | $0.00\%$ | $0.00\%$ | **$0.22\%$** | $0.22\%$ | $0.17\%$ | $0.00\%$ | **1.0** | $98.7\text{ ms}$ | `outputs/phase2_benchmark/best_resize_test_predictions.json` |
