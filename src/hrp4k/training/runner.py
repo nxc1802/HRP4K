@@ -158,12 +158,23 @@ def train_yolo(
         except Exception as cb_exc:
             print(f"[Cloud Sync Warning] Failed to trigger epoch sync: {cb_exc}")
 
-    # Build gradient accumulation candidates: target batch falls back as 16 -> 8 -> 4 -> 2 -> 1 on OOM
+    weights_str = str(resolved_weights).lower()
+    is_transformer = "rtdetr" in weights_str or "dfine" in weights_str or "d-fine" in weights_str
+    is_4k = (actual_imgsz == 3840 or (isinstance(actual_imgsz, (list, tuple)) and 3840 in actual_imgsz))
+
+    # Build gradient accumulation candidates: For 4K Transformer, start directly at batch=2 to avoid OOM retry cycle
     target_batch = max(1, batch)
     candidate_batches: list[int] = []
-    for b in [target_batch, 16, 8, 4, 2, 1]:
-        if b <= target_batch and b not in candidate_batches:
-            candidate_batches.append(b)
+    if is_transformer and is_4k:
+        start_batch = min(target_batch, 2)
+        candidate_batches = [start_batch, 1] if start_batch > 1 else [1]
+    else:
+        for b in [target_batch, 16, 8, 4, 2, 1]:
+            if b <= target_batch and b not in candidate_batches:
+                candidate_batches.append(b)
+
+    # Disable heavy matplotlib 4K plot generation during validation to prevent validator OOM
+    use_plots = False if (is_4k or is_transformer or smoke) else True
 
     result = None
     actual_batch = candidate_batches[0]
@@ -171,12 +182,10 @@ def train_yolo(
     for current_batch in candidate_batches:
         accumulate_steps = max(1, round(target_batch / current_batch))
         effective_batch = current_batch * accumulate_steps
-        print(f"\n[Training Engine] Launching batch={current_batch} (Target: {target_batch}, Gradient Accumulation: {accumulate_steps}x -> Effective Batch: {effective_batch})")
+        print(f"\n[Training Engine] Launching batch={current_batch} (Target: {target_batch}, Gradient Accumulation: {accumulate_steps}x -> Effective Batch: {effective_batch}, Plots: {use_plots})")
 
         try:
             from ultralytics import YOLO, RTDETR
-            weights_str = str(resolved_weights).lower()
-            is_transformer = "rtdetr" in weights_str or "dfine" in weights_str or "d-fine" in weights_str
             if is_transformer:
                 model = RTDETR(str(resolved_weights))
                 opt_name = "AdamW"
@@ -224,7 +233,10 @@ def train_yolo(
                 deterministic=True,
                 workers=0 if smoke else 2,
                 cache=False,
-                plots=not smoke,
+                plots=use_plots,
+                val=True,
+                save=True,
+                save_period=1,
                 project=str(run_dir.parent),
                 name=run_dir.name,
                 exist_ok=True,
