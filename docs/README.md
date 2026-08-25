@@ -1,71 +1,52 @@
-# HRP4K Documentation Hub
+# HRP4K Benchmark Suite — Documentation Hub
 
 Chào mừng bạn đến với trung tâm tài liệu kỹ thuật và nghiên cứu của dự án **HRP4K Benchmark & Analysis Suite**.
 
-Tài liệu được phân loại theo 5 chuyên mục chính:
+Tài liệu được tinh gọn tập trung thành các danh mục sau:
 
 ```
 docs/
-├── README.md                      # Trang mục lục & tổng quan hệ thống tài liệu
+├── README.md                 # Trang mục lục & tổng quan hệ thống tài liệu
+├── experiments_master.md     # 📊 BẢNG TỔNG HỢP MASTER KẾT QUẢ THỰC NGHIỆM DUY NHẤT
 │
-├── paper/                         # Bối cảnh khoa học & bài báo gốc
-│   ├── s41597-026-07317-w.pdf    # Bài báo gốc công bố trên Nature Scientific Data (2026)
-│   └── s41597-026-07317-w.md     # Bản phân tích chi tiết toàn bộ nội dung bài báo
+├── paper/                    # Bối cảnh khoa học & bài báo gốc
+│   ├── s41597-026-07317-w.pdf# Bài báo gốc công bố trên Nature Scientific Data (2026)
+│   └── s41597-026-07317-w.md # Bản phân tích chi tiết toàn bộ nội dung bài báo
 │
-├── architecture/                  # Kiến trúc phần mềm & nguyên tắc tái lập
-│   ├── upgrade3.0.md             # Đặc tả thiết kế kiến trúc Upgrade 3.0 (v0.5.0)
-│   └── reproducibility.md        # Giao thức tái lập & các chốt chặn khoa học (Invariants)
-│
-├── phases/                        # Đặc tả chi tiết từng Phase trong Pipeline
-│   ├── overview.md               # Tổng quan lộ trình Phase 0–3
-│   ├── phase_0.md                # Phase 0: Phân tích & Kiểm tra toàn vẹn Dataset
-│   ├── phase_1.md                # Phase 1: Huấn luyện Baseline & Detector Adapters
-│   ├── phase_2.md                # Phase 2: Phân bổ Độ phân giải (Resolution Allocation)
-│   ├── phase_2_1.md              # Phase 2.1: Tích hợp thư viện SAHI & Sliced Inference
-│   └── phase_3.md                # Phase 3: Chẩn đoán sâu, Phân tích lỗi & Biên Pareto
-│
-├── methodology/                   # Phương pháp luận & ma trận thuật toán
-│   └── methods.md                # Danh mục các phương pháp, phép biến đổi hình học & ranh giới heuristic
-│
-└── guides/                        # Sổ tay hướng dẫn vận hành & thực thi
-    ├── run_full_pipeline.md      # Hướng dẫn chạy toàn bộ pipeline (Local & Server)
-    └── run_full_pipeline.sh      # Script bash tự động hóa thực thi pipeline
+└── guides/                   # Sổ tay hướng dẫn vận hành & thực thi
+    ├── run_full_pipeline.md  # Hướng dẫn chi tiết chạy toàn bộ pipeline
+    ├── run_full_pipeline.sh  # Script bash tự động hóa thực thi
+    └── run_missing_slicing.sh# Script chạy toàn bộ benchmark Slicing còn thiếu
 ```
 
 ---
 
-## 1. Bối cảnh Khoa học (`paper/`)
+## 📊 Bảng Kết Quả Thực Nghiệm Chính Thức
+
+Toàn bộ kết quả thực nghiệm chuẩn hóa trên tập **$900$ ảnh Test split** được lưu trữ duy nhất tại:
+👉 [**`docs/experiments_master.md`**](experiments_master.md)
+
+Tài liệu bao gồm:
+1. **Bảng Kết Quả Cốt Lõi (`YOLO11m` & `D-FINE`)**:
+   - **Native 4K UHD**: `yolo11m_4k` ($\mathbf{55.05\%}\text{ mAP}_{50}$), `dfine_4k` *(đang huấn luyện)*.
+   - **Resize 640x640**: `yolo11m_640` ($37.27\%$), `dfine_640` ($37.37\%$).
+   - **Patch 640x640**: `yolo11m_patch640`, `dfine_patch640`.
+   - **Slicing Methods (`perspective-grid`, `sahi`, `sliced-nms`)**: Áp dụng trên Resize/4K Model và Patch Model.
+2. **Bảng Thực Nghiệm Bổ Trợ**: `yolo11m_1280` ($48.98\%$), `dfine_zoomdet640` ($42.07\%$), `RT-DETRv2/v1`, `YOLOv8m`, `YOLOv5m`.
+3. **Bóc tách theo 4 Dải Kích Thước (Scale Bins)**: Ultra-fine ($<16\text{ px}$), Fine, Medium, Large.
+4. **Phân tích Hiệu Năng & Độ Trễ (Efficiency & Latency)**: Đo thời gian suy luận (ms), số detector calls, peak VRAM và throughput FPS.
+
+---
+
+## 📖 Bối Cảnh Khoa Học (`paper/`)
 
 - [**Bài báo Nature Scientific Data (PDF)**](paper/s41597-026-07317-w.pdf): Bản in chính thức của bài báo *"A high-resolution perspective-view road image dataset for pothole detection"* (Nature Portfolio, 2026, 13:961).
-- [**Phân tích & Tóm lược Bài báo (Markdown)**](paper/s41597-026-07317-w.md): Tổng quan toàn diện về động lực nghiên cứu, quy trình HITL (Human-in-the-loop), đặc thù đối tượng ultra-fine (<0.05% diện tích) và kết quả benchmark baseline.
+- [**Phân tích & Tóm lược Bài báo (Markdown)**](paper/s41597-026-07317-w.md): Tổng quan toàn diện về bộ dữ liệu $6.003$ ảnh 4K UHD, đối tượng siêu nhỏ ultra-fine và video-level split.
 
 ---
 
-## 2. Kiến trúc Hệ thống & Giao thức Tái lập (`architecture/`)
+## 🚀 Hướng Dẫn Vận Hành (`guides/`)
 
-- [**Đề án Kiến trúc Upgrade 3.0**](architecture/upgrade3.0.md): Tài liệu thiết kế chi tiết quá trình chuyển đổi sang package layout `src/hrp4k/`, modular YAML configuration, và 5 abstraction cốt lõi (*Config, Experiment, Artifact, Phase, Scientific Contract*).
-- [**Giao thức Tái lập (Reproducibility Protocol)**](architecture/reproducibility.md): Các quy chuẩn bắt buộc về khóa băm SHA-256 dữ liệu, split cấp video, đo độ trễ đồng bộ CUDA với warm-up và ranh giới không rò rỉ dữ liệu (leakage boundaries).
-
----
-
-## 3. Quy trình Triển khai theo Phase (`phases/`)
-
-- [**Tổng quan Kế hoạch Phase 0–3**](phases/overview.md): Tóm lược mục tiêu, đầu vào và đầu ra của 4 Phase trong pipeline.
-- [**Phase 0 — Dataset Audit & Integrity**](phases/phase_0.md): Quy chuẩn kiểm tra bbox, tính tương quan Spearman không gian $y_{\text{bottom}} \leftrightarrow \log(\text{Area})$, đo distribution shift (JS/KS) và tạo symlink view.
-- [**Phase 1 — Detector Baseline**](phases/phase_1.md): Thiết lập Ultralytics adapter, cấu hình SGD 150 epoch với AMP và cơ chế chặn full training nếu thiếu dữ liệu chính thức.
-- [**Phase 2 — Resolution Allocation**](phases/phase_2.md): Cơ chế phân bổ độ phân giải (Resize, Uniform Crop, Sliced-NMS, Perspective-Grid) và ánh xạ ngược tọa độ thuận/nghịch.
-- [**Phase 2.1 — SAHI Integration**](phases/phase_2_1.md): Tích hợp thư viện SAHI chính thức với bộ metrics tương thích chuẩn COCO.
-- [**Phase 3 — Deep Diagnostics**](phases/phase_3.md): Đánh giá COCO AP/AR, phân tích kích thước bbox hiệu dụng ở các canvas, ma trận chuyển dịch cứu vật thể (object rescue transition) và tìm biên Pareto (Accuracy vs. CAF).
-
----
-
-## 4. Phương pháp luận (`methodology/`)
-
-- [**Methods Registry & Transforms**](methodology/methods.md): Bảng phân loại chi tiết trạng thái của từng phương pháp (`ready`, `optional-ready`, `external-required`), nguyên tắc không gán heuristic đơn giản cho phương pháp learned (như TPP, FOVEA, ZoomDet).
-
----
-
-## 5. Hướng dẫn Vận hành (`guides/`)
-
-- [**Hướng dẫn Chạy Toàn bộ Pipeline**](guides/run_full_pipeline.md): Hướng dẫn chi tiết từng bước từ cài đặt môi trường, phân tích dữ liệu, smoke run đến chạy benchmark chính thức trên GPU.
-- [**Script Tự động hóa Pipeline (`run_full_pipeline.sh`)**](guides/run_full_pipeline.sh): Script shell hỗ trợ chạy nhanh toàn bộ quy trình với các tham số cấu hình linh hoạt.
+- [**Hướng dẫn Chạy Toàn bộ Pipeline (`guides/run_full_pipeline.md`)**](guides/run_full_pipeline.md): Hướng dẫn chi tiết từng bước từ tải dữ liệu Hugging Face, kiểm tra toàn vẹn, huấn luyện baseline đến chạy benchmark slicing.
+- [**Script Tự Động Hóa (`guides/run_full_pipeline.sh`)**](guides/run_full_pipeline.sh): Script bash một lệnh thực thi toàn bộ pipeline.
+- [**Sổ Tay Lệnh Toàn Năng (`commands.md`)**](file:///Volumes/WorkSpace/Project/HRP4K/commands.md): Tra cứu nhanh mọi câu lệnh CLI `hrp4k`, Marimo Lab, GPU Server và Kaggle.

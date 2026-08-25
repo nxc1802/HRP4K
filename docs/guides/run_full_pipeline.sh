@@ -1,74 +1,36 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "=== [0/6] PREFLIGHT: OFFICIAL RELEASE IDENTITY ==="
-python -m hrp4k_suite preflight --data HRP4K --require-official
+echo "=== [1/5] SETUP DATASET (HUGGING FACE) ==="
+hrp4k setup-data --data HRP4K
 
-echo "=== [1/6] PHASE 0: DATASET INTEGRITY & ANALYSIS ==="
-python -m hrp4k_suite analyze --data HRP4K --output outputs/phase0
+echo "=== [2/5] PHASE 0: DATASET AUDIT & INTEGRITY ==="
+hrp4k phase0 --data HRP4K --output outputs/phase0 --quality-samples 12
 
-echo "=== [2/6] DATASET PREPARATION: FULL AVAILABLE SPLIT ==="
-python -m hrp4k_suite prepare-dataset \
-  --data HRP4K \
-  --output outputs/full_dataset
-
-echo "=== [3/6] PHASE 1: VERIFIED OFFICIAL RELEASE TRAINING ==="
-python -m hrp4k_suite train \
-  --dataset outputs/full_dataset/dataset.yaml \
-  --weights yolo11m.pt \
-  --output outputs/runs/yolo11m_full \
-  --epochs 150 \
-  --imgsz 640 \
+echo "=== [3/5] PHASE 1: NATIVE 4K / BASELINE TRAINING ==="
+# Huấn luyện YOLO11m trên 4K gốc (hoặc imgsz 640)
+hrp4k phase1 \
+  --model yolo11m \
+  --imgsz original \
   --batch 16 \
-  --allow-full
+  --epochs 150 \
+  --allow-full \
+  --confidence 0.001 \
+  --rect \
+  --output outputs/runs/yolo11m_4k
 
-echo "=== [4/6] PHASE 2: RESOLUTION ALLOCATION INFERENCES ==="
-mkdir -p outputs/predictions
+echo "=== [4/5] PHASE 2: HIGH-RESOLUTION INFERENCE BENCHMARK ==="
+# Chạy toàn bộ các phương pháp Phase 2 (SAHI, Perspective-Grid, Sliced-NMS, ZoomDet, Resize)
+hrp4k phase2 \
+  --method all \
+  --weights outputs/runs/yolo11m_4k/weights/best.pt \
+  --output outputs/phase2_benchmark/
 
-# Resize 640
-python -m hrp4k_suite predict \
-  --data outputs/full_dataset --split test \
-  --weights outputs/runs/yolo11m_full/weights/best.pt \
-  --method resize --imgsz 640 \
-  --output outputs/predictions/resize_640.json
+echo "=== [5/5] PHASE 3: DEEP DIAGNOSTICS REPORT ==="
+hrp4k diagnose \
+  --ground-truth HRP4K/test.json \
+  --predictions outputs/phase2_benchmark/best_perspective-grid_test_predictions.json \
+  --output outputs/diagnostics
 
-# In-house sliced inference (not official SAHI)
-python -m hrp4k_suite predict \
-  --data outputs/full_dataset --split test \
-  --weights outputs/runs/yolo11m_full/weights/best.pt \
-  --method sliced-nms --tile-size 960 --overlap 0.2 \
-  --output outputs/predictions/sliced_nms_960.json
+echo "=== BENCHMARK PIPELINE COMPLETE! Kết quả lưu tại outputs/ ==="
 
-# Hand-designed perspective grid (not learned TPP)
-python -m hrp4k_suite predict \
-  --data outputs/full_dataset --split test \
-  --weights outputs/runs/yolo11m_full/weights/best.pt \
-  --method perspective-grid \
-  --output outputs/predictions/perspective_grid.json
-
-echo "=== [5/6] METRICS EVALUATION ==="
-python -m hrp4k_suite evaluate \
-  --ground-truth outputs/full_dataset/test.json \
-  --predictions outputs/predictions/resize_640.json \
-  --output outputs/predictions/resize_640_metrics.json
-
-python -m hrp4k_suite evaluate \
-  --ground-truth outputs/full_dataset/test.json \
-  --predictions outputs/predictions/sliced_nms_960.json \
-  --output outputs/predictions/sliced_nms_960_metrics.json
-
-python -m hrp4k_suite evaluate \
-  --ground-truth outputs/full_dataset/test.json \
-  --predictions outputs/predictions/perspective_grid.json \
-  --output outputs/predictions/perspective_grid_metrics.json
-
-echo "=== [6/6] PHASE 3: DEEP DIAGNOSTICS REPORT ==="
-python -m hrp4k_suite diagnose \
-  --ground-truth outputs/full_dataset/test.json \
-  --predictions \
-    outputs/predictions/resize_640.json \
-    outputs/predictions/sliced_nms_960.json \
-    outputs/predictions/perspective_grid.json \
-  --output outputs/phase3_report
-
-echo "=== BENCHMARK PIPELINE COMPLETE! Output saved to outputs/phase3_report ==="

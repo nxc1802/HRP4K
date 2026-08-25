@@ -135,26 +135,40 @@ hrp4k phase2 --method sahi --weights outputs/runs/yolo11m_patch640/weights/best.
 
 ---
 
-## 🔍 5. Phase 2: High-Resolution Inference & Learned SOTA Warping (900 Ảnh Test 4K)
+## 🔍 5. Phase 2: High-Resolution Inference & Resolution Allocation (900 Ảnh Test 4K)
 
+### 5.1. Slicing & Warping Inference Trên Model 4K Gốc / ZoomDet
 ```bash
-# Lựa chọn A1 (ZOOMDET OPTION 1 - OFFICIAL NEURAL): Dùng Mạng Neural ConvNet nhẹ tự sinh lưới biến dạng
+# Lựa chọn A1 (ZOOMDET NEURAL): Dùng Mạng Neural ConvNet nhẹ tự sinh lưới biến dạng
 hrp4k phase2 --method zoomdet-neural --weights outputs/runs/yolo11m_4k/weights/best.pt --output outputs/predictions/yolo11m_zoomdet_neural.json
 
-# Lựa chọn A2 (ZOOMDET OPTION 2 - ROAD GEOMETRY PRIOR): Dùng hàm phối cảnh mặt đường từ phân tích dataset
+# Lựa chọn A2 (ZOOMDET GEOMETRY PRIOR): Dùng hàm phối cảnh mặt đường
 hrp4k phase2 --method zoomdet-geometry --weights outputs/runs/yolo11m_4k/weights/best.pt --output outputs/predictions/yolo11m_zoomdet_geometry.json
 
-# Lựa chọn B (KHUYÊN DÙNG SLICING): Chạy Perspective-Grid (Bám sát dải phối cảnh mặt đường ở xa, 9 calls)
+# Lựa chọn B: Perspective-Grid (9 calls)
 hrp4k phase2 --method perspective-grid --weights outputs/runs/yolo11m_4k/weights/best.pt --output outputs/predictions/yolo11m_perspective_grid.json
 
-# Lựa chọn C: Chạy SAHI Inference (Tile 640x640 hoặc 960x960, overlap 20%)
+# Lựa chọn C: SAHI Inference (15 calls)
 hrp4k phase2 --method sahi --weights outputs/runs/yolo11m_4k/weights/best.pt --tile-size 640 --overlap 0.2 --output outputs/predictions/yolo11m_sahi.json
 
-# Lựa chọn D: Chạy Sliced-NMS (Lưới ô vuông đều 960x960, 25 calls)
+# Lựa chọn D: Sliced-NMS (25 calls)
 hrp4k phase2 --method sliced-nms --weights outputs/runs/yolo11m_4k/weights/best.pt --output outputs/predictions/yolo11m_sliced_nms.json
+```
 
-# Lựa chọn E: Chạy TẤT CẢ các phương pháp Phase 2 cùng lúc để xuất bảng Benchmark tổng hợp
-hrp4k phase2 --method all --weights outputs/runs/yolo11m_4k/weights/best.pt --output outputs/phase2_benchmark/
+---
+
+### 🧩 5.2. Slicing Inference Trên Patch-640 Models (3 Lệnh Cần Chạy Để Hoàn Tất Bảng IV)
+Chạy suy luận các phương pháp Slicing trên $900$ ảnh Test 4K cho mô hình huấn luyện bằng Patch 640 (chuẩn tile-size 640x640):
+
+```bash
+# 1️⃣ YOLO11m Patch 640 + Sliced-NMS (Lưới đều 640x640):
+hrp4k phase2 --data HRP4K --split test --weights checkpoints/yolo11m_patch640/best.pt --method sliced-nms --tile-size 640 --overlap 0.2 --output outputs/predictions/yolo11m_patch_sliced_nms.json
+
+# 2️⃣ D-FINE Patch 640 + SAHI (SAHI đa cấp 640x640):
+hrp4k phase2 --data HRP4K --split test --weights checkpoints/dfine_patch640/best.pt --method sahi --tile-size 640 --overlap 0.2 --output outputs/predictions/dfine_patch_sahi.json
+
+# 3️⃣ D-FINE Patch 640 + Sliced-NMS (Lưới đều 640x640):
+hrp4k phase2 --data HRP4K --split test --weights checkpoints/dfine_patch640/best.pt --method sliced-nms --tile-size 640 --overlap 0.2 --output outputs/predictions/dfine_patch_sliced_nms.json
 ```
 
 ---
@@ -180,8 +194,6 @@ hrp4k push-hf --repo Cuong2004/HRP4K --path outputs/ --token ${HF_TOKEN}
 
 ## 🟦 8. Thực Thi Trên Kaggle Notebooks (GPU T4 / P100)
 
-Chạy trực tiếp các cell lệnh dưới đây trong môi trường **Kaggle Notebooks**. Hệ thống sẽ tự động phát hiện dataset trong `/kaggle/input/hrp4k` (hoặc tải từ HF) và **tự động tải weight `best.pt` từ Hugging Face** nếu chưa có cục bộ:
-
 ### Cell 1: Khởi Tạo Môi Trường & Kết Nối Hugging Face Trên Kaggle
 ```bash
 !git clone https://github.com/nxc1802/HRP4K.git || (cd HRP4K && git pull)
@@ -197,13 +209,64 @@ os.environ["HF_REPO"] = "Cuong2004/HRP4K"
 !hrp4k setup-data --data HRP4K
 ```
 
-### Cell 2: Chạy Benchmark Phase 2 Toàn Diện Trên Kaggle (Tự Động Kéo Checkpoint 4K Từ HF)
+### Cell 2: Chạy Song Song 3 Lệnh Slicing Trên Dual GPU (GPU 0 & GPU 1) — Chỉ Mất ~2.5 Phút!
 ```bash
-# Chạy đồng thời toàn bộ 5 phương pháp ZoomDet, Perspective-Grid, SAHI, Sliced-NMS, Resize trên tập Test
-!hrp4k phase2 --method all --weights outputs/runs/yolo11m_4k/weights/best.pt --output outputs/phase2_benchmark/
+%%bash
+# [GPU 0]: Chạy YOLO11m Patch 640 + Sliced-NMS (Tile 640x640)
+(
+  echo "🚀 [GPU 0] Bắt đầu YOLO11m Patch 640 + Sliced-NMS (Tile 640)..."
+  CUDA_VISIBLE_DEVICES=0 hrp4k phase2 \
+    --data HRP4K \
+    --split test \
+    --weights checkpoints/yolo11m_patch640/best.pt \
+    --method sliced-nms \
+    --tile-size 640 \
+    --overlap 0.2 \
+    --device 0 \
+    --output outputs/predictions/yolo11m_patch_sliced_nms.json
+  echo "✅ [GPU 0] Hoàn tất YOLO11m Patch 640 + Sliced-NMS!"
+) &
+
+# [GPU 1]: Chạy D-FINE Patch 640 + SAHI rồi đến D-FINE Patch 640 + Sliced-NMS (Tile 640x640)
+(
+  echo "🚀 [GPU 1] Bắt đầu (1/2): D-FINE Patch 640 + SAHI (Tile 640)..."
+  CUDA_VISIBLE_DEVICES=1 hrp4k phase2 \
+    --data HRP4K \
+    --split test \
+    --weights checkpoints/dfine_patch640/best.pt \
+    --method sahi \
+    --tile-size 640 \
+    --overlap 0.2 \
+    --device 0 \
+    --output outputs/predictions/dfine_patch_sahi.json
+  echo "✅ [GPU 1] Hoàn tất D-FINE SAHI! Bắt đầu (2/2): D-FINE Patch 640 + Sliced-NMS (Tile 640)..."
+  
+  CUDA_VISIBLE_DEVICES=1 hrp4k phase2 \
+    --data HRP4K \
+    --split test \
+    --weights checkpoints/dfine_patch640/best.pt \
+    --method sliced-nms \
+    --tile-size 640 \
+    --overlap 0.2 \
+    --device 0 \
+    --output outputs/predictions/dfine_patch_sliced_nms.json
+  echo "✅ [GPU 1] Hoàn tất D-FINE Patch 640 + Sliced-NMS!"
+) &
+
+# Chờ cả 2 luồng GPU hoàn thành
+wait
+echo "🎉 TẤT CẢ 3 THÍ NGHIỆM ĐÃ HOÀN TẤT ĐỒNG THỜI TRÊN 2 GPU!"
 ```
 
-### Cell 3: Chẩn Đoán Lỗi & Phân Loại Sai Số (Phase 3)
+
+### Cell 3: Chẩn Đoán Lỗi & Xem Bảng Kết Quả Tổng Hợp
 ```bash
-!hrp4k diagnose --ground-truth HRP4K/test.json --predictions outputs/phase2_benchmark/best_perspective-grid_test_predictions.json --output outputs/diagnostics
+!hrp4k diagnose --ground-truth HRP4K/test.json \
+  --predictions \
+    outputs/predictions/yolo11m_patch_sliced_nms.json \
+    outputs/predictions/dfine_patch_sahi.json \
+    outputs/predictions/dfine_patch_sliced_nms.json \
+  --output outputs/diagnostics
 ```
+
+
