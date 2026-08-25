@@ -192,7 +192,7 @@ def train_yolo(
                 base_lr0 = 0.0001
                 base_warmup_bias_lr = 0.0
                 base_weight_decay = 0.0001
-                use_amp = True
+                use_amp = False  # Transformer Deformable Attention on 4K requires FP32 to prevent NaN overflow
             else:
                 model = YOLO(str(resolved_weights))
                 opt_name = "SGD"
