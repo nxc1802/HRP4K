@@ -269,4 +269,38 @@ echo "🎉 TẤT CẢ 3 THÍ NGHIỆM ĐÃ HOÀN TẤT ĐỒNG THỜI TRÊN 2 GP
   --output outputs/diagnostics
 ```
 
+### Cell 4: Nén Toàn Bộ Kết Quả & Tạo Link Tải Về Local (Kaggle / Server)
+Chạy cell này để đóng gói toàn bộ thư mục `outputs/` thành file zip và hiện link click tải trực tiếp về máy tính:
+
+```python
+import shutil
+import os
+from IPython.display import FileLink, display
+
+# 1. Đóng gói outputs thành file zip
+output_zip = '/kaggle/working/hrp4k_results.zip' if os.path.exists('/kaggle/working') else 'outputs/hrp4k_results.zip'
+source_dir = 'outputs'
+
+print(f"📦 Đang nén thư mục {source_dir} thành {output_zip}...")
+shutil.make_archive(output_zip.replace('.zip', ''), 'zip', source_dir)
+print(f"✅ Đã nén thành công! Dung lượng: {os.path.getsize(output_zip) / (1024*1024):.2f} MB")
+
+# 2. Hiển thị link click tải trực tiếp
+print("👉 Bấm vào link dưới đây để tải về máy local:")
+display(FileLink(output_zip))
+```
+
+Hoặc dùng lệnh bash trực tiếp trên terminal:
+```bash
+zip -r /kaggle/working/hrp4k_results.zip outputs/
+```
+
+---
+
+### Cell 5: Đồng Bộ Trực Tiếp Lên Hugging Face Repo
+```bash
+!hrp4k push-hf --repo Cuong2004/HRP4K --path outputs/ --token ${HF_TOKEN}
+```
+
+
 
