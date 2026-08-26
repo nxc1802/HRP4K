@@ -113,7 +113,10 @@ hrp4k phase1 --model yolov5m-compat --imgsz original --batch 16 --epochs 150 --a
 # Lựa chọn E: Huấn luyện RT-DETRv2 (Transformer SOTA) với KÍCH THƯỚC GỐC 4K (batch 16, --rect)
 hrp4k phase1 --model rt-detr-v2 --imgsz original --batch 16 --epochs 150 --allow-full --confidence 0.001 --rect --output outputs/runs/rtdetr_v2_4k
 
-# Lựa chọn F: Huấn luyện TOÀN BỘ các mô hình Baseline tự động với kích thước gốc 4K
+# Lựa chọn G (D-FINE 4K FP32): Huấn luyện tiếp từ best.pt với độ chính xác FP32 thuần (Tự động tải best.pt từ HF)
+hrp4k phase1 --model d-fine --weights checkpoints/dfine_4k/best.pt --imgsz original --batch 16 --epochs 150 --allow-full --confidence 0.001 --rect --output outputs/runs/dfine_4k
+
+# Lựa chọn H: Huấn luyện TOÀN BỘ các mô hình Baseline tự động với kích thước gốc 4K
 hrp4k phase1 --model all --imgsz original --batch 16 --epochs 150 --allow-full --confidence 0.001 --rect --output outputs/phase1_all_4k
 ```
 
