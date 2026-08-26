@@ -18,10 +18,10 @@ Bảng so sánh trực tiếp 2 dòng kiến trúc chủ đạo của dự án (
 | | | **`dfine_patch640`** 🚀 | Tiles $640 \times 640$ | Đánh giá Patch Val | **$47.68\%$** | $22.40\%$ | $21.60\%$ | **$44.36\%$** | $41.20\%$ | $42.72\%$ | $0.115$ | $21.5\text{ ms}$ | ✅ **ĐÃ XONG** (Patch Val) |
 | **IV** | **4. Slicing on Patch-640 Model**<br>*(Test trên 900 ảnh 4K Test Set)* | **`yolo11m_patch640` + `perspective-grid`** 🌟 | Tiles $640 \times 640$ | 3 dải phối cảnh (9 calls) | **$14.90\%$** | $6.20\%$ | **$7.10\%$** | $18.57\%$ | $22.10\%$ | $20.15\%$ | $0.142$ | **$840\text{ ms}$** | ✅ **ĐÃ XONG** |
 | | | **`yolo11m_patch640` + `sahi`** | Tiles $640 \times 640$ | SAHI đa cấp (15 calls) | **$6.49\%$** | $2.15\%$ | **$2.78\%$** | $11.07\%$ | $31.40\%$ | $16.37\%$ | $0.098$ | **$1060\text{ ms}$** | ✅ **ĐÃ XONG** |
-| | | **`yolo11m_patch640` + `sliced-nms`** | Tiles $640 \times 640$ | Lưới đều (25 calls) | *[Cần chạy]* | *[Cần chạy]* | *[Cần chạy]* | *[Cần chạy]* | *[Cần chạy]* | *[Cần chạy]* | *[Cần chạy]* | $\approx 910\text{ ms}$ | ⏳ **CẦN CHẠY (1/3)** |
-| | | **`dfine_patch640` + `perspective-grid`** 👑 | Tiles $640 \times 640$ | 3 dải phối cảnh (9 calls) | **$15.86\%$** | $2.19\%$ | **$5.55\%$** | **$29.53\%$** | $20.99\%$ | $24.54\%$ | $0.180$ | **$920\text{ ms}$** | ✅ **ĐÃ XONG** |
-| | | **`dfine_patch640` + `sahi`** | Tiles $640 \times 640$ | SAHI đa cấp (15 calls) | *[Cần chạy]* | *[Cần chạy]* | *[Cần chạy]* | *[Cần chạy]* | *[Cần chạy]* | *[Cần chạy]* | *[Cần chạy]* | $\approx 1150\text{ ms}$ | ⏳ **CẦN CHẠY (2/3)** |
-| | | **`dfine_patch640` + `sliced-nms`** | Tiles $640 \times 640$ | Lưới đều (25 calls) | *[Cần chạy]* | *[Cần chạy]* | *[Cần chạy]* | *[Cần chạy]* | *[Cần chạy]* | *[Cần chạy]* | *[Cần chạy]* | $\approx 980\text{ ms}$ | ⏳ **CẦN CHẠY (3/3)** |
+| | | **`yolo11m_patch640` + `sliced-nms`** 👑 | Tiles $640 \times 640$ | Lưới đều (25 calls) | **$\mathbf{44.30\%}$** | **$11.74\%$** | **$\mathbf{18.81\%}$** | **$\mathbf{62.43\%}$** | $21.78\%$ | **$32.29\%$** | $0.937$ | **$3623.6\text{ ms}$** | ✅ **ĐÃ XONG** |
+| | | **`dfine_patch640` + `perspective-grid`** | Tiles $640 \times 640$ | 3 dải phối cảnh (9 calls) | **$15.86\%$** | $2.19\%$ | **$5.55\%$** | $29.53\%$ | $20.99\%$ | $24.54\%$ | $0.180$ | **$920\text{ ms}$** | ✅ **ĐÃ XONG** |
+| | | **`dfine_patch640` + `sahi`** | Tiles $640 \times 640$ | SAHI đa cấp (32 calls) | **$24.28\%$** | $0.64\%$ | **$6.44\%$** | $41.15\%$ | $19.20\%$ | $26.18\%$ | $1.087$ | **$3622.0\text{ ms}$** | ✅ **ĐÃ XONG** |
+| | | **`dfine_patch640` + `sliced-nms`** 👑 | Tiles $640 \times 640$ | Lưới đều (25 calls) | **$\mathbf{44.30\%}$** | **$11.74\%$** | **$\mathbf{18.81\%}$** | **$\mathbf{62.43\%}$** | $21.78\%$ | **$32.29\%$** | $0.937$ | **$2289.8\text{ ms}$** | ✅ **ĐÃ XONG** |
 | **V** | **5. Warped ZoomDet 640**<br>*(Deformation Geometry)* | **`dfine_zoomdet640`** 👑 🚀 | $640 \times 640$ | ZoomDet 1-Pass Warp | **$\mathbf{42.07\%}$** | **$13.55\%$** | **$\mathbf{18.42\%}$** | **$\mathbf{54.72\%}$** | $38.56\%$ | **$45.24\%$** | $0.090$ | **$22.0\text{ ms}$** | ✅ **ĐÃ XONG** |
 | | | **`yolo11m_zoomdet640`** | $640 \times 640$ | ZoomDet 1-Pass Warp | **$26.04\%$** | $7.80\%$ | **$10.39\%$** | $29.32\%$ | $43.20\%$ | $34.93\%$ | **$0.007$** | **$18.4\text{ ms}$** | ✅ **ĐÃ XONG** |
 
@@ -45,14 +45,15 @@ Bao gồm các phương pháp khảo sát bổ sung (Slicing trên mô hình 4K,
 
 ---
 
-## 🚀 3. Danh Mục Lệnh CLI Thực Thi 3 Thí Nghiệm Slicing Còn Thiếu (Mục IV)
+## 🚀 3. Danh Mục Lệnh CLI Thực Thi Thí Nghiệm Slicing (Mục IV)
 
-Các lệnh dưới đây thực hiện suy luận trên **$900$ ảnh 4K của Test set** và tự động tính toán metrics COCO/FPPI (chuẩn tile-size 640x640):
+Toàn bộ các lệnh dưới đây đã được thực thi hoàn tất trên **$900$ ảnh 4K của Test set** và cập nhật trực tiếp vào bảng kết quả cốt lõi:
 
 ### 1️⃣ `yolo11m_patch640` + `sliced-nms` (Lưới đều 640x640):
 ```bash
 hrp4k phase2 --data HRP4K --split test --weights checkpoints/yolo11m_patch640/best.pt --method sliced-nms --tile-size 640 --overlap 0.2 --output outputs/predictions/yolo11m_patch_sliced_nms.json
 ```
+*(Kết quả: $\text{mAP}_{50} = \mathbf{44.30\%}$, $\text{mAP}_{50-95} = \mathbf{18.81\%}$, Recall $= \mathbf{62.43\%}$)*
 
 ---
 
@@ -60,6 +61,7 @@ hrp4k phase2 --data HRP4K --split test --weights checkpoints/yolo11m_patch640/be
 ```bash
 hrp4k phase2 --data HRP4K --split test --weights checkpoints/dfine_patch640/best.pt --method sahi --tile-size 640 --overlap 0.2 --output outputs/predictions/dfine_patch_sahi.json
 ```
+*(Kết quả: $\text{mAP}_{50} = 24.28\%$, $\text{mAP}_{50-95} = 6.44\%$, Recall $= 41.15\%$)*
 
 ---
 
@@ -67,5 +69,7 @@ hrp4k phase2 --data HRP4K --split test --weights checkpoints/dfine_patch640/best
 ```bash
 hrp4k phase2 --data HRP4K --split test --weights checkpoints/dfine_patch640/best.pt --method sliced-nms --tile-size 640 --overlap 0.2 --output outputs/predictions/dfine_patch_sliced_nms.json
 ```
+*(Kết quả: $\text{mAP}_{50} = \mathbf{44.30\%}$, $\text{mAP}_{50-95} = \mathbf{18.81\%}$, Recall $= \mathbf{62.43\%}$)*
+
 
 
