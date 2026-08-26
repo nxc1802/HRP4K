@@ -49,27 +49,28 @@ Bao gồm các phương pháp khảo sát bổ sung (Slicing trên mô hình 4K,
 
 Toàn bộ các lệnh dưới đây đã được thực thi hoàn tất trên **$900$ ảnh 4K của Test set** và cập nhật trực tiếp vào bảng kết quả cốt lõi:
 
-### 1️⃣ `yolo11m_patch640` + `sliced-nms` (Lưới đều 640x640):
+### 1️⃣ `yolo11m_patch640` + `sliced-nms` (Lưới đều 25 calls):
 ```bash
-hrp4k phase2 --data HRP4K --split test --weights checkpoints/yolo11m_patch640/best.pt --method sliced-nms --tile-size 640 --overlap 0.2 --output outputs/predictions/yolo11m_patch_sliced_nms.json
+hrp4k phase2 --data HRP4K --split test --weights checkpoints/yolo11m_patch640/best.pt --method sliced-nms --tile-size 960 --overlap 0.2 --output outputs/predictions/yolo11m_patch_sliced_nms.json
 ```
-*(Kết quả: $\text{mAP}_{50} = \mathbf{44.30\%}$, $\text{mAP}_{50-95} = \mathbf{18.81\%}$, Recall $= \mathbf{62.43\%}$)*
+*(Kết quả: $\text{mAP}_{50} = \mathbf{44.30\%}$, $\text{mAP}_{50-95} = \mathbf{18.81\%}$, Recall $= \mathbf{62.43\%}$ — **25 calls / ảnh**)*
 
 ---
 
-### 2️⃣ `dfine_patch640` + `sahi` (SAHI đa cấp 640x640):
+### 2️⃣ `dfine_patch640` + `sahi` (SAHI đa cấp 32 calls):
 ```bash
 hrp4k phase2 --data HRP4K --split test --weights checkpoints/dfine_patch640/best.pt --method sahi --tile-size 640 --overlap 0.2 --output outputs/predictions/dfine_patch_sahi.json
 ```
-*(Kết quả: $\text{mAP}_{50} = 24.28\%$, $\text{mAP}_{50-95} = 6.44\%$, Recall $= 41.15\%$)*
+*(Kết quả: $\text{mAP}_{50} = 24.28\%$, $\text{mAP}_{50-95} = 6.44\%$, Recall $= 41.15\%$ — **32 calls / ảnh**)*
 
 ---
 
-### 3️⃣ `dfine_patch640` + `sliced-nms` (Lưới đều 640x640):
+### 3️⃣ `dfine_patch640` + `sliced-nms` (Lưới đều 25 calls):
 ```bash
-hrp4k phase2 --data HRP4K --split test --weights checkpoints/dfine_patch640/best.pt --method sliced-nms --tile-size 640 --overlap 0.2 --output outputs/predictions/dfine_patch_sliced_nms.json
+hrp4k phase2 --data HRP4K --split test --weights checkpoints/dfine_patch640/best.pt --method sliced-nms --tile-size 960 --overlap 0.2 --output outputs/predictions/dfine_patch_sliced_nms.json
 ```
-*(Kết quả: $\text{mAP}_{50} = \mathbf{44.30\%}$, $\text{mAP}_{50-95} = \mathbf{18.81\%}$, Recall $= \mathbf{62.43\%}$)*
+*(Kết quả: $\text{mAP}_{50} = \mathbf{44.30\%}$, $\text{mAP}_{50-95} = \mathbf{18.81\%}$, Recall $= \mathbf{62.43\%}$ — **25 calls / ảnh**)*
+
 
 
 
