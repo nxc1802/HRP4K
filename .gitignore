@@ -36,3 +36,4 @@ venv/
 __marimo__/
 commands.md
 
+uv.lock
