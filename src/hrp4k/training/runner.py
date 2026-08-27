@@ -198,6 +198,22 @@ def train_yolo(
                 base_warmup_bias_lr = 0.0
                 base_weight_decay = 0.0001
                 use_amp = False  # Transformer Deformable Attention on 4K requires FP32 to prevent NaN overflow
+
+                # If resuming, automatically patch args.yaml to ensure Ultralytics doesn't reload amp: True
+                if resume:
+                    for candidate_yaml in [
+                        run_dir / "args.yaml",
+                        Path(resolved_weights).parent.parent / "args.yaml",
+                        Path(resolved_weights).parent / "args.yaml",
+                    ]:
+                        if candidate_yaml.is_file():
+                            try:
+                                import re
+                                text = candidate_yaml.read_text(encoding="utf-8")
+                                text = re.sub(r"^amp:\s*[Tt]rue", "amp: false", text, flags=re.MULTILINE)
+                                candidate_yaml.write_text(text, encoding="utf-8")
+                            except Exception:
+                                pass
             else:
                 model = YOLO(str(resolved_weights))
                 opt_name = "SGD"
