@@ -125,7 +125,8 @@ def predict_detector(
                 merged, suppressed = nms(candidates)
         predictions.extend(merged)
         source_pixels = sum(view.source_width * view.source_height for view in views)
-        canvas_pixels = len(views) * image_size * image_size
+        single_canvas = (image_size[0] * image_size[1]) if isinstance(image_size, (list, tuple)) else (int(image_size) * int(image_size))
+        canvas_pixels = len(views) * single_canvas
         image_meta.append({"image_id": int(image["id"]), "method": method,
                            "decode_latency_ms": decode_timer.elapsed_ms, "processor_latency_ms": processor_timer.elapsed_ms,
                            "detector_latency_ms": detector_latency, "fusion_latency_ms": fusion_timer.elapsed_ms,
@@ -133,7 +134,7 @@ def predict_detector(
                            "processed_source_pixels": source_pixels,
                            "processed_area_ratio": source_pixels / (source.shape[0] * source.shape[1]),
                            "nominal_detector_canvas_pixels": canvas_pixels,
-                           "compute_amplification_nominal_canvas": canvas_pixels / (image_size * image_size),
+                           "compute_amplification_nominal_canvas": canvas_pixels / single_canvas if single_canvas > 0 else 1.0,
                            "fusion_suppression_count": suppressed, "predictions": len(merged)})
     ds_meta = dataset_manifest(data_dir, split)
     config = {"dataset": ds_meta, "detector": detector.metadata(),
