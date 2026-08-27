@@ -11,7 +11,7 @@ Bảng so sánh trực tiếp 2 dòng kiến trúc chủ đạo của dự án (
 | STT | Nhóm Phương Pháp | Mô Hình / Cấu Hình | Độ Phân Giải Train | Cơ Chế Suy Luận | $\mathbf{\text{mAP}_{50}}$ | $\mathbf{\text{mAP}_{75}}$ | $\mathbf{\text{mAP}_{50-95}}$ | Recall | Precision | $F_1$ | FPPI (Neg Set) | Latency / Ảnh | Trạng Thái |
 | :---: | :--- | :--- | :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | **I** | **1. Native 4K UHD**<br>*(Upper Bound)* | **`yolo11m_4k`** 👑 | $3840 \times 2176$ | Native 4K (1 pass) | **$\mathbf{55.05\%}$** | **$\mathbf{34.80\%}$** | **$\mathbf{33.27\%}$** | **$49.19\%$** | **$66.93\%$** | **$56.71\%$** | **$0.047$** | **$27.3\text{ ms}$** | ✅ **ĐÃ XONG** (150/150) |
-| | | **`dfine_4k`** 👑 🚀 | $3840 \times 2176$ | Native 4K (1 pass) | **$\mathbf{55.28\%}$** | **$\mathbf{33.95\%}$** | **$\mathbf{33.20\%}$** | **$\mathbf{77.85\%}$** | **$13.18\%$** | **$22.55\%$** | **$2.483$** | **$32.5\text{ ms}$** | ✅ **ĐÃ XONG** (SOTA 4K) |
+| | | **`dfine_4k`** 👑 🚀 | $3840 \times 2176$ | Native 4K (1 pass) | **$\mathbf{55.28\%}$** | **$\mathbf{33.95\%}$** | **$\mathbf{33.20\%}$** | **$\mathbf{77.85\%}$** | **$13.18\%$** | **$22.55\%$** | **$2.483$** | **$32.5\text{ ms}$** | ✅ **ĐÃ XONG** (37 Ep - Early Stop) |
 | **II** | **2. Resize 640x640**<br>*(Low-Res Baseline)* | **`yolo11m_640`** | $640 \times 640$ | Resize 640 (1 pass) | **$37.27\%$** | $19.20\%$ | $18.32\%$ | $35.06\%$ | $58.94\%$ | $43.97\%$ | **$0.047$** | **$8.2\text{ ms}$** | ✅ **ĐÃ XONG** |
 | | | **`dfine_640`** 🚀 | $640 \times 640$ | Resize 640 (1 pass) | **$37.37\%$** | $14.41\%$ | $18.18\%$ | **$47.56\%$** | $33.26\%$ | $39.14\%$ | $0.130$ | $21.5\text{ ms}$ | ✅ **ĐÃ XONG** |
 | **III** | **3. Patch-Train 640**<br>*(Crop Before Train)* | **`yolo11m_patch640`** | Tiles $640 \times 640$ | Đánh giá Patch Val | **$34.93\%$** | $18.10\%$ | $16.52\%$ | $33.15\%$ | $57.80\%$ | $42.15\%$ | $0.051$ | **$8.2\text{ ms}$** | ✅ **ĐÃ XONG** (Patch Val) |
@@ -72,6 +72,52 @@ hrp4k phase2 --data HRP4K --split test --weights checkpoints/dfine_patch640/best
 hrp4k phase2 --data HRP4K --split test --weights checkpoints/dfine_patch640/best.pt --method sliced-nms --tile-size 960 --overlap 0.2 --output outputs/predictions/dfine_patch_sliced_nms.json
 ```
 *(Kết quả: $\text{mAP}_{50} = \mathbf{44.30\%}$, $\text{mAP}_{50-95} = \mathbf{18.81\%}$, Recall $= \mathbf{62.43\%}$ — **25 calls / ảnh**)*
+
+---
+
+## 🗂️ 4. Cấu Trúc Lưu Trữ Metrics & Training Logs Cục Bộ (Phục Vụ Paper)
+
+Toàn bộ thông tin thực nghiệm (CSV, YAML, JSON Metrics) đã được tải về cục bộ theo phân cấp khoa học chuẩn mực (**không chứa file weight nặng**):
+
+```text
+outputs/
+├── training_logs/                               # Toàn bộ lịch sử train & siêu tham số của 10 mô hình
+│   ├── dfine_4k/
+│   │   ├── results.csv                          # Bảng 37 epochs liên tục (Phase 1 + Phase 2)
+│   │   ├── results_phase1_epochs1-18.csv        # Log 18 epochs ban đầu
+│   │   ├── results_phase2_epochs1-19.csv        # Log 19 epochs fine-tune FP32/TF32
+│   │   ├── args.yaml                            # Cấu hình siêu tham số (lr, adamw, imgsz 3840)
+│   │   └── summary_metrics.json                 # Tóm tắt toàn bộ metrics Val & Test
+│   ├── yolo11m_4k/                              # results.csv, args.yaml, test_metrics.json
+│   ├── dfine_640/                               # results.csv, args.yaml
+│   ├── yolo11m_640/                             # results.csv, args.yaml, test_metrics.json
+│   ├── dfine_patch640/                          # results.csv, args.yaml
+│   ├── yolo11m_patch640/                        # results.csv, args.yaml, test_metrics.json
+│   ├── dfine_zoomdet640/                        # results.csv, args.yaml
+│   ├── yolo11m_zoomdet640/                      # results.csv, args.yaml, test_metrics.json
+│   ├── yolov8m_640/                             # results.csv, args.yaml, test_metrics.json
+│   └── yolov5m-compat_640/                      # results.csv, args.yaml, test_metrics.json
+│
+└── benchmark_evaluations/                       # Đánh giá độc lập trên 900 ảnh Test (COCO Evaluator)
+    ├── native_4k/                               # Đánh giá Native 4K UHD (dfine_4k, yolo11m_4k)
+    ├── slicing_patch640/                        # Đánh giá 6 cấu hình Slicing (sliced-nms, sahi, perspective-grid)
+    ├── zero_shot_resolution_scaling/            # Đánh giá hiện tượng Zero-Shot 4K (yolo11m_640, dfine_640 trên 4K)
+    └── warping_zoomdet/                         # Đánh giá Biến dạng phối cảnh 1-Pass ZoomDet
+```
+
+---
+
+## 📈 5. Phân Tích Tiến Trình Huấn Luyện D-FINE 4K (Full 37 Epochs)
+
+* **Tổng số Epochs**: $37\text{ Epochs}$ (Giai đoạn 1: $18\text{ Epochs}$ + Giai đoạn 2: $19\text{ Epochs}$).
+* **Cơ chế dừng sớm (Early Stopping)**:
+  - Điểm cao nhất đạt được tại **Epoch 27** (Phase 2 Epoch 9): **$\text{mAP}_{50} = \mathbf{59.59\%}$**, **$\text{mAP}_{50-95} = \mathbf{33.97\%}$**, **$\text{Recall} = \mathbf{54.00\%}$** trên tập Validation.
+  - Từ Epoch 28 đến Epoch 37 ($10\text{ epochs liên tiếp}$), điểm số bão hòa quanh mốc $58\% - 59\%$ và kích hoạt điều kiện dừng **Patience = 10**.
+* **Đánh giá trên $900$ ảnh Test Split độc lập**:
+  - $\mathbf{\text{mAP}_{50} = 55.28\%}$
+  - $\mathbf{\text{mAP}_{75} = 33.95\%}$
+  - $\mathbf{\text{mAP}_{50-95} = 33.20\%}$
+  - $\mathbf{\text{Recall} = 77.85\%}$ *(Kỷ lục bắt trúng ổ gà cao nhất toàn bộ benchmark)*.
 
 
 
