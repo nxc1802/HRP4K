@@ -53,6 +53,11 @@ def train_yolo(
             "Official training requires the verified single official dataset view or a generated patch dataset. Run `hrp4k prepare-dataset` or `hrp4k prepare-patches` without limits."
         )
 
+    import torch
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+    torch.backends.cudnn.benchmark = True
+
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
     run_dir.mkdir(parents=True, exist_ok=True)
 
