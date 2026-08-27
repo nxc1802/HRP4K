@@ -11,7 +11,7 @@ Bảng so sánh trực tiếp 2 dòng kiến trúc chủ đạo của dự án (
 | STT | Nhóm Phương Pháp | Mô Hình / Cấu Hình | Độ Phân Giải Train | Cơ Chế Suy Luận | $\mathbf{\text{mAP}_{50}}$ | $\mathbf{\text{mAP}_{75}}$ | $\mathbf{\text{mAP}_{50-95}}$ | Recall | Precision | $F_1$ | FPPI (Neg Set) | Latency / Ảnh | Trạng Thái |
 | :---: | :--- | :--- | :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | **I** | **1. Native 4K UHD**<br>*(Upper Bound)* | **`yolo11m_4k`** 👑 | $3840 \times 2176$ | Native 4K (1 pass) | **$\mathbf{55.05\%}$** | **$\mathbf{34.80\%}$** | **$\mathbf{33.27\%}$** | **$49.19\%$** | **$66.93\%$** | **$56.71\%$** | **$0.047$** | **$27.3\text{ ms}$** | ✅ **ĐÃ XONG** (150/150) |
-| | | **`dfine_4k`** ⏳ | $3840 \times 2176$ | Native 4K (1 pass) | *[Đang train]* | *[Đang train]* | *[Đang train]* | *[Đang train]* | *[Đang train]* | *[Đang train]* | *[Đang train]* | $\approx 35\text{ ms}$ | 🔥 **ĐANG HUẤN LUYỆN** |
+| | | **`dfine_4k`** 👑 🚀 | $3840 \times 2176$ | Native 4K (1 pass) | **$\mathbf{55.28\%}$** | **$\mathbf{33.95\%}$** | **$\mathbf{33.20\%}$** | **$\mathbf{77.85\%}$** | **$13.18\%$** | **$22.55\%$** | **$2.483$** | **$32.5\text{ ms}$** | ✅ **ĐÃ XONG** (SOTA 4K) |
 | **II** | **2. Resize 640x640**<br>*(Low-Res Baseline)* | **`yolo11m_640`** | $640 \times 640$ | Resize 640 (1 pass) | **$37.27\%$** | $19.20\%$ | $18.32\%$ | $35.06\%$ | $58.94\%$ | $43.97\%$ | **$0.047$** | **$8.2\text{ ms}$** | ✅ **ĐÃ XONG** |
 | | | **`dfine_640`** 🚀 | $640 \times 640$ | Resize 640 (1 pass) | **$37.37\%$** | $14.41\%$ | $18.18\%$ | **$47.56\%$** | $33.26\%$ | $39.14\%$ | $0.130$ | $21.5\text{ ms}$ | ✅ **ĐÃ XONG** |
 | **III** | **3. Patch-Train 640**<br>*(Crop Before Train)* | **`yolo11m_patch640`** | Tiles $640 \times 640$ | Đánh giá Patch Val | **$34.93\%$** | $18.10\%$ | $16.52\%$ | $33.15\%$ | $57.80\%$ | $42.15\%$ | $0.051$ | **$8.2\text{ ms}$** | ✅ **ĐÃ XONG** (Patch Val) |
@@ -29,7 +29,7 @@ Bảng so sánh trực tiếp 2 dòng kiến trúc chủ đạo của dự án (
 
 ## 📦 2. Bảng Các Thực Nghiệm Bổ Trợ (Supplementary Experiments)
 
-Bao gồm các phương pháp khảo sát bổ sung (Slicing trên mô hình 4K, các độ phân giải trung gian và baseline ngoại vi):
+Bao gồm các phương pháp khảo sát bổ sung (Slicing trên mô hình 4K, các độ phân giải trung gian, Zero-shot Upscaling và baseline ngoại vi):
 
 | STT | Mô Hình / Phương Pháp | Input Resolution | Cơ Chế Suy Luận | $\mathbf{\text{mAP}_{50}}$ | $\mathbf{\text{mAP}_{75}}$ | $\mathbf{\text{mAP}_{50-95}}$ | Recall | Precision | $F_1$ | FPPI | Latency | Mục Đích / Ghi Chú |
 | :---: | :--- | :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
@@ -42,6 +42,8 @@ Bao gồm các phương pháp khảo sát bổ sung (Slicing trên mô hình 4K,
 | 7 | **`yolov8m_640`** | $640 \times 640$ | Resize 640 (1 pass) | **$34.24\%$** | $15.03\%$ | **$16.39\%$** | $30.51\%$ | $65.50\%$ | $41.63\%$ | $0.087$ | **$36.6\text{ ms}$** | Đối sánh CNN Baseline |
 | 8 | **`yolov5m_640`** | $640 \times 640$ | Resize 640 (1 pass) | **$33.80\%$** | $14.92\%$ | **$16.78\%$** | $28.12\%$ | $65.74\%$ | $39.39\%$ | $0.053$ | **$37.1\text{ ms}$** | Đối sánh CNN Baseline |
 | 9 | **`resize (640)` on 4K Model** | $3840 \times 2176$ | Nén 640 (1 pass) | **$0.22\%$** | $0.22\%$ | **$0.17\%$** | $0.00\%$ | $0.00\%$ | $0.00\%$ | $0.000$ | $98.7\text{ ms}$ | Minh chứng domain shift khi nén |
+| 10 | **`yolo11m_640` on 4K Images** ⚠️ | $640 \times 640$ | Test trên 4K (1 pass) | **$13.18\%$** | $5.38\%$ | **$6.69\%$** | $39.41\%$ | $4.11\%$ | $7.44\%$ | $7.130$ | **$27.3\text{ ms}$** | Zero-shot 4K: Receptive Field/Anchor Mismatch |
+| 11 | **`dfine_640` on 4K Images** ⚠️ | $640 \times 640$ | Test trên 4K (1 pass) | **$0.23\%$** | $0.01\%$ | **$0.06\%$** | $3.26\%$ | $2.62\%$ | $2.90\%$ | $0.667$ | **$32.5\text{ ms}$** | Zero-shot 4K: Deformable Attention Grid Failure |
 
 ---
 
