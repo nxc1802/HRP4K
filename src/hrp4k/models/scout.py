@@ -212,7 +212,7 @@ if TORCH_AVAILABLE:
         L_scout = L_focal + lambda_cov * L_coverage (lambda_cov = 2.0)
         Prioritizes high Region Recall (>= 97%) over false positive penalty.
         """
-        def __init__(self, alpha: float = 2.0, beta: float = 4.0, lambda_cov: float = 2.0, eps: float = 1e-6):
+        def __init__(self, alpha: float = 2.0, beta: float = 4.0, lambda_cov: float = 2.0, eps: float = 1e-4):
             super().__init__()
             self.alpha = alpha
             self.beta = beta
