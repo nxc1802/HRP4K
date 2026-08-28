@@ -28,7 +28,7 @@ def run_smoke_pipeline(
         image_size=image_size, batch=1, device=actual_device,
     )
     prediction_paths = []
-    for method in ("resize", "sliced-nms", "perspective-grid", "sahi", "zoomdet"):
+    for method in ("resize", "sliced-nms", "perspective-grid", "sahi", "zoomdet", "adapoth", "adapoth-oracle"):
         prediction_path = root / "predictions" / f"{method}.json"
         run_phase_2(
             data_dir=dataset_dir, split="test", weights=training["best"],

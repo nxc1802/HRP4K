@@ -27,7 +27,7 @@ def create_detector(
     allow_ultralytics: bool = False,
 ) -> DetectorAdapter:
     """Create a core detector or fail clearly for isolated official runtimes."""
-    if name in {"ultralytics", "yolov5m-compat", "yolov8m", "yolo11m"}:
+    if name in {"ultralytics", "yolov5m-compat", "yolov8m", "yolo11m", "yolo11n-p2", "yolo11n-p2-lite"}:
         from .ultralytics import UltralyticsAdapter
         return UltralyticsAdapter(weights, category_id, device, name, precision)
     if allow_ultralytics and name in {"yolov5m-official", "yolov5m", "rt-detr-v1", "rt-detr-v2", "rtdetr_v1", "rtdetr_v2", "rtdetr"}:

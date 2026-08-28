@@ -122,6 +122,10 @@ def build_parser() -> argparse.ArgumentParser:
         predict.add_argument("--precision", choices=["fp32", "fp16"], default="fp32")
         predict.add_argument("--evaluate", action="store_true", default=True, help="Automatically evaluate COCO metrics after prediction")
         predict.add_argument("--ground-truth", type=_path, help="Optional path to ground truth JSON (default: <data>/<split>.json)")
+        predict.add_argument("--scout-weights", type=_path, help="Path to trained MobileNetV3-Small Scout checkpoint (for AdaPoth methods)")
+        predict.add_argument("--context-margin", type=float, default=0.20, help="Candidate crop context expansion margin (default: 0.20)")
+        predict.add_argument("--k-max", type=int, default=4, help="Maximum number of candidate crops to generate (default: 4)")
+        predict.add_argument("--boundary-penalty", type=float, default=0.70, help="Score penalty for detections touching crop boundary (default: 0.70)")
 
     # Phase 3 / Evaluation
     for cmd_name in ("phase3", "evaluate"):
@@ -144,6 +148,44 @@ def build_parser() -> argparse.ArgumentParser:
     check.add_argument("--weights", type=_path)
     check.add_argument("--device")
     check.add_argument("--require-official", action="store_true")
+
+    # AdaPoth-Lite: Train MobileNetV3-Small Region Scout
+    train_scout_cmd = commands.add_parser("train-scout", help="Train MobileNetV3-Small Region Scout model (Heatmap Stride 16, Recall >= 97%%)")
+    train_scout_cmd.add_argument("--data", type=_path, default=Path("HRP4K"), help="Path to HRP4K dataset directory")
+    train_scout_cmd.add_argument("--output", type=_path, default=Path("outputs/runs/scout"), help="Output directory for scout checkpoints")
+    train_scout_cmd.add_argument("--epochs", type=int, default=50, help="Number of training epochs (default: 50)")
+    train_scout_cmd.add_argument("--batch", type=int, default=16, help="Training batch size (default: 16)")
+    train_scout_cmd.add_argument("--lr", type=float, default=1e-3, help="Learning rate (default: 0.001)")
+    train_scout_cmd.add_argument("--lambda-cov", type=float, default=2.0, help="Weight for coverage loss penalty (default: 2.0)")
+    train_scout_cmd.add_argument("--device", help="CUDA device index or 'cpu'")
+    train_scout_cmd.add_argument("--smoke", action="store_true", help="Fast smoke test verification")
+    train_scout_cmd.add_argument("--resume", action="store_true", help="Resume training from last checkpoint")
+    train_scout_cmd.add_argument("--seed", type=int, default=42)
+    train_scout_cmd.add_argument("--hf-repo", help="Target Hugging Face repository")
+    train_scout_cmd.add_argument("--hf-token", help="Hugging Face write token")
+    train_scout_cmd.add_argument("--no-hf-sync", action="store_true", help="Disable Hugging Face background sync")
+
+    # AdaPoth-Lite: Evaluate Region Scout Quality
+    eval_scout_cmd = commands.add_parser("eval-scout", help="Evaluate Region Scout candidate recall and coverage on validation/test split")
+    eval_scout_cmd.add_argument("--data", type=_path, default=Path("HRP4K"), help="Path to HRP4K dataset directory")
+    eval_scout_cmd.add_argument("--split", choices=["train", "valid", "test"], default="valid", help="Dataset split to evaluate")
+    eval_scout_cmd.add_argument("--weights", type=_path, required=True, help="Path to trained Scout checkpoint (scout_best.pt)")
+    eval_scout_cmd.add_argument("--output", type=_path, default=Path("outputs/scout_eval.json"), help="Output path for evaluation report")
+    eval_scout_cmd.add_argument("--threshold", type=float, default=0.30, help="Scout heatmap binarization threshold (default: 0.30)")
+    eval_scout_cmd.add_argument("--context-margin", type=float, default=0.20, help="Context expansion margin (default: 0.20)")
+    eval_scout_cmd.add_argument("--k-max", type=int, default=4, help="Maximum number of candidate crops (default: 4)")
+    eval_scout_cmd.add_argument("--device", help="CUDA device or 'cpu'")
+    eval_scout_cmd.add_argument("--limit", type=int, help="Optional image limit for fast evaluation")
+
+    # AdaPoth-Lite: Prepare Local Crop Datasets (Stage 2 & Stage 3)
+    adapoth_crops_cmd = commands.add_parser("prepare-adapoth-crops", help="Generate Stage 2 (jitter/hard neg) or Stage 3 (scout crops) dataset for YOLO11n-P2-lite")
+    adapoth_crops_cmd.add_argument("--data", type=_path, default=Path("HRP4K"), help="Path to HRP4K dataset directory")
+    adapoth_crops_cmd.add_argument("--output", type=_path, default=Path("outputs/dataset_adapoth_crops"), help="Output directory for generated dataset")
+    adapoth_crops_cmd.add_argument("--stage", choices=["stage2", "stage3"], default="stage2", help="Training stage: 'stage2' (jitter+hard neg) or 'stage3' (scout candidate crops)")
+    adapoth_crops_cmd.add_argument("--scout-weights", type=_path, help="Path to trained Scout checkpoint (required for stage3)")
+    adapoth_crops_cmd.add_argument("--crop-size", type=int, default=640, help="Target canvas crop size (default: 640)")
+    adapoth_crops_cmd.add_argument("--context-margin", type=float, default=0.20, help="Context expansion margin (default: 0.20)")
+    adapoth_crops_cmd.add_argument("--seed", type=int, default=42)
 
     # Prepare Patch Dataset (Crop Before Training 640)
     patches = commands.add_parser("prepare-patches", help="Generate patch dataset from 4K images for Patch-Based training")
@@ -265,6 +307,47 @@ def main(argv: list[str] | None = None) -> int:
             hf_token=args.hf_token,
             hf_sync=not args.no_hf_sync,
         ))
+    elif args.command == "train-scout":
+        from .training.scout_trainer import train_scout
+        _print(train_scout(
+            data_dir=args.data,
+            output_dir=args.output,
+            epochs=args.epochs,
+            batch_size=args.batch,
+            lr=args.lr,
+            lambda_cov=args.lambda_cov,
+            device=args.device,
+            smoke=args.smoke,
+            resume=args.resume,
+            seed=args.seed,
+            hf_repo=args.hf_repo,
+            hf_token=args.hf_token,
+            hf_sync=not args.no_hf_sync,
+        ))
+    elif args.command == "eval-scout":
+        from .training.scout_trainer import evaluate_scout_model
+        _print(evaluate_scout_model(
+            data_dir=args.data,
+            weights_path=args.weights,
+            split=args.split,
+            output_path=args.output,
+            threshold=args.threshold,
+            context_margin=args.context_margin,
+            k_max=args.k_max,
+            device=args.device,
+            limit=args.limit,
+        ))
+    elif args.command == "prepare-adapoth-crops":
+        from .data.adapoth_crops import create_adapoth_crop_dataset
+        _print(create_adapoth_crop_dataset(
+            data_dir=args.data,
+            output_dir=args.output,
+            stage=args.stage,
+            scout_weights=args.scout_weights,
+            target_crop_size=(args.crop_size, args.crop_size),
+            context_margin=args.context_margin,
+            seed=args.seed,
+        ))
     elif args.command in {"phase2", "predict"}:
         resolved_weights = args.weights
         if not resolved_weights:
@@ -288,6 +371,10 @@ def main(argv: list[str] | None = None) -> int:
             precision=args.precision,
             evaluate_after=args.evaluate,
             ground_truth=args.ground_truth,
+            scout_weights=getattr(args, "scout_weights", None),
+            context_margin=getattr(args, "context_margin", 0.20),
+            k_max=getattr(args, "k_max", 4),
+            boundary_penalty=getattr(args, "boundary_penalty", 0.70),
         ))
     elif args.command in {"phase3", "evaluate"}:
         _print(evaluate_files(args.ground_truth, args.predictions, args.output, args.confidence))

@@ -199,7 +199,16 @@ def train_yolo(
                 base_weight_decay = 0.0001
                 use_amp = False  # Transformer Deformable Attention on 4K requires FP32 to prevent NaN overflow
             else:
-                model = YOLO(str(resolved_weights))
+                p2_lite_yaml = Path(__file__).resolve().parents[1] / "models" / "yolo11n_p2_lite.yaml"
+                is_p2_preset = (experiment and experiment.get("name") in {"yolo11n-p2", "yolo11n-p2-lite"}) or "p2" in str(resolved_weights).lower()
+                if is_p2_preset and not resume and p2_lite_yaml.is_file() and not str(resolved_weights).endswith(".pt"):
+                    model = YOLO(str(p2_lite_yaml))
+                    try:
+                        model.load("yolo11n.pt")
+                    except Exception:
+                        pass
+                else:
+                    model = YOLO(str(resolved_weights))
                 opt_name = "SGD"
                 base_lr0 = 0.01
                 base_warmup_bias_lr = 0.1
