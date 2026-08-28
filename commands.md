@@ -337,7 +337,29 @@ hrp4k diagnose \
 
 ---
 
-## ☁️ 8. Đẩy Toàn Bộ Checkpoints & Kết Quả Lên Hugging Face Thủ Công
+## ☁️ 8. Cơ Chế Đồng Bộ Hugging Face Toàn Diện (End-to-End Cloud Auto-Sync)
+
+Hệ thống HRP4K được tích hợp cơ chế **Đồng bộ Đám mây Bất đồng bộ (Asynchronous Background Syncer)** hoàn chỉnh trên `Cuong2004/HRP4K`, chạy trên worker thread riêng biệt nên **hoàn toàn không làm chậm hay block GPU**:
+
+### 🔄 8.1. Cơ Chế Đồng Bộ Tự Động Từng Phase:
+1. **Scout Model Training (`hrp4k train-scout`):**
+   * Tự động đồng bộ checkpoint tốt nhất `scout_best.pt` và `scout_last.pt` lên `checkpoints/scout/`.
+   * Tự động đồng bộ `metrics.json` (chứa toàn bộ lịch sử loss, Region Recall, GT Coverage, False Region Rate, Avg K, cấu hình huấn luyện và môi trường runtime).
+2. **Phase 1 Detector Training (Stage 1, 2, 3):**
+   * Sau mỗi epoch, tự động đồng bộ `best.pt`, `last.pt`, `results.csv`, `args.yaml`.
+   * Khi kết thúc huấn luyện, tự động đồng bộ trọn bộ `val_metrics.json`, `test_metrics.json`, `resolved_config.json` lên `checkpoints/{run_name}/`.
+3. **Scout Evaluation (`hrp4k eval-scout --hf-sync`):**
+   * Tự động upload báo cáo đánh giá `scout_eval.json` (chứa summary metrics và per-image candidate bounding boxes) lên `metrics/`.
+4. **Phase 2 Inference (`hrp4k phase2 --hf-sync`):**
+   * Tự động upload file dự đoán chuẩn canonical COCO `*_predictions.json` và metrics đánh giá `*_metrics.json` lên `predictions/` và `metrics/`.
+5. **Phase 3 & Diagnostics (`hrp4k phase3 --hf-sync` / `hrp4k diagnose --hf-sync`):**
+   * Tự động upload toàn bộ báo cáo phân tích lỗi `phase3_report.md`, biểu đồ Pareto, scale bins `scale_bins.json` lên `reports/` và `metrics/`.
+6. **Auto-Download / Auto-Resume:**
+   * Khi thực hiện Phase 2 hoặc `--resume` Phase 1, hàm `ensure_weights` sẽ tự động tìm kiếm và tải checkpoint tương ứng từ Hugging Face nếu máy cục bộ chưa có.
+
+### 📤 8.2. Đẩy Thủ Công Toàn Bộ Thư Mục Outputs Lên Hugging Face
+Nếu muốn đồng bộ thủ công toàn bộ cây thư mục `outputs/` lên Hugging Face bất kỳ lúc nào:
+
 ```bash
 hrp4k push-hf --repo Cuong2004/HRP4K --path outputs/ --token ${HF_TOKEN}
 ```

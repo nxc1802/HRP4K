@@ -34,6 +34,9 @@ def run_phase_2(
     context_margin: float = 0.20,
     k_max: int = 4,
     boundary_penalty: float = 0.70,
+    hf_repo: str | None = None,
+    hf_token: str | None = None,
+    hf_sync: bool = False,
 ) -> dict[str, Any]:
     """Execute Phase 2 resolution allocation and canonical COCO prediction with multi-method support."""
     if detector_name in {"d-fine", "dfine"}:
@@ -84,6 +87,16 @@ def run_phase_2(
         
         summary_path = base_dir / f"{Path(weights).stem}_phase2_all_methods_summary.json"
         summary_path.write_text(json.dumps(results, indent=2), encoding="utf-8")
+
+        if hf_sync:
+            from ..infra.upload import upload_to_hf, get_hf_credentials
+            token, repo, rtype = get_hf_credentials(hf_token, hf_repo)
+            if token:
+                try:
+                    upload_to_hf(repo_id=repo, local_path=summary_path, token=token, repo_type=rtype, path_in_repo=f"metrics/{summary_path.name}")
+                except Exception as e:
+                    print(f"[Cloud Warning] Failed to upload Phase 2 summary to HF: {e}")
+
         return {"method": "all", "summary_path": str(summary_path), "results": results, "summary": {"methods": len(results)}}
 
     if method not in METHOD_REGISTRY:
@@ -116,4 +129,18 @@ def run_phase_2(
     if evaluate_after and gt_path.exists():
         metrics_path = output_path.with_name(output_path.stem + "_metrics.json")
         payload["metrics"] = evaluate_files(gt_path, output_path, metrics_path, confidence=eval_confidence)
+
+    if hf_sync:
+        from ..infra.upload import upload_to_hf, get_hf_credentials
+        token, repo, rtype = get_hf_credentials(hf_token, hf_repo)
+        if token:
+            try:
+                if output_path.exists():
+                    upload_to_hf(repo_id=repo, local_path=output_path, token=token, repo_type=rtype, path_in_repo=f"predictions/{output_path.name}")
+                metrics_path = output_path.with_name(output_path.stem + "_metrics.json")
+                if metrics_path.exists():
+                    upload_to_hf(repo_id=repo, local_path=metrics_path, token=token, repo_type=rtype, path_in_repo=f"metrics/{metrics_path.name}")
+            except Exception as e:
+                print(f"[Cloud Warning] Failed to upload Phase 2 results to HF: {e}")
+
     return payload

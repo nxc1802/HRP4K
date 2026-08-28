@@ -126,6 +126,9 @@ def build_parser() -> argparse.ArgumentParser:
         predict.add_argument("--context-margin", type=float, default=0.20, help="Candidate crop context expansion margin (default: 0.20)")
         predict.add_argument("--k-max", type=int, default=4, help="Maximum number of candidate crops to generate (default: 4)")
         predict.add_argument("--boundary-penalty", type=float, default=0.70, help="Score penalty for detections touching crop boundary (default: 0.70)")
+        predict.add_argument("--hf-repo", help="Target Hugging Face repository for uploading predictions and metrics")
+        predict.add_argument("--hf-token", help="Hugging Face write access token")
+        predict.add_argument("--hf-sync", action="store_true", help="Auto-upload predictions and evaluated metrics to Hugging Face")
 
     # Phase 3 / Evaluation
     for cmd_name in ("phase3", "evaluate"):
@@ -134,11 +137,17 @@ def build_parser() -> argparse.ArgumentParser:
         evaluate.add_argument("--predictions", type=_path, required=True)
         evaluate.add_argument("--output", type=_path, required=True)
         evaluate.add_argument("--confidence", type=float, default=0.25)
+        evaluate.add_argument("--hf-repo", help="Target Hugging Face repository")
+        evaluate.add_argument("--hf-token", help="Hugging Face write access token")
+        evaluate.add_argument("--hf-sync", action="store_true", help="Auto-upload evaluation metrics to Hugging Face")
 
     diagnostic = commands.add_parser("diagnose", help="Phase 3 diagnostics from saved predictions")
     diagnostic.add_argument("--ground-truth", type=_path, required=True)
     diagnostic.add_argument("--predictions", type=_path, nargs="+", required=True)
     diagnostic.add_argument("--output", type=_path, default=Path("outputs/phase3"))
+    diagnostic.add_argument("--hf-repo", help="Target Hugging Face repository")
+    diagnostic.add_argument("--hf-token", help="Hugging Face write access token")
+    diagnostic.add_argument("--hf-sync", action="store_true", help="Auto-upload diagnostic artifacts and report to Hugging Face")
 
     commands.add_parser("status", help="Show detector presets and Phase 2 reproduction status")
 
@@ -176,6 +185,9 @@ def build_parser() -> argparse.ArgumentParser:
     eval_scout_cmd.add_argument("--k-max", type=int, default=4, help="Maximum number of candidate crops (default: 4)")
     eval_scout_cmd.add_argument("--device", help="CUDA device or 'cpu'")
     eval_scout_cmd.add_argument("--limit", type=int, help="Optional image limit for fast evaluation")
+    eval_scout_cmd.add_argument("--hf-repo", help="Target Hugging Face repository")
+    eval_scout_cmd.add_argument("--hf-token", help="Hugging Face write token")
+    eval_scout_cmd.add_argument("--hf-sync", action="store_true", help="Auto-upload evaluation report to Hugging Face")
 
     # AdaPoth-Lite: Prepare Local Crop Datasets (Stage 2 & Stage 3)
     adapoth_crops_cmd = commands.add_parser("prepare-adapoth-crops", help="Generate Stage 2 (jitter/hard neg) or Stage 3 (scout crops) dataset for YOLO11n-P2-lite")
@@ -336,6 +348,9 @@ def main(argv: list[str] | None = None) -> int:
             k_max=args.k_max,
             device=args.device,
             limit=args.limit,
+            hf_repo=getattr(args, "hf_repo", None),
+            hf_token=getattr(args, "hf_token", None),
+            hf_sync=getattr(args, "hf_sync", False),
         ))
     elif args.command == "prepare-adapoth-crops":
         from .data.adapoth_crops import create_adapoth_crop_dataset
@@ -375,11 +390,32 @@ def main(argv: list[str] | None = None) -> int:
             context_margin=getattr(args, "context_margin", 0.20),
             k_max=getattr(args, "k_max", 4),
             boundary_penalty=getattr(args, "boundary_penalty", 0.70),
+            hf_repo=getattr(args, "hf_repo", None),
+            hf_token=getattr(args, "hf_token", None),
+            hf_sync=getattr(args, "hf_sync", False),
         ))
     elif args.command in {"phase3", "evaluate"}:
-        _print(evaluate_files(args.ground_truth, args.predictions, args.output, args.confidence))
+        res = evaluate_files(args.ground_truth, args.predictions, args.output, args.confidence)
+        if getattr(args, "hf_sync", False):
+            from .infra.upload import upload_to_hf, get_hf_credentials
+            token, repo, rtype = get_hf_credentials(args.hf_token, args.hf_repo)
+            if token and args.output.exists():
+                try:
+                    upload_to_hf(repo_id=repo, local_path=args.output, token=token, repo_type=rtype, path_in_repo=f"metrics/{args.output.name}")
+                except Exception as e:
+                    print(f"[Cloud Warning] Failed to upload Phase 3 metrics to HF: {e}")
+        _print(res)
     elif args.command == "diagnose":
-        _print(diagnose(args.ground_truth, args.predictions, args.output))
+        res = diagnose(args.ground_truth, args.predictions, args.output)
+        if getattr(args, "hf_sync", False):
+            from .infra.upload import upload_to_hf, get_hf_credentials
+            token, repo, rtype = get_hf_credentials(args.hf_token, args.hf_repo)
+            if token and args.output.exists():
+                try:
+                    upload_to_hf(repo_id=repo, local_path=args.output, token=token, repo_type=rtype, path_in_repo=f"reports/{args.output.name}")
+                except Exception as e:
+                    print(f"[Cloud Warning] Failed to upload diagnostic report to HF: {e}")
+        _print(res)
     elif args.command == "status":
         _print({
             "baseline_presets": BASELINE_PRESETS,

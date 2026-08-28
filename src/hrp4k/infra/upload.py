@@ -241,13 +241,12 @@ class BackgroundHFSyncer:
         w_dir = Path(weights_dir)
         files_to_upload: list[tuple[Path, str]] = []
 
-        best_pt = w_dir / "best.pt"
-        last_pt = w_dir / "last.pt"
-
-        if best_pt.is_file():
-            files_to_upload.append((best_pt, "best.pt"))
-        if last_pt.is_file():
-            files_to_upload.append((last_pt, "last.pt"))
+        if w_dir.is_dir():
+            for pt_file in sorted(w_dir.glob("*.pt")):
+                if pt_file.is_file():
+                    files_to_upload.append((pt_file, pt_file.name))
+        elif w_dir.is_file() and w_dir.suffix == ".pt":
+            files_to_upload.append((w_dir, w_dir.name))
 
         if extra_files:
             for ef in extra_files:

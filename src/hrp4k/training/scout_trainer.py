@@ -353,7 +353,7 @@ def train_scout(
                 epoch=epoch + 1,
                 weights_dir=weights_dir,
                 extra_files=[output_dir / "metrics.json"],
-                path_in_repo=output_dir.name,
+                path_in_repo=f"checkpoints/{output_dir.name}",
             )
 
     # Save metrics JSON and configuration
@@ -383,7 +383,7 @@ def train_scout(
             epoch=actual_epochs,
             weights_dir=weights_dir,
             extra_files=[output_dir / "metrics.json"],
-            path_in_repo=output_dir.name,
+            path_in_repo=f"checkpoints/{output_dir.name}",
         )
         syncer.wait_until_done(timeout=30.0)
         syncer.shutdown(wait=True)
@@ -401,6 +401,9 @@ def evaluate_scout_model(
     k_max: int = 4,
     device: str | None = None,
     limit: int | None = None,
+    hf_repo: str | None = None,
+    hf_token: str | None = None,
+    hf_sync: bool = False,
 ) -> dict[str, Any]:
     """Evaluate Scout Model candidate generation quality on specified split."""
     if not TORCH_AVAILABLE:
@@ -469,5 +472,20 @@ def evaluate_scout_model(
         out_p = Path(output_path)
         out_p.parent.mkdir(parents=True, exist_ok=True)
         out_p.write_text(json.dumps({"summary": summary, "per_image": per_image_results}, indent=2), encoding="utf-8")
+
+        if hf_sync:
+            from ..infra.upload import upload_to_hf, get_hf_credentials
+            token, repo, rtype = get_hf_credentials(hf_token, hf_repo)
+            if token:
+                try:
+                    upload_to_hf(
+                        repo_id=repo,
+                        local_path=out_p,
+                        token=token,
+                        repo_type=rtype,
+                        path_in_repo=f"metrics/{out_p.name}",
+                    )
+                except Exception as e:
+                    print(f"[Cloud Warning] Failed to upload scout evaluation report to HF: {e}")
 
     return summary
