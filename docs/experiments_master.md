@@ -82,7 +82,7 @@ Bao gồm các phương pháp khảo sát bổ sung (Slicing trên mô hình 4K,
 | 1 | **`sahi` on 4K Model** | $3840 \times 2160$ | SAHI đa cấp (15 calls) | **$42.80\%$** | $28.03\%$ | **$26.24\%$** | $37.13\%$ | $67.59\%$ | $47.93\%$ | $0.083$ | $1054.7\text{ ms}$ | Slicing thử nghiệm trên model 4K |
 | 2 | **`perspective-grid` on 4K Model** | $3840 \times 2160$ | 3 dải phối cảnh (9 calls) | **$42.02\%$** | $27.10\%$ | **$25.40\%$** | $38.00\%$ | $65.67\%$ | $48.14\%$ | $0.113$ | $830.6\text{ ms}$ | Slicing thử nghiệm trên model 4K |
 | 3 | **`sliced-nms` on 4K Model** | $3840 \times 2160$ | Lưới đều (25 calls) | **$36.88\%$** | $24.35\%$ | **$22.84\%$** | $33.12\%$ | $65.59\%$ | $44.01\%$ | $0.103$ | $912.6\text{ ms}$ | Slicing thử nghiệm trên model 4K |
-| 4 | **`yolo11m_1280`** (Không thuộc story research) | $1280 \times 1280$ | Resize 1280 (1 pass) | **$48.98\%$** | $27.10\%$ | **$25.40\%$** | $45.50\%$ | $61.40\%$ | $52.26\%$ | $0.050$ | **$14.6\text{ ms}$** | Đối sánh kích thước trung gian |
+| 4 | **`yolo11m_1280`** ⚠️ *(Không thuộc story research)* | $1280 \times 1280$ | Resize 1280 (1 pass) | **$48.98\%$** | $27.10\%$ | **$25.40\%$** | $45.50\%$ | $61.40\%$ | $52.26\%$ | $0.050$ | **$14.6\text{ ms}$** | Baseline kích thước trung gian (Lưu trữ nội bộ) |
 | 5 | **`RT-DETRv2` (640)** | $640 \times 640$ | Resize 640 (1 pass) | **$44.01\%$** | $21.22\%$ | **$23.24\%$** | **$53.42\%$** | $32.14\%$ | $40.10\%$ | $0.323$ | $51.5\text{ ms}$ | Đối sánh Transformer Baseline |
 | 6 | **`RT-DETRv1` (640)** | $640 \times 640$ | Resize 640 (1 pass) | **$43.54\%$** | $23.36\%$ | **$23.61\%$** | $48.86\%$ | $44.38\%$ | $46.50\%$ | $0.237$ | $50.9\text{ ms}$ | Đối sánh Transformer Baseline |
 | 7 | **`yolov8m_640`** | $640 \times 640$ | Resize 640 (1 pass) | **$34.24\%$** | $15.03\%$ | **$16.39\%$** | $30.51\%$ | $65.50\%$ | $41.63\%$ | $0.087$ | **$36.6\text{ ms}$** | Đối sánh CNN Baseline |
@@ -91,89 +91,9 @@ Bao gồm các phương pháp khảo sát bổ sung (Slicing trên mô hình 4K,
 | 10 | **`yolo11m_640` on 4K Images** ⚠️ | $3840 \times 2160$ | Test trên 4K (1 pass) | **$13.18\%$** | $5.38\%$ | **$6.69\%$** | $39.41\%$ | $4.11\%$ | $7.44\%$ | $7.130$ | **$27.3\text{ ms}$** | Train 640 $\to$ Test 4K: Cho thấy sự sai lệch phân phối không gian khi scale |
 | 11 | **`dfine_640` on 4K Images** ⚠️ | $3840 \times 2160$ | Test trên 4K (1 pass) | **$0.23\%$** | $0.01\%$ | **$0.06\%$** | $3.26\%$ | $2.62\%$ | $2.90\%$ | $0.667$ | **$32.5\text{ ms}$** | Train 640 $\to$ Test 4K: Cho thấy sự suy giảm mạnh của Transformer grid khi thay đổi kích thước |
 
----
-
-## 🚀 5. Danh Mục Lệnh CLI Thực Thi Thí Nghiệm Slicing & Proposed Method
-
-### 1️⃣ `AdaPoth-Lite` (Proposed Method Inference):
-```bash
-hrp4k phase2 --data HRP4K --split test --weights checkpoints/yolo11n_p2_lite_stage3/best.pt --method adapoth --scout-weights checkpoints/scout/scout_best.pt --k-max 4 --context-margin 0.20 --boundary-penalty 0.70 --output outputs/predictions/adapoth_lite_dynamic_k4.json
-```
-*(Kết quả: $\text{mAP}_{50} = \mathbf{36.37\%}$, $\text{mAP}_{50-95} = \mathbf{20.42\%}$, $AP_{\text{small}} = \mathbf{12.75\%}$, Latency $= \mathbf{108.2\text{ ms}}$)*
-
----
-
-### 2️⃣ `yolo11m_patch640` + `sliced-nms` (Lưới đều 25 calls):
-```bash
-hrp4k phase2 --data HRP4K --split test --weights checkpoints/yolo11m_patch640/best.pt --method sliced-nms --tile-size 960 --overlap 0.2 --output outputs/predictions/yolo11m_patch_sliced_nms.json
-```
-*(Kết quả: $\text{mAP}_{50} = \mathbf{44.30\%}$, $\text{mAP}_{50-95} = \mathbf{18.81\%}$, Recall $= \mathbf{62.43\%}$ — **25 calls / ảnh**)*
-
----
-
-### 3️⃣ `dfine_patch640` + `sahi` (SAHI đa cấp 32 calls):
-```bash
-hrp4k phase2 --data HRP4K --split test --weights checkpoints/dfine_patch640/best.pt --method sahi --tile-size 640 --overlap 0.2 --output outputs/predictions/dfine_patch_sahi.json
-```
-*(Kết quả: $\text{mAP}_{50} = 24.28\%$, $\text{mAP}_{50-95} = 6.44\%$, Recall $= 41.15\%$ — **32 calls / ảnh**)*
-
----
-
-### 4️⃣ `dfine_patch640` + `sliced-nms` (Lưới đều 25 calls):
-```bash
-hrp4k phase2 --data HRP4K --split test --weights checkpoints/dfine_patch640/best.pt --method sliced-nms --tile-size 960 --overlap 0.2 --output outputs/predictions/dfine_patch_sliced_nms.json
-```
-*(Kết quả: $\text{mAP}_{50} = \mathbf{44.30\%}$, $\text{mAP}_{50-95} = \mathbf{18.81\%}$, Recall $= \mathbf{62.43\%}$ — **25 calls / ảnh**)*
-
----
-
-## 🗂️ 6. Cấu Trúc Lưu Trữ Metrics & Training Logs Cục Bộ (Phục Vụ Paper)
-
-```text
-outputs/
-├── training_logs/                               # Toàn bộ lịch sử train & siêu tham số của các mô hình
-│   ├── scout/                                   # metrics.json, args.yaml (MobileNetV3-Small Scout 50 Ep)
-│   ├── yolo11n_p2_lite_stage1/                  # results.csv, args.yaml (Stage 1 Full 960)
-│   ├── yolo11n_p2_lite_stage2/                  # results.csv, args.yaml (Stage 2 Local Crops 640)
-│   ├── yolo11n_p2_lite_stage3/                  # results.csv, args.yaml (Stage 3 Scout Crops Fine-Tune)
-│   ├── dfine_4k/                                # results.csv, args.yaml (D-FINE 4K 37 Ep)
-│   ├── yolo11m_4k/                              # results.csv, args.yaml, test_metrics.json
-│   ├── dfine_640/                               # results.csv, args.yaml
-│   ├── yolo11m_640/                             # results.csv, args.yaml, test_metrics.json
-│   ├── dfine_patch640/                          # results.csv, args.yaml
-│   ├── yolo11m_patch640/                        # results.csv, args.yaml, test_metrics.json
-│   ├── dfine_zoomdet640/                        # results.csv, args.yaml
-│   └── yolo11m_zoomdet640/                      # results.csv, args.yaml, test_metrics.json
-│
-├── predictions/                                 # 9 file dự đoán JSON trên 900 ảnh Test (Ablation Matrix)
-│   ├── adapoth_lite_dynamic_k4.json             # Proposed Method Master
-│   ├── adapoth_oracle_k4.json                   # Oracle Upper Bound
-│   ├── ablation_global_only.json                # Global-Only Baseline
-│   ├── ablation_random_k2.json                  # Random Crops Ablation
-│   ├── ablation_fixed_k4.json                   # Fixed K=4 Ablation
-│   ├── ablation_kmax2.json                      # K_max = 2 Ablation
-│   ├── ablation_kmax6.json                      # K_max = 6 Ablation
-│   ├── ablation_margin10.json                   # Margin = 10% Ablation
-│   └── ablation_margin30.json                   # Margin = 30% Ablation
-│
-└── benchmark_evaluations/                       # Đánh giá độc lập trên 900 ảnh Test (COCO Evaluator)
-    ├── native_4k/                               # Đánh giá Native 4K UHD (dfine_4k, yolo11m_4k)
-    ├── proposed_adapoth/                        # Đánh giá AdaPoth-Lite & 9 Ablation Studies
-    ├── slicing_patch640/                        # Đánh giá 6 cấu hình Slicing (sliced-nms, sahi, perspective-grid)
-    ├── zero_shot_resolution_scaling/            # Đánh giá hiện tượng Zero-Shot 4K (yolo11m_640, dfine_640 trên 4K)
-    └── warping_zoomdet/                         # Đánh giá Biến dạng phối cảnh 1-Pass ZoomDet
-```
-
----
-
-## 📈 7. Phân Tích Tiến Trình Huấn Luyện D-FINE 4K (Full 37 Epochs)
-
-* **Tổng số Epochs**: $37\text{ Epochs}$ (Giai đoạn 1: $18\text{ Epochs}$ + Giai đoạn 2: $19\text{ Epochs}$).
-* **Cơ chế dừng sớm (Early Stopping)**:
-  - Điểm cao nhất đạt được tại **Epoch 27** (Phase 2 Epoch 9): **$\text{mAP}_{50} = \mathbf{59.59\%}$**, **$\text{mAP}_{50-95} = \mathbf{33.97\%}$**, **$\text{Recall} = \mathbf{54.00\%}$** trên tập Validation.
-  - Từ Epoch 28 đến Epoch 37 ($10\text{ epochs liên tiếp}$), điểm số bão hòa quanh mốc $58\% - 59\%$ và kích hoạt điều kiện dừng **Patience = 10**.
-* **Đánh giá trên $900$ ảnh Test Split độc lập**:
-  - $\mathbf{\text{mAP}_{50} = 55.28\%}$
-  - $\mathbf{\text{mAP}_{75} = 33.95\%}$
-  - $\mathbf{\text{mAP}_{50-95} = 33.20\%}$
-  - $\mathbf{\text{Recall} = 77.85\%}$ *(Kỷ lục bắt trúng ổ gà cao nhất toàn bộ benchmark)*.
+> [!WARNING]
+> ### 📌 Ghi Chú Chiến Lược Về Mô Hình `yolo11m_1280`:
+> Mô hình **`yolo11m_1280`** ($1280 \times 1280$) đạt kết quả cao ($25.40\%\text{ mAP}_{50-95}$ với độ trễ chỉ $14.6\text{ ms}$). Tuy nhiên, mô hình này **hoàn toàn KHÔNG được đưa vào câu chuyện nghiên cứu chính (Main Research Story)** của bài báo vì:
+> 1. **Làm lệch trọng tâm giả thuyết cốt lõi (*Core Hypothesis*)**: Bài báo tập trung chứng minh cơ chế **phân bổ tính toán thông minh (Adaptive Region Scout)** ở độ phân giải 640px có thể cạnh tranh với Native 4K mà không cần tăng kích thước canvas toàn cục.
+> 2. **Làm lu mờ đóng góp về kiến trúc nhẹ**: Đưa $1280 \times 1280$ vào làm phương pháp so sánh chính sẽ biến bài toán thành "chạy đua kích thước ảnh đầu vào" thay vì giải quyết bài toán cốt lõi là nhận diện mục tiêu nhỏ trên ảnh siêu phân giải 4K với tài nguyên hạn chế.
+> 3. Mô hình này chỉ được lưu trữ nội bộ dưới dạng baseline tham chiếu bổ trợ trong bảng Supplementary Experiments.
