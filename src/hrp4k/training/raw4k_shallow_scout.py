@@ -107,6 +107,9 @@ if TORCH_AVAILABLE:
                 nn.Conv2d(head_channels, 1, kernel_size=1, stride=1, padding=0),
                 nn.Sigmoid(),
             )
+            # CenterNet prior initialization: final conv bias = -2.19 (prior p=0.10)
+            if hasattr(self.scout_head[1], "bias") and self.scout_head[1].bias is not None:
+                nn.init.constant_(self.scout_head[1].bias, -2.19)
 
         def forward(self, x: torch.Tensor) -> torch.Tensor:
             """Forward pass.
@@ -190,11 +193,19 @@ def generate_raw4k_scout_gt(
 
 if TORCH_AVAILABLE:
     class Raw4KScoutLoss(nn.Module):
-        """Scout Loss combining Modified CenterNet Focal Loss with GT Coverage Loss."""
-        def __init__(self, alpha: float = 2.0, beta: float = 4.0, lambda_cov: float = 2.0, eps: float = 1e-4):
+        """Scout Loss combining Calibrated CenterNet Focal Loss with Positive Center Boost."""
+        def __init__(
+            self,
+            alpha: float = 2.0,
+            beta: float = 4.0,
+            pos_weight: float = 5.0,
+            lambda_cov: float = 3.0,
+            eps: float = 1e-4,
+        ):
             super().__init__()
             self.alpha = alpha
             self.beta = beta
+            self.pos_weight = pos_weight
             self.lambda_cov = lambda_cov
             self.eps = eps
 
@@ -206,15 +217,17 @@ if TORCH_AVAILABLE:
         ) -> dict[str, torch.Tensor]:
             pred = torch.clamp(pred, self.eps, 1.0 - self.eps)
             
-            pos_mask = target >= 0.90
-            neg_mask = target < 0.90
+            pos_mask = (target >= 0.80)
+            neg_mask = (target < 0.80)
 
+            # Balanced Focal Loss
             pos_loss = -((1.0 - pred) ** self.alpha) * torch.log(pred) * pos_mask.float()
             neg_loss = -((1.0 - target) ** self.beta) * (pred ** self.alpha) * torch.log(1.0 - pred) * neg_mask.float()
 
             num_pos = pos_mask.sum().clamp(min=1.0)
-            focal_loss = (pos_loss.sum() + neg_loss.sum()) / num_pos
+            focal_loss = (self.pos_weight * pos_loss.sum() + neg_loss.sum()) / num_pos
 
+            # Center Peak Loss
             coverage_loss = torch.tensor(0.0, device=pred.device)
             if gt_centers is not None:
                 cov_losses = []
@@ -226,12 +239,12 @@ if TORCH_AVAILABLE:
                         iy = int(np.clip(round(cy), 0, h - 1))
                         ix = int(np.clip(round(cx), 0, w - 1))
                         p_val = pred[i, 0, iy, ix]
-                        cov_losses.append(F.relu(1.0 - p_val))
+                        cov_losses.append(F.relu(0.90 - p_val))
                 if cov_losses:
                     coverage_loss = torch.stack(cov_losses).mean()
             else:
                 if pos_mask.any():
-                    coverage_loss = F.relu(0.80 - pred[pos_mask]).mean()
+                    coverage_loss = F.relu(0.85 - pred[pos_mask]).mean()
 
             total_loss = focal_loss + self.lambda_cov * coverage_loss
             return {
@@ -278,17 +291,19 @@ class CandidateRegion:
 
 
 class Raw4KCandidateGenerator:
-    """Adaptive Candidate ROI Generator from Raw 4K Scout Heatmap."""
+    """Adaptive Candidate ROI Generator from Raw 4K Scout Heatmap (Crop size = 480)."""
     def __init__(
         self,
-        threshold: float = 0.30,
+        threshold: float = 0.08,
+        crop_size: int = 480,
         alpha_score: float = 0.70,
-        context_margin: float = 0.20,
+        context_margin: float = 0.25,
         region_nms_iou: float = 0.35,
         k_max: int = 4,
         min_region_size: int = 4,
     ):
         self.threshold = threshold
+        self.crop_size = crop_size
         self.alpha_score = alpha_score
         self.context_margin = context_margin
         self.region_nms_iou = region_nms_iou
@@ -308,10 +323,15 @@ class Raw4KCandidateGenerator:
         scale_x = float(source_width) / float(heat_w)
         scale_y = float(source_height) / float(heat_h)
 
-        # 1. Threshold
-        binary_mask = (heatmap >= self.threshold).astype(np.uint8)
+        max_val = float(np.max(heatmap)) if heatmap.size > 0 else 0.0
+        # If entire heatmap is low (clean road without potholes), return empty list (K = 0)
+        if max_val < self.threshold:
+            return []
 
-        # 2. Connected Components
+        # Adaptive threshold: keep high confidence peaks
+        eff_thresh = max(self.threshold, 0.30 * max_val)
+        binary_mask = (heatmap >= eff_thresh).astype(np.uint8)
+
         components = []
         if cv2 is not None:
             num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(binary_mask, connectivity=8)
@@ -326,11 +346,13 @@ class Raw4KCandidateGenerator:
                 u1 = u0 + uw
                 v1 = v0 + vh
 
-                comp_mask = (labels == label)
-                comp_vals = heatmap[comp_mask]
-                max_val = float(comp_vals.max()) if len(comp_vals) > 0 else 0.0
-                mean_val = float(comp_vals.mean()) if len(comp_vals) > 0 else 0.0
-                score = self.alpha_score * max_val + (1.0 - self.alpha_score) * mean_val
+                # Fast local slicing
+                crop_hmap = heatmap[v0:v1, u0:u1]
+                crop_lbl = labels[v0:v1, u0:u1]
+                comp_vals = crop_hmap[crop_lbl == label]
+                c_max = float(np.max(comp_vals)) if comp_vals.size > 0 else float(np.max(crop_hmap))
+                c_mean = float(np.mean(comp_vals)) if comp_vals.size > 0 else float(np.mean(crop_hmap))
+                score = self.alpha_score * c_max + (1.0 - self.alpha_score) * c_mean
 
                 components.append({
                     "u0": u0, "v0": v0, "u1": u1, "v1": v1,
@@ -339,51 +361,40 @@ class Raw4KCandidateGenerator:
         else:
             components = self._fallback_connected_components(binary_mask, heatmap)
 
-        # Safety Fallback
+        # If no components exceed min_region_size, return empty (K = 0)
         if not components:
-            safe_y0 = int(source_height * 0.35)
-            safe_y1 = source_height
-            safe_x0 = int(source_width * 0.15)
-            safe_x1 = int(source_width * 0.85)
-            return [CandidateRegion(
-                x0=safe_x0, y0=safe_y0, x1=safe_x1, y1=safe_y1,
-                score=0.10, component_id=0, area=(safe_x1 - safe_x0) * (safe_y1 - safe_y0),
-            )]
+            return []
 
-        # 3. Context Margin Expansion & Coordinate Mapping
+        # 3. Context Margin Expansion & Coordinate Mapping with crop_size = 480
         raw_candidates: list[CandidateRegion] = []
         for comp in components:
-            x0 = int(comp["u0"] * scale_x)
-            y0 = int(comp["v0"] * scale_y)
-            x1 = int(comp["u1"] * scale_x)
-            y1 = int(comp["v1"] * scale_y)
+            u_center = (comp["u0"] + comp["u1"]) * 0.5
+            v_center = (comp["v0"] + comp["v1"]) * 0.5
+            cx = u_center * scale_x
+            cy = v_center * scale_y
 
-            w = max(1, x1 - x0)
-            h = max(1, y1 - y0)
-            margin_x = int(w * self.context_margin)
-            margin_y = int(h * self.context_margin)
+            w_raw = (comp["u1"] - comp["u0"]) * scale_x
+            h_raw = (comp["v1"] - comp["v0"]) * scale_y
 
-            min_crop_w, min_crop_h = 320, 240
-            if (w + 2 * margin_x) < min_crop_w:
-                margin_x = max(margin_x, (min_crop_w - w) // 2)
-            if (h + 2 * margin_y) < min_crop_h:
-                margin_y = max(margin_y, (min_crop_h - h) // 2)
+            # Apply context margin (25%) and clamp to target crop_size (480)
+            exp_w = max(float(self.crop_size), w_raw * (1.0 + 2.0 * self.context_margin))
+            exp_h = max(float(self.crop_size), h_raw * (1.0 + 2.0 * self.context_margin))
 
-            exp_x0 = max(0, x0 - margin_x)
-            exp_y0 = max(0, y0 - margin_y)
-            exp_x1 = min(source_width, x1 + margin_x)
-            exp_y1 = min(source_height, y1 + margin_y)
+            x0 = int(np.clip(cx - exp_w * 0.5, 0, max(0, source_width - exp_w)))
+            y0 = int(np.clip(cy - exp_h * 0.5, 0, max(0, source_height - exp_h)))
+            x1 = int(min(source_width, x0 + exp_w))
+            y1 = int(min(source_height, y0 + exp_h))
 
             raw_candidates.append(CandidateRegion(
-                x0=exp_x0, y0=exp_y0, x1=exp_x1, y1=exp_y1,
+                x0=x0, y0=y0, x1=x1, y1=y1,
                 score=comp["score"], component_id=comp["label"],
-                area=(exp_x1 - exp_x0) * (exp_y1 - exp_y0),
+                area=(x1 - x0) * (y1 - y0),
             ))
 
         # 4. Region NMS
         kept = self._region_nms(raw_candidates, self.region_nms_iou)
 
-        # 5. Top-K
+        # 5. Top-K (K <= 4)
         return kept[:self.k_max]
 
     def _region_nms(self, regions: list[CandidateRegion], iou_threshold: float) -> list[CandidateRegion]:
@@ -563,7 +574,7 @@ def evaluate_raw4k_scout_regions(
 # ==============================================================================
 
 class Raw4KDataset(Dataset):
-    """Dataset streaming Raw 4K (3840x2160) images into shallow scout."""
+    """Dataset streaming Raw 4K (3840x2160) images into shallow scout with RAM in-memory cache."""
     def __init__(
         self,
         data_dir: Path | str,
@@ -572,12 +583,15 @@ class Raw4KDataset(Dataset):
         limit: int | None = None,
         augment: bool = True,
         expand_ratio: float = 0.20,
+        ram_cache: bool = True,
     ):
         self.data_dir = Path(data_dir)
         self.split = split
         self.heat_h, self.heat_w = heat_size
         self.augment = augment
         self.expand_ratio = expand_ratio
+        self.ram_cache = ram_cache
+        self._bytes_cache: dict[int, bytes] = {}
 
         resolved_dir, source_type = ensure_dataset(self.data_dir, auto_download=True)
         self.data_dir = resolved_dir
@@ -606,8 +620,24 @@ class Raw4KDataset(Dataset):
 
         file_path = image_path(self.data_dir, self.split, im_info["file_name"])
         raw = None
-        if cv2 is not None and file_path.is_file():
-            raw = cv2.imread(str(file_path))
+        if self.ram_cache and idx in self._bytes_cache:
+            raw_bytes = self._bytes_cache[idx]
+            if cv2 is not None:
+                raw = cv2.imdecode(np.frombuffer(raw_bytes, np.uint8), cv2.IMREAD_COLOR)
+        elif file_path.is_file():
+            if self.ram_cache:
+                try:
+                    with open(file_path, "rb") as f:
+                        raw_bytes = f.read()
+                    self._bytes_cache[idx] = raw_bytes
+                    if cv2 is not None:
+                        raw = cv2.imdecode(np.frombuffer(raw_bytes, np.uint8), cv2.IMREAD_COLOR)
+                except Exception:
+                    if cv2 is not None:
+                        raw = cv2.imread(str(file_path))
+            else:
+                if cv2 is not None:
+                    raw = cv2.imread(str(file_path))
 
         if raw is not None:
             orig_h, orig_w = raw.shape[:2]
@@ -775,7 +805,7 @@ def train_raw4k_scout(
     use_cuda_amp = (dev.type == "cuda")
     scaler = torch.amp.GradScaler('cuda', enabled=use_cuda_amp) if hasattr(torch, "amp") and hasattr(torch.amp, "GradScaler") else torch.cuda.amp.GradScaler(enabled=use_cuda_amp)
 
-    candidate_gen = Raw4KCandidateGenerator(threshold=0.30, context_margin=0.20, k_max=4)
+    candidate_gen = Raw4KCandidateGenerator(threshold=0.08, crop_size=480, context_margin=0.25, k_max=4)
     syncer = BackgroundHFSyncer(repo_id=hf_repo, token=hf_token, path_in_repo=f"checkpoints/{output_dir.name}", enabled=hf_sync and not smoke)
 
     last_ckpt = weights_dir / "raw4k_scout_last.pt"
