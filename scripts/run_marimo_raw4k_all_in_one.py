@@ -31,7 +31,7 @@ for sp in [
     if sp not in sys.path and os.path.exists(sp):
         sys.path.insert(0, sp)
 
-# Load environment variables
+# Load or create environment variables
 dotenv_path = Path("/marimo/HRP4K/.env")
 if not dotenv_path.is_file() and Path(".env").is_file():
     dotenv_path = Path(".env")
@@ -44,6 +44,8 @@ if dotenv_path.is_file():
             k, v = k.strip(), v.strip().strip("'\"")
             os.environ.setdefault(k, v)
 
+os.environ.setdefault("HF_REPO", "Cuong2004/HRP4K")
+
 # Clone or pull repo
 repo_dir = Path("/marimo/HRP4K")
 if not repo_dir.exists():
@@ -52,6 +54,12 @@ if not repo_dir.exists():
 else:
     print("Repository /marimo/HRP4K already exists. Pulling latest updates...")
     subprocess.run(["git", "-C", str(repo_dir), "pull"], check=False)
+
+if not (repo_dir / ".env").is_file():
+    (repo_dir / ".env").write_text(
+        f"HF_TOKEN={os.environ['HF_TOKEN']}\nHF_REPO={os.environ['HF_REPO']}\n",
+        encoding="utf-8"
+    )
 
 # Force reload hrp4k modules in case they were cached
 for mod_name in list(sys.modules.keys()):
@@ -78,6 +86,24 @@ train_img_dir = data_dir / "train" / "images"
 zip_path = data_dir / "HRP4K.zip"
 
 if not train_json.is_file() or not train_img_dir.is_dir() or len(list(train_img_dir.glob("*.jpg"))) < 4000:
+    if not zip_path.is_file():
+        print(f"HRP4K.zip not found locally. Downloading from Hugging Face ({os.environ['HF_REPO']})...")
+        t_dl0 = time.time()
+        try:
+            from huggingface_hub import hf_hub_download
+            downloaded = hf_hub_download(
+                repo_id=os.environ["HF_REPO"],
+                filename="HRP4K.zip",
+                repo_type="dataset",
+                local_dir=str(data_dir),
+                token=os.environ.get("HF_TOKEN"),
+            )
+            zip_path = Path(downloaded)
+            print(f"✅ Downloaded HRP4K.zip ({zip_path.stat().st_size / (1024**3):.2f} GB) in {time.time() - t_dl0:.2f}s")
+        except Exception as exc:
+            print(f"Warning: hf_hub_download failed: {exc}, trying direct URL download...")
+            os.system(f"curl -L -o {zip_path} https://huggingface.co/datasets/{os.environ['HF_REPO']}/resolve/main/HRP4K.zip")
+
     if zip_path.is_file():
         print(f"Extracting {zip_path} with 16 parallel worker threads...")
         t0 = time.time()
@@ -108,8 +134,6 @@ if not train_json.is_file() or not train_img_dir.is_dir() or len(list(train_img_
             with ThreadPoolExecutor(max_workers=num_threads) as executor:
                 list(executor.map(worker_chunk, chunks))
         print(f"✅ Parallel extraction completed in {time.time() - t0:.2f}s")
-    else:
-        print("Dataset zip not found locally, will auto-download via ensure_dataset.")
 else:
     print(f"✅ Dataset already fully extracted ({len(list(train_img_dir.glob('*.jpg')))} train images ready).")
 
