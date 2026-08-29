@@ -737,7 +737,7 @@ def train_raw4k_scout(
     train_ds = Raw4KDataset(data_dir, split="train", limit=train_limit, augment=True)
     val_ds = Raw4KDataset(data_dir, split="valid", limit=val_limit, augment=False)
 
-    actual_workers = 0 if smoke else (num_workers if num_workers is not None else (4 if dev.type == "cuda" else 0))
+    actual_workers = 0 if smoke else (num_workers if num_workers is not None else (8 if dev.type == "cuda" else 0))
     train_loader = DataLoader(
         train_ds,
         batch_size=batch_size if not smoke else 2,
@@ -745,6 +745,8 @@ def train_raw4k_scout(
         collate_fn=_raw4k_collate_fn,
         num_workers=actual_workers,
         pin_memory=(dev.type == "cuda"),
+        prefetch_factor=2 if actual_workers > 0 else None,
+        persistent_workers=(actual_workers > 0),
     )
     val_loader = DataLoader(
         val_ds,
@@ -753,6 +755,8 @@ def train_raw4k_scout(
         collate_fn=_raw4k_collate_fn,
         num_workers=actual_workers,
         pin_memory=(dev.type == "cuda"),
+        prefetch_factor=2 if actual_workers > 0 else None,
+        persistent_workers=(actual_workers > 0),
     )
 
     criterion = Raw4KScoutLoss(lambda_cov=lambda_cov)
@@ -817,6 +821,9 @@ def train_raw4k_scout(
             train_loss_list.append(float(loss.item() * accumulate_grad_batches))
             focal_loss_list.append(float(loss_dict["focal_loss"].item()))
             cov_loss_list.append(float(loss_dict["coverage_loss"].item()))
+
+            if (step + 1) % 50 == 0 or (step + 1) == len(train_loader):
+                print(f"  Epoch [{epoch+1:02d}/{actual_epochs:02d}] Step [{step+1:03d}/{len(train_loader):03d}] Loss: {train_loss_list[-1]:.4f} (Focal: {focal_loss_list[-1]:.4f}, Cov: {cov_loss_list[-1]:.4f})")
 
         if len(train_loader) % accumulate_grad_batches != 0:
             if use_cuda_amp:
