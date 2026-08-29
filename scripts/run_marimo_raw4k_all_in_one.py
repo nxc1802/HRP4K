@@ -152,7 +152,7 @@ print(f"PyTorch Version: {torch.__version__}")
 if torch.cuda.is_available():
     print(f"GPU Device: {torch.cuda.get_device_name(0)}")
     print(f"Total VRAM: {torch.cuda.get_device_properties(0).total_memory / (1024**3):.2f} GB")
-print(f"Config: Option B (Stem + Stage 1 + Stage 2) | Epochs=10 | Batch Size=16 | Loss Lambda=5.0 | RAM Cache=True | Workers=0")
+print(f"Config: Option B (Stem + Stage 1 + Stage 2) | Epochs=30 | Batch Size=16 | Loss Lambda=5.0 | RAM Cache=True | Workers=0")
 
 output_dir = data_dir / "outputs" / "raw4k_scout_option_b"
 output_dir.mkdir(parents=True, exist_ok=True)
@@ -164,7 +164,7 @@ t_train_start = time.time()
 results = train_raw4k_scout(
     data_dir=data_dir,
     output_dir=output_dir,
-    epochs=10,
+    epochs=30,
     batch_size=16,
     lr=1e-3,
     lambda_cov=5.0,

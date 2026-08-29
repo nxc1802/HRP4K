@@ -988,7 +988,11 @@ def train_raw4k_scout(
         optimizer.load_state_dict(ckpt["optimizer"])
         start_epoch = ckpt.get("epoch", 0) + 1
         best_recall_75 = ckpt.get("best_recall_75", 0.0)
-        print(f"[Resume] Resumed from epoch {start_epoch}, best recall @ 0.75: {best_recall_75*100:.2f}%")
+        history = ckpt.get("history", [])
+        # Fast-forward scheduler to correct position
+        for _ in range(start_epoch):
+            scheduler.step()
+        log_msg(f"[Resume] Resumed from epoch {start_epoch}/{actual_epochs}, best Recall@0.75: {best_recall_75*100:.2f}%")
 
     t_start_train = time.time()
     for epoch in range(start_epoch, actual_epochs):
@@ -1142,6 +1146,7 @@ def train_raw4k_scout(
             "optimizer": optimizer.state_dict(),
             "best_recall_75": best_recall_75,
             "metrics": epoch_record,
+            "history": history,
         }
         torch.save(ckpt_payload, str(last_ckpt))
 
