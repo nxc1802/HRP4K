@@ -714,21 +714,30 @@ def train_raw4k_scout(
     output_dir.mkdir(parents=True, exist_ok=True)
     weights_dir = output_dir / "weights"
     weights_dir.mkdir(parents=True, exist_ok=True)
+    log_file_p = output_dir / "train.log"
+
+    def log_msg(msg: str):
+        print(msg, flush=True)
+        try:
+            with open(log_file_p, "a", encoding="utf-8") as lf:
+                lf.write(msg + "\n")
+        except Exception:
+            pass
 
     if device is None or device == "auto":
         dev = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
     else:
         dev = torch.device(device)
 
-    print(f"\n================================================================================")
-    print(f"🚀 Launching Raw-4K Shallow Scout Training")
-    print(f"================================================================================")
-    print(f"Device: {dev} | Epochs: {1 if smoke else epochs} | Batch Size: {batch_size} | Smoke: {smoke}")
+    log_msg(f"\n================================================================================")
+    log_msg(f"🚀 Launching Raw-4K Shallow Scout Training")
+    log_msg(f"================================================================================")
+    log_msg(f"Device: {dev} | Epochs: {1 if smoke else epochs} | Batch Size: {batch_size} | Smoke: {smoke}")
 
     model = Raw4KShallowScout(pretrained=True).to(dev)
     param_count = model.count_parameters()
     gflops = model.compute_flops_4k(2160, 3840)
-    print(f"Scout Parameters: {param_count:,} (~{param_count*4/1024:.2f} KB) | GFLOPs @ 4K: {gflops:.2f}")
+    log_msg(f"Scout Parameters: {param_count:,} (~{param_count*4/1024:.2f} KB) | GFLOPs @ 4K: {gflops:.2f}")
 
     train_limit = 4 if smoke else None
     val_limit = 2 if smoke else None
@@ -823,7 +832,7 @@ def train_raw4k_scout(
             cov_loss_list.append(float(loss_dict["coverage_loss"].item()))
 
             if (step + 1) % 50 == 0 or (step + 1) == len(train_loader):
-                print(f"  Epoch [{epoch+1:02d}/{actual_epochs:02d}] Step [{step+1:03d}/{len(train_loader):03d}] Loss: {train_loss_list[-1]:.4f} (Focal: {focal_loss_list[-1]:.4f}, Cov: {cov_loss_list[-1]:.4f})")
+                log_msg(f"  Epoch [{epoch+1:02d}/{actual_epochs:02d}] Step [{step+1:03d}/{len(train_loader):03d}] Loss: {train_loss_list[-1]:.4f} (Focal: {focal_loss_list[-1]:.4f}, Cov: {cov_loss_list[-1]:.4f})")
 
         if len(train_loader) % accumulate_grad_batches != 0:
             if use_cuda_amp:
@@ -919,7 +928,7 @@ def train_raw4k_scout(
         }
         history.append(epoch_record)
 
-        print(
+        log_msg(
             f"Epoch [{epoch+1:02d}/{actual_epochs:02d}] "
             f"Loss: {mean_train_loss:.4f}/{mean_val_loss:.4f} | "
             f"🎯 Recall@0.75: {m_rec75*100:.2f}% (R@50: {m_rec50*100:.1f}%, R@90: {m_rec90*100:.1f}%) | "
@@ -939,7 +948,7 @@ def train_raw4k_scout(
         if m_rec75 >= best_recall_75:
             best_recall_75 = m_rec75
             torch.save(ckpt_payload, str(best_ckpt))
-            print(f"  ⭐ Saved new best checkpoint: Region Recall @ 0.75 = {m_rec75*100:.2f}%")
+            log_msg(f"  ⭐ Saved new best checkpoint: Region Recall @ 0.75 = {m_rec75*100:.2f}%")
 
         if syncer.enabled:
             syncer.sync_epoch(
