@@ -609,6 +609,28 @@ class Raw4KDataset(Dataset):
             img_id = int(ann["image_id"])
             self.img_to_anns.setdefault(img_id, []).append(ann)
 
+    def preload_cache(self, max_workers: int = 16) -> None:
+        """Pre-warm RAM cache in parallel by reading JPEG bytes into memory."""
+        if not self.ram_cache or not self.images:
+            return
+        from concurrent.futures import ThreadPoolExecutor
+        t0 = time.time()
+        print(f"[{self.split.upper()}] Preloading {len(self.images)} images into RAM cache ({max_workers} threads)...", flush=True)
+        def _load_entry(item):
+            idx, im_info = item
+            if idx in self._bytes_cache:
+                return
+            file_path = image_path(self.data_dir, self.split, im_info["file_name"])
+            if file_path.is_file():
+                try:
+                    with open(file_path, "rb") as f:
+                        self._bytes_cache[idx] = f.read()
+                except Exception:
+                    pass
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            list(executor.map(_load_entry, enumerate(self.images)))
+        print(f"[{self.split.upper()}] ✅ Cached {len(self._bytes_cache)}/{len(self.images)} images in RAM ({time.time() - t0:.2f}s)", flush=True)
+
     def __len__(self) -> int:
         return len(self.images)
 
@@ -776,6 +798,9 @@ def train_raw4k_scout(
 
     train_ds = Raw4KDataset(data_dir, split="train", limit=train_limit, augment=True, ram_cache=ram_cache)
     val_ds = Raw4KDataset(data_dir, split="valid", limit=val_limit, augment=False, ram_cache=ram_cache)
+    if ram_cache and not smoke:
+        train_ds.preload_cache(max_workers=16)
+        val_ds.preload_cache(max_workers=16)
 
     actual_workers = 0 if smoke else (num_workers if num_workers is not None else (8 if dev.type == "cuda" else 0))
     train_loader = DataLoader(
@@ -862,7 +887,7 @@ def train_raw4k_scout(
             focal_loss_list.append(float(loss_dict["focal_loss"].item()))
             cov_loss_list.append(float(loss_dict["coverage_loss"].item()))
 
-            if (step + 1) % 50 == 0 or (step + 1) == len(train_loader):
+            if (step + 1) % 15 == 0 or (step + 1) == len(train_loader) or step == 0:
                 log_msg(f"  Epoch [{epoch+1:02d}/{actual_epochs:02d}] Step [{step+1:03d}/{len(train_loader):03d}] Loss: {train_loss_list[-1]:.4f} (Focal: {focal_loss_list[-1]:.4f}, Cov: {cov_loss_list[-1]:.4f})")
 
         if len(train_loader) % accumulate_grad_batches != 0:
@@ -890,7 +915,7 @@ def train_raw4k_scout(
 
         latencies = []
         with torch.no_grad():
-            for batch in val_loader:
+            for batch_idx, batch in enumerate(val_loader):
                 imgs = batch["image"].to(dev, non_blocking=True)
                 targets = batch["heatmap"].to(dev, non_blocking=True)
                 gt_centers = batch["gt_centers"]
@@ -925,6 +950,9 @@ def train_raw4k_scout(
 
                     for s_bin, val in res["scale_bin_recalls"].items():
                         scale_recalls.setdefault(s_bin, []).append(val)
+
+                if (batch_idx + 1) % 15 == 0 or (batch_idx + 1) == len(val_loader) or batch_idx == 0:
+                    log_msg(f"  [Validation] Batch [{batch_idx+1:03d}/{len(val_loader):03d}] (Loss: {val_loss_list[-1]:.4f})")
 
         mean_train_loss = float(np.mean(train_loss_list)) if train_loss_list else 0.0
         mean_val_loss = float(np.mean(val_loss_list)) if val_loss_list else 0.0
