@@ -152,9 +152,9 @@ print(f"PyTorch Version: {torch.__version__}")
 if torch.cuda.is_available():
     print(f"GPU Device: {torch.cuda.get_device_name(0)}")
     print(f"Total VRAM: {torch.cuda.get_device_properties(0).total_memory / (1024**3):.2f} GB")
-print(f"Config: Epochs=30 | Batch Size=16 | RAM Cache=True | Workers=0")
+print(f"Config: Option B (Stem + Stage 1 + Stage 2) | Epochs=10 | Batch Size=16 | Loss Lambda=5.0 | RAM Cache=True | Workers=0")
 
-output_dir = data_dir / "outputs" / "raw4k_scout_blackwell"
+output_dir = data_dir / "outputs" / "raw4k_scout_option_b"
 output_dir.mkdir(parents=True, exist_ok=True)
 
 hf_token = os.environ.get("HF_TOKEN")
@@ -164,13 +164,13 @@ t_train_start = time.time()
 results = train_raw4k_scout(
     data_dir=data_dir,
     output_dir=output_dir,
-    epochs=30,
+    epochs=10,
     batch_size=16,
     lr=1e-3,
-    lambda_cov=2.0,
+    lambda_cov=5.0,
     device="cuda" if torch.cuda.is_available() else "cpu",
     smoke=False,
-    resume=True,
+    resume=False,
     hf_repo=hf_repo,
     hf_token=hf_token,
     hf_sync=True,
