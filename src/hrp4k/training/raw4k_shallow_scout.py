@@ -609,27 +609,66 @@ class Raw4KDataset(Dataset):
             img_id = int(ann["image_id"])
             self.img_to_anns.setdefault(img_id, []).append(ann)
 
-    def preload_cache(self, max_workers: int = 16) -> None:
-        """Pre-warm RAM cache in parallel by reading JPEG bytes into memory."""
+        self._gt_cache: dict[int, np.ndarray] = {}
+        self._gt_centers_cache: dict[int, list[tuple[float, float]]] = {}
+
+    def preload_cache(self, max_workers: int = 16, predecode: bool = True) -> None:
+        """Pre-warm RAM cache in parallel: decode RGB images and pre-compute GT heatmaps into memory."""
         if not self.ram_cache or not self.images:
             return
         from concurrent.futures import ThreadPoolExecutor
         t0 = time.time()
-        print(f"[{self.split.upper()}] Preloading {len(self.images)} images into RAM cache ({max_workers} threads)...", flush=True)
+        mode_str = "Pre-decoded RGB + Heatmaps" if predecode else "Compressed JPEG bytes"
+        print(f"[{self.split.upper()}] Preloading {len(self.images)} images into RAM ({mode_str}) with {max_workers} threads...", flush=True)
+
         def _load_entry(item):
             idx, im_info = item
-            if idx in self._bytes_cache:
-                return
+            img_id = int(im_info["id"])
+            orig_w = int(im_info.get("width", 3840))
+            orig_h = int(im_info.get("height", 2160))
             file_path = image_path(self.data_dir, self.split, im_info["file_name"])
-            if file_path.is_file():
+
+            if idx not in self._bytes_cache and file_path.is_file():
                 try:
-                    with open(file_path, "rb") as f:
-                        self._bytes_cache[idx] = f.read()
+                    if predecode and cv2 is not None:
+                        arr = cv2.imread(str(file_path))
+                        if arr is not None:
+                            h, w = arr.shape[:2]
+                            if (w, h) != (3840, 2160):
+                                arr = cv2.resize(arr, (3840, 2160), interpolation=cv2.INTER_LINEAR)
+                            self._bytes_cache[idx] = arr
+                        else:
+                            with open(file_path, "rb") as f:
+                                self._bytes_cache[idx] = f.read()
+                    else:
+                        with open(file_path, "rb") as f:
+                            self._bytes_cache[idx] = f.read()
                 except Exception:
                     pass
+
+            if idx not in self._gt_cache:
+                anns = self.img_to_anns.get(img_id, [])
+                boxes = [list(map(float, a["bbox"])) for a in anns]
+                gt_hmap = generate_raw4k_scout_gt(
+                    boxes,
+                    img_w=orig_w,
+                    img_h=orig_h,
+                    heat_w=self.heat_w,
+                    heat_h=self.heat_h,
+                    expand_ratio=self.expand_ratio,
+                )
+                self._gt_cache[idx] = gt_hmap
+
+                centers = []
+                for x, y, w, h in boxes:
+                    cx = (x + w * 0.5) * (self.heat_w / float(orig_w))
+                    cy = (y + h * 0.5) * (self.heat_h / float(orig_h))
+                    centers.append((float(cy), float(cx)))
+                self._gt_centers_cache[idx] = centers
+
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             list(executor.map(_load_entry, enumerate(self.images)))
-        print(f"[{self.split.upper()}] ✅ Cached {len(self._bytes_cache)}/{len(self.images)} images in RAM ({time.time() - t0:.2f}s)", flush=True)
+        print(f"[{self.split.upper()}] ✅ Cached {len(self._bytes_cache)}/{len(self.images)} images in RAM in {time.time() - t0:.2f}s!", flush=True)
 
     def __len__(self) -> int:
         return len(self.images)
@@ -640,26 +679,17 @@ class Raw4KDataset(Dataset):
         orig_w = int(im_info.get("width", 3840))
         orig_h = int(im_info.get("height", 2160))
 
-        file_path = image_path(self.data_dir, self.split, im_info["file_name"])
         raw = None
         if self.ram_cache and idx in self._bytes_cache:
-            raw_bytes = self._bytes_cache[idx]
-            if cv2 is not None:
-                raw = cv2.imdecode(np.frombuffer(raw_bytes, np.uint8), cv2.IMREAD_COLOR)
-        elif file_path.is_file():
-            if self.ram_cache:
-                try:
-                    with open(file_path, "rb") as f:
-                        raw_bytes = f.read()
-                    self._bytes_cache[idx] = raw_bytes
-                    if cv2 is not None:
-                        raw = cv2.imdecode(np.frombuffer(raw_bytes, np.uint8), cv2.IMREAD_COLOR)
-                except Exception:
-                    if cv2 is not None:
-                        raw = cv2.imread(str(file_path))
-            else:
-                if cv2 is not None:
-                    raw = cv2.imread(str(file_path))
+            cached_val = self._bytes_cache[idx]
+            if isinstance(cached_val, np.ndarray):
+                raw = cached_val
+            elif cv2 is not None:
+                raw = cv2.imdecode(np.frombuffer(cached_val, np.uint8), cv2.IMREAD_COLOR)
+        else:
+            file_path = image_path(self.data_dir, self.split, im_info["file_name"])
+            if file_path.is_file() and cv2 is not None:
+                raw = cv2.imread(str(file_path))
 
         if raw is not None:
             orig_h, orig_w = raw.shape[:2]
@@ -672,36 +702,58 @@ class Raw4KDataset(Dataset):
         anns = self.img_to_anns.get(img_id, [])
         boxes = [list(map(float, a["bbox"])) for a in anns]
 
-        if self.augment and random.random() < 0.5:
+        is_flipped = self.augment and (random.random() < 0.5)
+        if is_flipped:
             if cv2 is not None:
                 raw = cv2.flip(raw, 1)
             else:
                 raw = np.fliplr(raw).copy()
-            flipped = []
+            flipped_boxes = []
             for x, y, w, h in boxes:
-                flipped.append([orig_w - (x + w), y, w, h])
-            boxes = flipped
+                flipped_boxes.append([orig_w - (x + w), y, w, h])
+            boxes = flipped_boxes
 
-        img_tensor = torch.from_numpy(raw).permute(2, 0, 1).float() / 255.0
-        mean = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
-        std = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
-        img_tensor = (img_tensor - mean) / std
+            if idx in self._gt_cache:
+                gt_heatmap = np.fliplr(self._gt_cache[idx]).copy()
+                gt_centers = [
+                    (cy, float(self.heat_w) - 1.0 - cx)
+                    for (cy, cx) in self._gt_centers_cache[idx]
+                ]
+            else:
+                gt_heatmap = generate_raw4k_scout_gt(
+                    boxes,
+                    img_w=orig_w,
+                    img_h=orig_h,
+                    heat_w=self.heat_w,
+                    heat_h=self.heat_h,
+                    expand_ratio=self.expand_ratio,
+                )
+                gt_centers = []
+                for x, y, w, h in boxes:
+                    cx = (x + w * 0.5) * (self.heat_w / float(orig_w))
+                    cy = (y + h * 0.5) * (self.heat_h / float(orig_h))
+                    gt_centers.append((float(cy), float(cx)))
+        else:
+            if idx in self._gt_cache:
+                gt_heatmap = self._gt_cache[idx]
+                gt_centers = self._gt_centers_cache[idx]
+            else:
+                gt_heatmap = generate_raw4k_scout_gt(
+                    boxes,
+                    img_w=orig_w,
+                    img_h=orig_h,
+                    heat_w=self.heat_w,
+                    heat_h=self.heat_h,
+                    expand_ratio=self.expand_ratio,
+                )
+                gt_centers = []
+                for x, y, w, h in boxes:
+                    cx = (x + w * 0.5) * (self.heat_w / float(orig_w))
+                    cy = (y + h * 0.5) * (self.heat_h / float(orig_h))
+                    gt_centers.append((float(cy), float(cx)))
 
-        gt_heatmap = generate_raw4k_scout_gt(
-            boxes,
-            img_w=orig_w,
-            img_h=orig_h,
-            heat_w=self.heat_w,
-            heat_h=self.heat_h,
-            expand_ratio=self.expand_ratio,
-        )
+        img_tensor = torch.from_numpy(raw)  # [2160, 3840, 3] uint8 tensor
         gt_tensor = torch.from_numpy(gt_heatmap).unsqueeze(0).float()
-
-        gt_centers = []
-        for x, y, w, h in boxes:
-            cx = (x + w * 0.5) * (self.heat_w / float(orig_w))
-            cy = (y + h * 0.5) * (self.heat_h / float(orig_h))
-            gt_centers.append((float(cy), float(cx)))
 
         return {
             "image": img_tensor,
@@ -831,6 +883,18 @@ def train_raw4k_scout(
     use_cuda_amp = (dev.type == "cuda")
     scaler = torch.amp.GradScaler('cuda', enabled=use_cuda_amp) if hasattr(torch, "amp") and hasattr(torch.amp, "GradScaler") else torch.cuda.amp.GradScaler(enabled=use_cuda_amp)
 
+    mean_cuda = torch.tensor([0.485, 0.456, 0.406], device=dev).view(1, 3, 1, 1)
+    std_cuda = torch.tensor([0.229, 0.224, 0.225], device=dev).view(1, 3, 1, 1)
+
+    def preprocess_imgs_on_gpu(raw_tensor: torch.Tensor) -> torch.Tensor:
+        t = raw_tensor.to(dev, non_blocking=True)
+        if t.ndim == 4 and t.shape[-1] == 3:
+            t = t.permute(0, 3, 1, 2)
+        if t.dtype == torch.uint8:
+            t = t.float().div_(255.0)
+        t = (t - mean_cuda) / std_cuda
+        return t
+
     candidate_gen = Raw4KCandidateGenerator(threshold=0.08, crop_size=480, context_margin=0.25, k_max=4)
     syncer = BackgroundHFSyncer(repo_id=hf_repo, token=hf_token, path_in_repo=f"checkpoints/{output_dir.name}", enabled=hf_sync and not smoke)
 
@@ -860,7 +924,7 @@ def train_raw4k_scout(
         optimizer.zero_grad()
 
         for step, batch in enumerate(train_loader):
-            imgs = batch["image"].to(dev, non_blocking=True)
+            imgs = preprocess_imgs_on_gpu(batch["image"])
             targets = batch["heatmap"].to(dev, non_blocking=True)
             gt_centers = batch["gt_centers"]
 
@@ -916,7 +980,7 @@ def train_raw4k_scout(
         latencies = []
         with torch.no_grad():
             for batch_idx, batch in enumerate(val_loader):
-                imgs = batch["image"].to(dev, non_blocking=True)
+                imgs = preprocess_imgs_on_gpu(batch["image"])
                 targets = batch["heatmap"].to(dev, non_blocking=True)
                 gt_centers = batch["gt_centers"]
 
