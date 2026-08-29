@@ -728,6 +728,7 @@ def train_raw4k_scout(
     hf_token: str | None = None,
     hf_sync: bool = False,
     num_workers: int | None = None,
+    ram_cache: bool = True,
 ) -> dict[str, Any]:
     """Train MobileNetV3-Small Stem + Stage 1 Shallow Scout directly on raw 4K images."""
     if not TORCH_AVAILABLE:
@@ -773,8 +774,8 @@ def train_raw4k_scout(
     val_limit = 2 if smoke else None
     actual_epochs = 1 if smoke else epochs
 
-    train_ds = Raw4KDataset(data_dir, split="train", limit=train_limit, augment=True)
-    val_ds = Raw4KDataset(data_dir, split="valid", limit=val_limit, augment=False)
+    train_ds = Raw4KDataset(data_dir, split="train", limit=train_limit, augment=True, ram_cache=ram_cache)
+    val_ds = Raw4KDataset(data_dir, split="valid", limit=val_limit, augment=False, ram_cache=ram_cache)
 
     actual_workers = 0 if smoke else (num_workers if num_workers is not None else (8 if dev.type == "cuda" else 0))
     train_loader = DataLoader(
@@ -1118,6 +1119,8 @@ def main():
     parser.add_argument("--hf-repo", type=str, default=None, help="Hugging Face repo for checkpoint sync")
     parser.add_argument("--hf-token", type=str, default=None, help="Hugging Face API token")
     parser.add_argument("--hf-sync", action="store_true", help="Enable background HF cloud sync")
+    parser.add_argument("--ram-cache", action=argparse.BooleanOptionalAction, default=True, help="Enable/disable in-memory RAM caching")
+    parser.add_argument("--workers", type=int, default=None, help="Number of DataLoader worker processes")
 
     args = parser.parse_args()
 
@@ -1134,6 +1137,8 @@ def main():
         hf_repo=args.hf_repo,
         hf_token=args.hf_token,
         hf_sync=args.hf_sync,
+        num_workers=args.workers,
+        ram_cache=args.ram_cache,
     )
 
 
