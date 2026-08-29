@@ -818,6 +818,14 @@ def train_raw4k_scout(
             focal_loss_list.append(float(loss_dict["focal_loss"].item()))
             cov_loss_list.append(float(loss_dict["coverage_loss"].item()))
 
+        if len(train_loader) % accumulate_grad_batches != 0:
+            if use_cuda_amp:
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                optimizer.step()
+            optimizer.zero_grad()
+
         scheduler.step()
         epoch_time = time.time() - t0
 
