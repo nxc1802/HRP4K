@@ -53,6 +53,11 @@ else:
     print("Repository /marimo/HRP4K already exists. Pulling latest updates...")
     subprocess.run(["git", "-C", str(repo_dir), "pull"], check=False)
 
+# Force reload hrp4k modules in case they were cached
+for mod_name in list(sys.modules.keys()):
+    if mod_name.startswith("hrp4k"):
+        del sys.modules[mod_name]
+
 # Send initial toast in Marimo if marimo is imported
 try:
     import marimo as mo
