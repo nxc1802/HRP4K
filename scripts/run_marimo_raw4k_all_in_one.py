@@ -128,7 +128,7 @@ print(f"PyTorch Version: {torch.__version__}")
 if torch.cuda.is_available():
     print(f"GPU Device: {torch.cuda.get_device_name(0)}")
     print(f"Total VRAM: {torch.cuda.get_device_properties(0).total_memory / (1024**3):.2f} GB")
-print(f"Config: Epochs=30 | Batch Size=16 | RAM Cache=True | Workers=6")
+print(f"Config: Epochs=30 | Batch Size=16 | RAM Cache=True | Workers=0")
 
 output_dir = data_dir / "outputs" / "raw4k_scout_blackwell"
 output_dir.mkdir(parents=True, exist_ok=True)
@@ -150,7 +150,7 @@ results = train_raw4k_scout(
     hf_repo=hf_repo,
     hf_token=hf_token,
     hf_sync=True,
-    num_workers=6,
+    num_workers=0,
     ram_cache=True,
 )
 t_train_total = time.time() - t_train_start
