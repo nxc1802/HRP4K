@@ -586,7 +586,7 @@ def evaluate_scout_model(
         batch_size=eval_batch_size,
         shuffle=False,
         collate_fn=_collate_fn,
-        num_workers=4 if dev.type == "cuda" else 0,
+        num_workers=0,
         pin_memory=(dev.type == "cuda"),
     )
     candidate_gen = CandidateGenerator(threshold=threshold, context_margin=context_margin, k_max=k_max)
