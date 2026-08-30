@@ -17,13 +17,61 @@ import random
 from pathlib import Path
 from typing import Any
 
-import cv2
 import numpy as np
 import yaml
 
 from ..data.coco import load_split
 from ..data.paths import image_path
 from ..models.scout import CandidateGenerator, MobileNetV3Scout
+
+try:
+    import cv2
+except ImportError:
+    cv2 = None
+
+
+def _imread(file_p: Path | str) -> np.ndarray | None:
+    if cv2 is not None:
+        return cv2.imread(str(file_p))
+    try:
+        from PIL import Image
+        with Image.open(file_p) as pimg:
+            pimg = pimg.convert("RGB")
+            rgb = np.array(pimg)
+            return rgb[:, :, ::-1].copy()
+    except Exception:
+        return None
+
+
+def _imwrite(file_p: Path | str, img_bgr: np.ndarray) -> None:
+    if cv2 is not None:
+        cv2.imwrite(str(file_p), img_bgr)
+        return
+    try:
+        from PIL import Image
+        rgb = img_bgr[:, :, ::-1].copy()
+        pimg = Image.fromarray(rgb)
+        pimg.save(str(file_p), "JPEG", quality=90)
+    except Exception:
+        pass
+
+
+def _resize(img_bgr: np.ndarray, target_size: tuple[int, int]) -> np.ndarray:
+    target_w, target_h = target_size
+    if cv2 is not None:
+        return cv2.resize(img_bgr, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+    try:
+        from PIL import Image
+        rgb = img_bgr[:, :, ::-1].copy()
+        pimg = Image.fromarray(rgb)
+        resized = pimg.resize((target_w, target_h), Image.Resampling.BILINEAR)
+        rgb_arr = np.array(resized)
+        return rgb_arr[:, :, ::-1].copy()
+    except Exception:
+        h, w = img_bgr.shape[:2]
+        ys = (np.linspace(0, h - 1, target_h)).astype(int)
+        xs = (np.linspace(0, w - 1, target_w)).astype(int)
+        return img_bgr[ys[:, None], xs]
 
 
 def _normalize_box(box_xywh: list[float] | tuple[float, ...], img_w: int, img_h: int) -> list[float]:
@@ -75,7 +123,7 @@ def create_adapoth_crop_dataset(
     stage: str = "stage2",  # "stage2" or "stage3"
     scout_weights: Path | str | None = None,
     target_crop_size: tuple[int, int] = (640, 640),
-    context_margin: float = 0.20,
+    context_margin: float = 0.30,
     seed: int = 42,
     splits: tuple[str, ...] = ("train", "valid"),
 ) -> dict[str, Any]:
@@ -99,7 +147,7 @@ def create_adapoth_crop_dataset(
         state_dict = ckpt["model"] if "model" in ckpt else ckpt
         scout_model.load_state_dict(state_dict)
         scout_model.eval()
-        candidate_gen = CandidateGenerator(threshold=0.25, context_margin=context_margin, k_max=6)
+        candidate_gen = CandidateGenerator(threshold=0.05, context_margin=context_margin, k_max=6)
 
     manifest_splits: dict[str, Any] = {}
 
@@ -124,7 +172,7 @@ def create_adapoth_crop_dataset(
         for im_info in images:
             img_id = int(im_info["id"])
             file_p = image_path(data_dir, split, im_info["file_name"])
-            img = cv2.imread(str(file_p))
+            img = _imread(file_p)
             if img is None:
                 continue
 
@@ -137,7 +185,7 @@ def create_adapoth_crop_dataset(
                 # 1. Full-image sample (25% weight)
                 full_img_out = split_img_dir / f"{base_stem}_full.jpg"
                 full_lbl_out = split_lbl_dir / f"{base_stem}_full.txt"
-                cv2.imwrite(str(full_img_out), cv2.resize(img, target_crop_size))
+                _imwrite(full_img_out, _resize(img, target_crop_size))
                 lines = []
                 for b in boxes:
                     norm = _normalize_box(b, orig_w, orig_h)
@@ -164,7 +212,7 @@ def create_adapoth_crop_dataset(
 
                     c_img_out = split_img_dir / f"{base_stem}_pos_{b_idx}.jpg"
                     c_lbl_out = split_lbl_dir / f"{base_stem}_pos_{b_idx}.txt"
-                    cv2.imwrite(str(c_img_out), cv2.resize(crop, target_crop_size))
+                    _imwrite(c_img_out, _resize(crop, target_crop_size))
 
                     c_lines = []
                     for cb in crop_boxes:
@@ -186,7 +234,7 @@ def create_adapoth_crop_dataset(
                         neg_crop = img[neg_y0:neg_y0 + neg_h, neg_x0:neg_x0 + neg_w]
                         n_img_out = split_img_dir / f"{base_stem}_neg_{n_idx}.jpg"
                         n_lbl_out = split_lbl_dir / f"{base_stem}_neg_{n_idx}.txt"
-                        cv2.imwrite(str(n_img_out), cv2.resize(neg_crop, target_crop_size))
+                        _imwrite(n_img_out, _resize(neg_crop, target_crop_size))
                         n_lbl_out.write_text("", encoding="utf-8")  # Empty label file
                         hard_negatives += 1
 
@@ -194,7 +242,7 @@ def create_adapoth_crop_dataset(
                 # Stage 3: Scout-generated candidate crops (60%) + Full/GT (40%)
                 import torch
                 # Generate candidate regions from Scout
-                thumb = cv2.resize(img, (960, 540))
+                thumb = _resize(img, (960, 540))
                 thumb_t = torch.from_numpy(thumb).permute(2, 0, 1).unsqueeze(0).float() / 255.0
                 mean = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
                 std = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
@@ -217,7 +265,7 @@ def create_adapoth_crop_dataset(
 
                     sc_img_out = split_img_dir / f"{base_stem}_scout_{c_idx}.jpg"
                     sc_lbl_out = split_lbl_dir / f"{base_stem}_scout_{c_idx}.txt"
-                    cv2.imwrite(str(sc_img_out), cv2.resize(crop, target_crop_size))
+                    _imwrite(sc_img_out, _resize(crop, target_crop_size))
 
                     sc_lines = []
                     for cb in crop_boxes:
@@ -229,7 +277,7 @@ def create_adapoth_crop_dataset(
                 # Add full image sample
                 full_img_out = split_img_dir / f"{base_stem}_full.jpg"
                 full_lbl_out = split_lbl_dir / f"{base_stem}_full.txt"
-                cv2.imwrite(str(full_img_out), cv2.resize(img, target_crop_size))
+                _imwrite(full_img_out, _resize(img, target_crop_size))
                 lines = []
                 for b in boxes:
                     norm = _normalize_box(b, orig_w, orig_h)

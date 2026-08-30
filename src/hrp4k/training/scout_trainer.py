@@ -43,6 +43,32 @@ except ImportError:
     TORCH_AVAILABLE = False
 
 
+def _load_and_resize_img(file_path: Path | str, target_size: tuple[int, int]) -> tuple[np.ndarray, int, int]:
+    """Load image from path and resize to target_size (W, H). Returns (img_bgr, orig_h, orig_w)."""
+    target_w, target_h = target_size
+    try:
+        import cv2
+        raw = cv2.imread(str(file_path))
+        if raw is not None:
+            orig_h, orig_w = raw.shape[:2]
+            resized = cv2.resize(raw, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+            return resized, orig_h, orig_w
+    except Exception:
+        pass
+    try:
+        from PIL import Image
+        with Image.open(file_path) as pil_img:
+            pil_img = pil_img.convert("RGB")
+            orig_w, orig_h = pil_img.size
+            resized = pil_img.resize((target_w, target_h), Image.Resampling.BILINEAR)
+            rgb_arr = np.array(resized)
+            bgr_arr = rgb_arr[:, :, ::-1].copy()
+            return bgr_arr, orig_h, orig_w
+    except Exception:
+        pass
+    return np.zeros((target_h, target_w, 3), dtype=np.uint8), 2160, 3840
+
+
 def ensure_scout_cache(
     data_dir: Path | str,
     split: str,
@@ -63,17 +89,29 @@ def ensure_scout_cache(
             missing.append(im)
 
     if missing:
-        import cv2
         from concurrent.futures import ThreadPoolExecutor
 
         def _process(im: dict[str, Any]) -> None:
             src = image_path(data_dir, split, im["file_name"])
             dst = cache_dir / Path(im["file_name"]).name
             if src.is_file() and not dst.is_file():
-                img = cv2.imread(str(src))
-                if img is not None:
-                    thumb = cv2.resize(img, (img_size[1], img_size[0]), interpolation=cv2.INTER_LINEAR)
-                    cv2.imwrite(str(dst), thumb, [cv2.IMWRITE_JPEG_QUALITY, 90])
+                try:
+                    import cv2
+                    img = cv2.imread(str(src))
+                    if img is not None:
+                        thumb = cv2.resize(img, (img_size[1], img_size[0]), interpolation=cv2.INTER_LINEAR)
+                        cv2.imwrite(str(dst), thumb, [cv2.IMWRITE_JPEG_QUALITY, 90])
+                        return
+                except Exception:
+                    pass
+                try:
+                    from PIL import Image
+                    with Image.open(src) as pimg:
+                        pimg = pimg.convert("RGB")
+                        thumb = pimg.resize((img_size[1], img_size[0]), Image.Resampling.BILINEAR)
+                        thumb.save(dst, "JPEG", quality=90)
+                except Exception:
+                    pass
 
         print(f"[Scout Cache] Pre-caching {len(missing)} thumbnails for '{split}' ({max_workers} threads)...")
         with ThreadPoolExecutor(max_workers=max_workers) as ex:
@@ -126,28 +164,22 @@ class ScoutDataset(Dataset):
         orig_w = int(im_info.get("width", 3840))
         orig_h = int(im_info.get("height", 2160))
 
-        import cv2
         img = None
         if self.cache_dir:
             cache_p = self.cache_dir / file_name
             if cache_p.is_file():
-                img = cv2.imread(str(cache_p))
+                img, _, _ = _load_and_resize_img(cache_p, (self.img_w, self.img_h))
 
         if img is None:
             file_path = image_path(self.data_dir, self.split, im_info["file_name"])
-            raw = cv2.imread(str(file_path))
-            if raw is not None:
-                orig_h, orig_w = raw.shape[:2]
-                img = cv2.resize(raw, (self.img_w, self.img_h), interpolation=cv2.INTER_LINEAR)
-            else:
-                img = np.zeros((self.img_h, self.img_w, 3), dtype=np.uint8)
+            img, orig_h, orig_w = _load_and_resize_img(file_path, (self.img_w, self.img_h))
 
         anns = self.img_to_anns.get(img_id, [])
         boxes = [list(map(float, a["bbox"])) for a in anns]
 
         # Horizontal flip augmentation
         if self.augment and random.random() < 0.5:
-            img = cv2.flip(img, 1)
+            img = np.fliplr(img).copy()
             flipped_boxes = []
             for x, y, w, h in boxes:
                 flipped_boxes.append([orig_w - (x + w), y, w, h])
@@ -168,8 +200,6 @@ class ScoutDataset(Dataset):
             img_h=orig_h,
             heat_w=self.heat_w,
             heat_h=self.heat_h,
-            sigma_x_scale=0.35,
-            sigma_y_scale=0.50,
             expand_ratio=0.25,
         )
         gt_tensor = torch.from_numpy(gt_heatmap).unsqueeze(0).float()  # (1, heat_H, heat_W)
@@ -215,7 +245,7 @@ def train_scout(
     batch_size: int = 32,
     lr: float = 1e-3,
     img_size: tuple[int, int] = (540, 960),
-    lambda_cov: float = 2.0,
+    lambda_cov: float = 3.0,
     device: str | None = None,
     smoke: bool = False,
     resume: bool = False,
@@ -320,7 +350,7 @@ def train_scout(
     target_repo_path = f"checkpoints/{output_dir.name}"
     syncer = BackgroundHFSyncer(repo_id=hf_repo, token=hf_token, path_in_repo=target_repo_path, enabled=hf_sync and not smoke)
 
-    candidate_gen = CandidateGenerator(threshold=0.30, context_margin=0.20, k_max=4)
+    candidate_gen = CandidateGenerator(threshold=0.05, context_margin=0.30, k_max=4)
     history = []
 
     for epoch in range(start_epoch, actual_epochs):
@@ -334,14 +364,18 @@ def train_scout(
             imgs = batch["image"].to(dev, non_blocking=True)
             targets = batch["heatmap"].to(dev, non_blocking=True)
             gt_centers = batch["gt_centers"]
+            orig_boxes = batch["orig_boxes"]
+            orig_sizes = batch["orig_sizes"]
 
             optimizer.zero_grad()
             with torch.cuda.amp.autocast(enabled=(dev.type == "cuda")):
                 preds = model(imgs)
-                loss_dict = criterion(preds, targets, gt_centers)
+                loss_dict = criterion(preds, targets, gt_boxes=orig_boxes, orig_sizes=orig_sizes, gt_centers=gt_centers)
                 loss = loss_dict["loss"]
 
             scaler.scale(loss).backward()
+            scaler.unscale_(optimizer)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             scaler.step(optimizer)
             scaler.update()
 
@@ -365,10 +399,12 @@ def train_scout(
                 imgs = batch["image"].to(dev, non_blocking=True)
                 targets = batch["heatmap"].to(dev, non_blocking=True)
                 gt_centers = batch["gt_centers"]
+                orig_boxes = batch["orig_boxes"]
+                orig_sizes = batch["orig_sizes"]
 
                 with torch.cuda.amp.autocast(enabled=(dev.type == "cuda")):
                     preds = model(imgs)
-                    loss_dict = criterion(preds, targets, gt_centers)
+                    loss_dict = criterion(preds, targets, gt_boxes=orig_boxes, orig_sizes=orig_sizes, gt_centers=gt_centers)
                 val_loss_list.append(float(loss_dict["loss"].item()))
 
                 # Evaluate candidate regions for each sample
@@ -483,8 +519,8 @@ def evaluate_scout_model(
     weights_path: Path | str,
     split: str = "valid",
     output_path: Path | str | None = None,
-    threshold: float = 0.30,
-    context_margin: float = 0.20,
+    threshold: float = 0.05,
+    context_margin: float = 0.30,
     k_max: int = 4,
     device: str | None = None,
     limit: int | None = None,

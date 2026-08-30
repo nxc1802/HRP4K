@@ -56,8 +56,8 @@ class TestAdaPothIntegration(unittest.TestCase):
     def test_make_adapoth_views(self):
         dummy_img = np.zeros((2160, 3840, 3), dtype=np.uint8)
         views = make_views(dummy_img, method="adapoth", k_max=4)
-        # Should contain 1 global view + candidate views (at least safety view if 0 comps)
-        self.assertGreaterEqual(len(views), 2)
+        # Should contain at least 1 global view (and K >= 0 local candidate views)
+        self.assertGreaterEqual(len(views), 1)
         self.assertEqual(views[0].metadata.get("type"), "global")
 
     def test_make_adapoth_oracle_views(self):

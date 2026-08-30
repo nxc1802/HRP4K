@@ -154,30 +154,22 @@ def generate_scout_heatmap_gt(
     img_h: int = 2160,
     heat_w: int = 60,
     heat_h: int = 34,
-    sigma_x_scale: float = 0.35,
-    sigma_y_scale: float = 0.50,
     expand_ratio: float = 0.25,
 ) -> np.ndarray:
-    """Generate Elliptical Gaussian Ground-Truth heatmap for Region Scout training.
+    """Generate Coverage-Aware Soft Region Target heatmap for Region Scout training.
     
-    Formula from upgrade.md (Section 6):
-      1. Scale GT box from 3840x2160 -> heatmap resolution (e.g. 60x34)
-      2. Expand box by expand_ratio (25%)
-      3. Render elliptical Gaussian: H(x, y) = exp(- (x - x0)^2 / (2*sigma_x^2) - (y - y0)^2 / (2*sigma_y^2))
-         with sigma_x = 0.35 * w_heat, sigma_y = 0.50 * h_heat.
-    
-    Returns:
-      heatmap: np.ndarray of shape (heat_h, heat_w), float32, range [0, 1].
+    Creates a dense rectangular region target (value 1.0 inside object box)
+    with smooth falloff margin (25% expansion), providing direct supervision
+    for region coverage instead of sharp center point.
     """
     heatmap = np.zeros((heat_h, heat_w), dtype=np.float32)
     if len(boxes_xywh) == 0:
         return heatmap
 
     boxes = np.asarray(boxes_xywh, dtype=np.float32)
-    scale_x = heat_w / float(img_w)
-    scale_y = heat_h / float(img_h)
+    scale_x = float(heat_w) / float(img_w)
+    scale_y = float(heat_h) / float(img_h)
 
-    # Pre-generate coordinate grids
     grid_y, grid_x = np.ogrid[:heat_h, :heat_w]
 
     for box in boxes:
@@ -185,63 +177,100 @@ def generate_scout_heatmap_gt(
         if w <= 0 or h <= 0:
             continue
 
-        # Scale to heatmap coordinates
-        cx = (x + w * 0.5) * scale_x
-        cy = (y + h * 0.5) * scale_y
-        w_heat = max(0.5, w * (1.0 + expand_ratio) * scale_x)
-        h_heat = max(0.5, h * (1.0 + expand_ratio) * scale_y)
+        u0 = x * scale_x
+        v0 = y * scale_y
+        u1 = (x + w) * scale_x
+        v1 = (y + h) * scale_y
 
-        # Elliptical sigma
-        sigma_x = max(0.35, sigma_x_scale * w_heat)
-        sigma_y = max(0.35, sigma_y_scale * h_heat)
+        bw = max(1.0, u1 - u0)
+        bh = max(1.0, v1 - v0)
 
-        # Gaussian kernel
-        exponent = -(((grid_x - cx) ** 2) / (2.0 * sigma_x ** 2) + ((grid_y - cy) ** 2) / (2.0 * sigma_y ** 2))
-        gaussian = np.exp(exponent)
+        sigma_x = max(1.0, bw * expand_ratio)
+        sigma_y = max(1.0, bh * expand_ratio)
 
-        # Take element-wise maximum over all objects
-        np.maximum(heatmap, gaussian, out=heatmap)
+        # Distance from grid points to bounding box rectangle
+        dx = np.maximum(0.0, np.maximum(u0 - grid_x, grid_x - u1))
+        dy = np.maximum(0.0, np.maximum(v0 - grid_y, grid_y - v1))
+
+        dist_sq = (dx / sigma_x) ** 2 + (dy / sigma_y) ** 2
+        soft_region = np.exp(-0.5 * dist_sq).astype(np.float32)
+
+        np.maximum(heatmap, soft_region, out=heatmap)
 
     return np.clip(heatmap, 0.0, 1.0)
 
 
 if TORCH_AVAILABLE:
     class ScoutLoss(nn.Module):
-        """Scout Loss combining Modified Focal Loss and GT Coverage Loss.
-        
-        L_scout = L_focal + lambda_cov * L_coverage (lambda_cov = 2.0)
-        Prioritizes high Region Recall (>= 97%) over false positive penalty.
-        """
-        def __init__(self, alpha: float = 2.0, beta: float = 4.0, lambda_cov: float = 2.0, eps: float = 1e-4):
+        """Scout Loss combining Dense Region Focal Loss with True GT Region Coverage Loss."""
+        def __init__(
+            self,
+            alpha: float = 2.0,
+            beta: float = 4.0,
+            pos_weight: float = 3.0,
+            lambda_cov: float = 3.0,
+            target_cov: float = 0.85,
+            eps: float = 1e-4,
+        ):
             super().__init__()
             self.alpha = alpha
             self.beta = beta
+            self.pos_weight = pos_weight
             self.lambda_cov = lambda_cov
+            self.target_cov = target_cov
             self.eps = eps
 
-        def forward(self, pred: torch.Tensor, target: torch.Tensor, gt_centers: list[list[tuple[float, float]]] | None = None) -> dict[str, torch.Tensor]:
-            """Compute loss between predicted heatmap and GT heatmap.
-            
-            Args:
-                pred: Tensor of shape (B, 1, H, W) in [0, 1]
-                target: Tensor of shape (B, 1, H, W) in [0, 1]
-                gt_centers: Optional list of (cy, cx) coordinates per batch element
-            """
+        def forward(
+            self,
+            pred: torch.Tensor,
+            target: torch.Tensor,
+            gt_boxes: list[list[list[float]]] | None = None,
+            orig_sizes: list[tuple[int, int]] | None = None,
+            gt_centers: list[list[tuple[float, float]]] | None = None,
+        ) -> dict[str, torch.Tensor]:
             pred = torch.clamp(pred, self.eps, 1.0 - self.eps)
             
-            # Modified CenterNet Focal Loss
-            pos_mask = target >= 0.95
-            neg_mask = target < 0.95
+            pos_mask = (target >= 0.70)
+            neg_mask = (target < 0.70)
 
+            # Balanced Dense Region Focal Loss
             pos_loss = -((1.0 - pred) ** self.alpha) * torch.log(pred) * pos_mask.float()
             neg_loss = -((1.0 - target) ** self.beta) * (pred ** self.alpha) * torch.log(1.0 - pred) * neg_mask.float()
 
-            num_pos = pos_mask.sum().clamp(min=1.0)
-            focal_loss = (pos_loss.sum() + neg_loss.sum()) / num_pos
+            num_pos = pos_mask.sum()
+            if num_pos > 0:
+                focal_loss = (self.pos_weight * pos_loss.sum() + neg_loss.sum()) / num_pos
+            else:
+                focal_loss = neg_loss.mean() * 100.0
 
-            # Coverage Loss: Heavily penalize missing high-GT locations
+            # True GT Region Coverage Loss: penalizes low average activation across the entire GT box
             coverage_loss = torch.tensor(0.0, device=pred.device)
-            if gt_centers is not None:
+            if gt_boxes is not None and orig_sizes is not None:
+                cov_losses = []
+                b, _, heat_h, heat_w = pred.shape
+                import math
+                for i, boxes in enumerate(gt_boxes):
+                    if not boxes:
+                        continue
+                    orig_w, orig_h = orig_sizes[i]
+                    scale_x = float(heat_w) / float(orig_w)
+                    scale_y = float(heat_h) / float(orig_h)
+                    for box in boxes:
+                        x, y, w, h = box[:4]
+                        if w <= 0 or h <= 0:
+                            continue
+                        u0 = int(np.clip(math.floor(x * scale_x), 0, heat_w - 1))
+                        u1 = int(np.clip(math.ceil((x + w) * scale_x) + 1, u0 + 1, heat_w))
+                        v0 = int(np.clip(math.floor(y * scale_y), 0, heat_h - 1))
+                        v1 = int(np.clip(math.ceil((y + h) * scale_y) + 1, v0 + 1, heat_h))
+
+                        roi_act = pred[i, 0, v0:v1, u0:u1]
+                        if roi_act.numel() > 0:
+                            mean_act = roi_act.mean()
+                            cov_losses.append(F.relu(self.target_cov - mean_act))
+                if cov_losses:
+                    coverage_loss = torch.stack(cov_losses).mean()
+            elif gt_centers is not None:
                 cov_losses = []
                 b, _, h, w = pred.shape
                 for i, centers in enumerate(gt_centers):
@@ -251,13 +280,12 @@ if TORCH_AVAILABLE:
                         iy = int(np.clip(round(cy), 0, h - 1))
                         ix = int(np.clip(round(cx), 0, w - 1))
                         p_val = pred[i, 0, iy, ix]
-                        cov_losses.append(F.relu(1.0 - p_val))
+                        cov_losses.append(F.relu(self.target_cov - p_val))
                 if cov_losses:
                     coverage_loss = torch.stack(cov_losses).mean()
             else:
-                # Dense proxy coverage loss on positive mask
                 if pos_mask.any():
-                    coverage_loss = F.relu(0.8 - pred[pos_mask]).mean()
+                    coverage_loss = F.relu(self.target_cov - pred[pos_mask].mean())
 
             total_loss = focal_loss + self.lambda_cov * coverage_loss
             return {
@@ -300,30 +328,36 @@ class CandidateRegion:
 
 
 class CandidateGenerator:
-    """Adaptive Candidate Region Generator from Scout Heatmap (Module B).
+    """Adaptive Dynamic Cluster Candidate Region Generator from Scout Heatmap (Module B).
     
     Pipeline:
-      1. Threshold: H > tau (default 0.3)
-      2. Connected components clustering
-      3. Region score: S_r = alpha * max(H_r) + (1 - alpha) * mean(H_r)
-      4. Coordinate inverse mapping to original 4K
-      5. Context margin expansion (default 20%)
+      1. Adaptive Thresholding: tau_eff = max(tau_base, 0.15 * max(H))
+      2. Connected Components Labeling (8-connectivity)
+      3. Region Scoring: S_r = alpha * max(H_r) + (1 - alpha) * mean(H_r)
+      4. Dynamic Cluster Box Scaling with Context Margin (default 30%)
+      5. ROI Merging: Merge highly overlapping or adjacent candidate boxes
       6. Region NMS (IoU 0.35)
-      7. Dynamic Top-K (K <= 4, with safety fallback)
+      7. Dynamic Top-K (K <= k_max, returns [] for empty images - NO distorted safety fallback)
     """
     def __init__(
         self,
-        threshold: float = 0.30,
+        threshold: float = 0.05,
+        min_crop_size: int = 320,
+        max_crop_size: int = 640,
         alpha_score: float = 0.70,
-        context_margin: float = 0.20,
+        context_margin: float = 0.30,
         region_nms_iou: float = 0.35,
+        merge_iou_thresh: float = 0.20,
         k_max: int = 4,
         min_region_size: int = 2,
     ):
         self.threshold = threshold
+        self.min_crop_size = min_crop_size
+        self.max_crop_size = max_crop_size
         self.alpha_score = alpha_score
         self.context_margin = context_margin
         self.region_nms_iou = region_nms_iou
+        self.merge_iou_thresh = merge_iou_thresh
         self.k_max = k_max
         self.min_region_size = min_region_size
 
@@ -341,8 +375,14 @@ class CandidateGenerator:
         scale_x = float(source_width) / float(heat_w)
         scale_y = float(source_height) / float(heat_h)
 
-        # 1. Thresholding
-        binary_mask = (heatmap >= self.threshold).astype(np.uint8)
+        max_val = float(np.max(heatmap)) if heatmap.size > 0 else 0.0
+        # If no significant activation above base threshold, cleanly return empty (K=0)
+        if max_val < self.threshold:
+            return []
+
+        # 1. Adaptive Thresholding
+        effective_thresh = max(self.threshold, 0.15 * max_val)
+        binary_mask = (heatmap >= effective_thresh).astype(np.uint8)
 
         # 2. Connected Components Labeling
         try:
@@ -362,71 +402,106 @@ class CandidateGenerator:
 
                 comp_mask = (labels == label)
                 comp_vals = heatmap[comp_mask]
-                max_val = float(comp_vals.max()) if len(comp_vals) > 0 else 0.0
-                mean_val = float(comp_vals.mean()) if len(comp_vals) > 0 else 0.0
-                score = self.alpha_score * max_val + (1.0 - self.alpha_score) * mean_val
+                c_max = float(comp_vals.max()) if len(comp_vals) > 0 else 0.0
+                c_mean = float(comp_vals.mean()) if len(comp_vals) > 0 else 0.0
+                score = self.alpha_score * c_max + (1.0 - self.alpha_score) * c_mean
 
                 components.append({
                     "u0": u0, "v0": v0, "u1": u1, "v1": v1,
                     "score": score, "label": label, "area": area,
                 })
         except Exception:
-            # Fallback pure-numpy connected components (flood-fill / bounding box)
             components = self._fallback_connected_components(binary_mask, heatmap)
 
-        # Safety Fallback: If 0 components found, provide road region safety crop
+        # If no components found, cleanly return empty list (K=0) without safety distortion
         if not components:
-            # Default safety crop: Lower 60% of road image centered
-            safe_y0 = int(source_height * 0.40)
-            safe_y1 = source_height
-            safe_x0 = int(source_width * 0.15)
-            safe_x1 = int(source_width * 0.85)
-            return [CandidateRegion(
-                x0=safe_x0, y0=safe_y0, x1=safe_x1, y1=safe_y1,
-                score=0.10, component_id=0, area=(safe_x1 - safe_x0) * (safe_y1 - safe_y0),
-            )]
+            return []
 
-        # 3. Coordinate Inverse Mapping + Context Margin Expansion
+        # 3. Dynamic Cluster Box Scaling with Context Margin
         raw_candidates: list[CandidateRegion] = []
         for comp in components:
-            x0 = int(comp["u0"] * scale_x)
-            y0 = int(comp["v0"] * scale_y)
-            x1 = int(comp["u1"] * scale_x)
-            y1 = int(comp["v1"] * scale_y)
+            u_center = (comp["u0"] + comp["u1"]) * 0.5
+            v_center = (comp["v0"] + comp["v1"]) * 0.5
+            cx = u_center * scale_x
+            cy = v_center * scale_y
 
-            # Expand context margin
-            w = max(1, x1 - x0)
-            h = max(1, y1 - y0)
-            margin_x = int(w * self.context_margin)
-            margin_y = int(h * self.context_margin)
+            w_raw = (comp["u1"] - comp["u0"]) * scale_x
+            h_raw = (comp["v1"] - comp["v0"]) * scale_y
 
-            # Ensure minimum viable crop size (at least 320x240 in 4K resolution)
-            min_crop_w, min_crop_h = 320, 240
-            if (x1 - x0 + 2 * margin_x) < min_crop_w:
-                pad_w = (min_crop_w - (x1 - x0)) // 2
-                margin_x = max(margin_x, pad_w)
-            if (y1 - y0 + 2 * margin_y) < min_crop_h:
-                pad_h = (min_crop_h - (y1 - y0)) // 2
-                margin_y = max(margin_y, pad_h)
+            exp_w = w_raw * (1.0 + 2.0 * self.context_margin)
+            exp_h = h_raw * (1.0 + 2.0 * self.context_margin)
 
-            exp_x0 = max(0, x0 - margin_x)
-            exp_y0 = max(0, y0 - margin_y)
-            exp_x1 = min(source_width, x1 + margin_x)
-            exp_y1 = min(source_height, y1 + margin_y)
+            box_side = max(float(self.min_crop_size), max(exp_w, exp_h))
+            box_w = min(float(self.max_crop_size), box_side)
+            box_h = box_w
+
+            x0 = int(np.clip(cx - box_w * 0.5, 0, max(0, source_width - box_w)))
+            y0 = int(np.clip(cy - box_h * 0.5, 0, max(0, source_height - box_h)))
+            x1 = int(min(source_width, x0 + box_w))
+            y1 = int(min(source_height, y0 + box_h))
 
             raw_candidates.append(CandidateRegion(
-                x0=exp_x0, y0=exp_y0, x1=exp_x1, y1=exp_y1,
+                x0=x0, y0=y0, x1=x1, y1=y1,
                 score=comp["score"], component_id=comp["label"],
-                area=(exp_x1 - exp_x0) * (exp_y1 - exp_y0),
+                area=(x1 - x0) * (y1 - y0),
             ))
 
-        # 4. Region NMS (IoU threshold 0.35)
-        kept_candidates = self._region_nms(raw_candidates, self.region_nms_iou)
+        # 4. ROI Merging
+        merged_candidates = self._merge_clusters(raw_candidates, self.merge_iou_thresh, max_size=self.max_crop_size)
 
-        # 5. Dynamic Top-K (K <= k_max)
-        # 1 component -> K=1; 2 -> K=2; 3 -> K=3; >3 -> K=min(len, k_max)
-        final_candidates = kept_candidates[:self.k_max]
-        return final_candidates
+        # 5. Region NMS (IoU threshold 0.35)
+        kept_candidates = self._region_nms(merged_candidates, self.region_nms_iou)
+
+        # 6. Dynamic Top-K (K <= k_max)
+        return kept_candidates[:self.k_max]
+
+    def _merge_clusters(self, regions: list[CandidateRegion], iou_threshold: float, max_size: int = 640) -> list[CandidateRegion]:
+        if len(regions) <= 1:
+            return regions
+        sorted_regions = sorted(regions, key=lambda r: r.score, reverse=True)
+        merged: list[CandidateRegion] = []
+        used = [False] * len(sorted_regions)
+
+        for i in range(len(sorted_regions)):
+            if used[i]:
+                continue
+            r1 = sorted_regions[i]
+            x0, y0, x1, y1 = r1.x0, r1.y0, r1.x1, r1.y1
+            score = r1.score
+            cid = r1.component_id
+            used[i] = True
+
+            for j in range(i + 1, len(sorted_regions)):
+                if used[j]:
+                    continue
+                r2 = sorted_regions[j]
+                # Check bounding box union size
+                nx0 = min(x0, r2.x0)
+                ny0 = min(y0, r2.y0)
+                nx1 = max(x1, r2.x1)
+                ny1 = max(y1, r2.y1)
+                nw = nx1 - nx0
+                nh = ny1 - ny0
+
+                # Compute IoU between r1 and r2
+                ix1 = max(x0, r2.x0)
+                iy1 = max(y0, r2.y0)
+                ix2 = min(x1, r2.x1)
+                iy2 = min(y1, r2.y1)
+                inter = max(0, ix2 - ix1) * max(0, iy2 - iy1)
+                union = (x1 - x0) * (y1 - y0) + (r2.x1 - r2.x0) * (r2.y1 - r2.y0) - inter
+                iou = inter / union if union > 0 else 0.0
+
+                if iou >= iou_threshold and nw <= max_size and nh <= max_size:
+                    x0, y0, x1, y1 = nx0, ny0, nx1, ny1
+                    score = max(score, r2.score)
+                    used[j] = True
+
+            merged.append(CandidateRegion(
+                x0=x0, y0=y0, x1=x1, y1=y1,
+                score=score, component_id=cid, area=(x1 - x0) * (y1 - y0),
+            ))
+        return merged
 
     def _region_nms(self, regions: list[CandidateRegion], iou_threshold: float) -> list[CandidateRegion]:
         if not regions:
@@ -438,7 +513,6 @@ class CandidateGenerator:
             keep.append(current)
             remaining = []
             for r in sorted_regions:
-                # Compute IoU between current and r
                 ix1 = max(current.x0, r.x0)
                 iy1 = max(current.y0, r.y0)
                 ix2 = min(current.x1, r.x1)
@@ -463,7 +537,6 @@ class CandidateGenerator:
         for y in range(h):
             for x in range(w):
                 if binary_mask[y, x] and not visited[y, x]:
-                    # Simple BFS
                     queue = [(y, x)]
                     visited[y, x] = True
                     min_x, max_x = x, x
@@ -485,9 +558,9 @@ class CandidateGenerator:
                                 queue.append((ny, nx))
 
                     if len(vals) >= self.min_region_size:
-                        max_v = float(np.max(vals))
-                        mean_v = float(np.mean(vals))
-                        score = self.alpha_score * max_v + (1.0 - self.alpha_score) * mean_v
+                        c_max = float(np.max(vals))
+                        c_mean = float(np.mean(vals))
+                        score = self.alpha_score * c_max + (1.0 - self.alpha_score) * c_mean
                         components.append({
                             "u0": min_x, "v0": min_y, "u1": max_x + 1, "v1": max_y + 1,
                             "score": score, "label": label, "area": len(vals),
@@ -561,16 +634,23 @@ def evaluate_scout_regions(
             gt_covered_count += 1
         gt_coverages.append(max_overlap_ratio)
 
-    # False Region Rate: candidates containing no GT boxes
+    # False Region Rate: candidates containing no GT boxes (overlap < 10% of GT)
     false_regions = 0
     for cx1, cy1, cx2, cy2 in c_boxes:
         has_gt = False
         for gt in gt_boxes_4k:
             gx, gy, gw, gh = gt[:4]
             gx1, gy1, gx2, gy2 = gx, gy, gx + gw, gy + gh
-            if max(gx1, cx1) < min(gx2, cx2) and max(gy1, cy1) < min(gy2, cy2):
-                has_gt = True
-                break
+            gt_area = max(1e-6, gw * gh)
+            ix1 = max(gx1, cx1)
+            iy1 = max(gy1, cy1)
+            ix2 = min(gx2, cx2)
+            iy2 = min(gy2, cy2)
+            if ix2 > ix1 and iy2 > iy1:
+                inter = (ix2 - ix1) * (iy2 - iy1)
+                if (inter / gt_area) >= 0.10:
+                    has_gt = True
+                    break
         if not has_gt:
             false_regions += 1
 

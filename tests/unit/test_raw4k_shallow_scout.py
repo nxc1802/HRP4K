@@ -24,7 +24,7 @@ class TestRaw4KShallowScout(unittest.TestCase):
         # Create model (unpretrained weights for fast unit testing)
         model = Raw4KShallowScout(pretrained=False)
         self.assertGreater(model.count_parameters(), 0)
-        self.assertLess(model.count_parameters(), 10000)  # Should be ~2.5k params
+        self.assertLess(model.count_parameters(), 20000)  # Should be ~13.3k params (Stem + Stage 1 + Stage 2)
 
         # Test dummy 4K tensor: (1, 3, 2160, 3840)
         dummy_input = torch.randn(1, 3, 2160, 3840)

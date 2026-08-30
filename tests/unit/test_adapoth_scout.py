@@ -28,8 +28,6 @@ class TestAdaPothScoutUnit(unittest.TestCase):
             img_h=2160,
             heat_w=60,
             heat_h=34,
-            sigma_x_scale=0.35,
-            sigma_y_scale=0.50,
             expand_ratio=0.25,
         )
         self.assertEqual(heat.shape, (34, 60))
@@ -43,7 +41,7 @@ class TestAdaPothScoutUnit(unittest.TestCase):
         heat[10:14, 15:20] = 0.85
         heat[20:25, 40:46] = 0.90
 
-        gen = CandidateGenerator(threshold=0.30, context_margin=0.20, k_max=4)
+        gen = CandidateGenerator(threshold=0.05, context_margin=0.30, k_max=4)
         candidates = gen.generate(heat, source_width=3840, source_height=2160)
 
         self.assertGreaterEqual(len(candidates), 2)
@@ -57,6 +55,13 @@ class TestAdaPothScoutUnit(unittest.TestCase):
             self.assertLessEqual(c.y1, 2160)
             self.assertGreater(c.width, 0)
             self.assertGreater(c.height, 0)
+
+    def test_candidate_generator_empty(self):
+        # Empty heatmap should return 0 crops (no safety distortion)
+        heat = np.zeros((34, 60), dtype=np.float32)
+        gen = CandidateGenerator(threshold=0.05, context_margin=0.30, k_max=4)
+        candidates = gen.generate(heat, source_width=3840, source_height=2160)
+        self.assertEqual(len(candidates), 0)
 
     def test_evaluate_scout_regions(self):
         gt_boxes = [

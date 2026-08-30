@@ -88,7 +88,7 @@ req_headers["Content-Type"] = "application/json"
 req_headers["Marimo-Session-Id"] = sid
 
 req = urllib.request.Request(exec_url, data=payload, headers=req_headers, method="POST")
-with urllib.request.urlopen(req) as resp:
+with urllib.request.urlopen(req, timeout=7200) as resp:
     current_event = None
     for raw_line in resp:
         line = raw_line.decode("utf-8", errors="ignore").rstrip("\r\n")
