@@ -239,8 +239,12 @@ if TORCH_AVAILABLE:
             pos_loss = -((1.0 - pred) ** self.alpha) * torch.log(pred) * pos_mask.float()
             neg_loss = -((1.0 - target) ** self.beta) * (pred ** self.alpha) * torch.log(1.0 - pred) * neg_mask.float()
 
-            num_pos = pos_mask.sum().clamp(min=1.0)
-            focal_loss = (self.pos_weight * pos_loss.sum() + neg_loss.sum()) / num_pos
+            num_pos = pos_mask.sum()
+            if num_pos > 0:
+                focal_loss = (self.pos_weight * pos_loss.sum() + neg_loss.sum()) / num_pos
+            else:
+                # Background-only normalization
+                focal_loss = neg_loss.mean() * 100.0
 
             # Center Peak Loss
             coverage_loss = torch.tensor(0.0, device=pred.device)
@@ -309,11 +313,11 @@ class Raw4KCandidateGenerator:
     """Adaptive Dynamic Cluster ROI Generator from Raw 4K Scout Heatmap."""
     def __init__(
         self,
-        threshold: float = 0.05,
+        threshold: float = 0.04,
         min_crop_size: int = 256,
         max_crop_size: int = 512,
         alpha_score: float = 0.70,
-        context_margin: float = 0.25,
+        context_margin: float = 0.30,
         region_nms_iou: float = 0.35,
         merge_iou_thresh: float = 0.15,
         k_max: int = 6,
@@ -348,8 +352,8 @@ class Raw4KCandidateGenerator:
         if max_val < self.threshold:
             return []
 
-        # Adaptive threshold: keep high confidence peaks (0.15 * max_val)
-        eff_thresh = max(self.threshold, 0.15 * max_val)
+        # Adaptive threshold: keep high confidence peaks without dropping faint co-occurring potholes
+        eff_thresh = max(self.threshold, 0.08 * max_val)
         binary_mask = (heatmap >= eff_thresh).astype(np.uint8)
 
         components = []
@@ -947,7 +951,16 @@ def train_raw4k_scout(
 
     criterion = Raw4KScoutLoss(lambda_cov=lambda_cov)
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=actual_epochs, eta_min=1e-5)
+    total_train_steps = actual_epochs * len(train_loader)
+    scheduler = torch.optim.lr_scheduler.OneCycleLR(
+        optimizer,
+        max_lr=lr,
+        total_steps=total_train_steps,
+        pct_start=0.10,
+        anneal_strategy="cos",
+        div_factor=10.0,
+        final_div_factor=100.0,
+    )
     
     use_cuda_amp = (dev.type == "cuda")
     scaler = torch.amp.GradScaler('cuda', enabled=use_cuda_amp) if hasattr(torch, "amp") and hasattr(torch.amp, "GradScaler") else torch.cuda.amp.GradScaler(enabled=use_cuda_amp)
@@ -965,10 +978,10 @@ def train_raw4k_scout(
         return t
 
     candidate_gen = Raw4KCandidateGenerator(
-        threshold=0.05,
+        threshold=0.04,
         min_crop_size=256,
         max_crop_size=512,
-        context_margin=0.25,
+        context_margin=0.30,
         region_nms_iou=0.35,
         merge_iou_thresh=0.15,
         k_max=6,
@@ -986,12 +999,14 @@ def train_raw4k_scout(
         ckpt = torch.load(str(last_ckpt), map_location=dev, weights_only=False)
         model.load_state_dict(ckpt["model"])
         optimizer.load_state_dict(ckpt["optimizer"])
+        if "scheduler" in ckpt:
+            try:
+                scheduler.load_state_dict(ckpt["scheduler"])
+            except Exception:
+                pass
         start_epoch = ckpt.get("epoch", 0) + 1
         best_recall_75 = ckpt.get("best_recall_75", 0.0)
         history = ckpt.get("history", [])
-        # Fast-forward scheduler to correct position
-        for _ in range(start_epoch):
-            scheduler.step()
         log_msg(f"[Resume] Resumed from epoch {start_epoch}/{actual_epochs}, best Recall@0.75: {best_recall_75*100:.2f}%")
 
     t_start_train = time.time()
@@ -1015,35 +1030,32 @@ def train_raw4k_scout(
                     loss_dict = criterion(preds, targets, gt_centers)
                     loss = loss_dict["loss"] / accumulate_grad_batches
                 scaler.scale(loss).backward()
-                if (step + 1) % accumulate_grad_batches == 0:
+                if (step + 1) % accumulate_grad_batches == 0 or (step + 1) == len(train_loader):
+                    scaler.unscale_(optimizer)
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
                     scaler.step(optimizer)
                     scaler.update()
                     optimizer.zero_grad()
+                    scheduler.step()
             else:
                 preds = model(imgs)
                 loss_dict = criterion(preds, targets, gt_centers)
                 loss = loss_dict["loss"] / accumulate_grad_batches
                 loss.backward()
-                if (step + 1) % accumulate_grad_batches == 0:
+                if (step + 1) % accumulate_grad_batches == 0 or (step + 1) == len(train_loader):
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
                     optimizer.step()
                     optimizer.zero_grad()
+                    scheduler.step()
 
             train_loss_list.append(float(loss.item() * accumulate_grad_batches))
             focal_loss_list.append(float(loss_dict["focal_loss"].item()))
             cov_loss_list.append(float(loss_dict["coverage_loss"].item()))
 
             if (step + 1) % 15 == 0 or (step + 1) == len(train_loader) or step == 0:
-                log_msg(f"  Epoch [{epoch+1:02d}/{actual_epochs:02d}] Step [{step+1:03d}/{len(train_loader):03d}] Loss: {train_loss_list[-1]:.4f} (Focal: {focal_loss_list[-1]:.4f}, Cov: {cov_loss_list[-1]:.4f})")
+                current_lr = optimizer.param_groups[0]["lr"]
+                log_msg(f"  Epoch [{epoch+1:02d}/{actual_epochs:02d}] Step [{step+1:03d}/{len(train_loader):03d}] (LR: {current_lr:.2e}) Loss: {train_loss_list[-1]:.4f} (Focal: {focal_loss_list[-1]:.4f}, Cov: {cov_loss_list[-1]:.4f})")
 
-        if len(train_loader) % accumulate_grad_batches != 0:
-            if use_cuda_amp:
-                scaler.step(optimizer)
-                scaler.update()
-            else:
-                optimizer.step()
-            optimizer.zero_grad()
-
-        scheduler.step()
         epoch_time = time.time() - t0
 
         # Validation Loop
@@ -1144,6 +1156,7 @@ def train_raw4k_scout(
             "epoch": epoch,
             "model": model.state_dict(),
             "optimizer": optimizer.state_dict(),
+            "scheduler": scheduler.state_dict(),
             "best_recall_75": best_recall_75,
             "metrics": epoch_record,
             "history": history,
