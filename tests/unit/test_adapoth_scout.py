@@ -17,6 +17,22 @@ from hrp4k.detectors.base import Detection
 
 
 class TestAdaPothScoutUnit(unittest.TestCase):
+    def test_mobilenetv3_scout_fpn_forward(self):
+        import torch
+        from hrp4k.models.scout import MobileNetV3Scout
+        model = MobileNetV3Scout()
+        self.assertGreater(model.count_parameters(), 100000)
+        self.assertLess(model.count_parameters(), 600000)
+
+        # Input 960x540
+        dummy = torch.randn(1, 3, 540, 960)
+        with torch.no_grad():
+            out = model(dummy)
+        # Expected Stride-8 output: (1, 1, 68, 120)
+        self.assertEqual(out.shape, (1, 1, 68, 120))
+        self.assertGreaterEqual(out.min().item(), 0.0)
+        self.assertLessEqual(out.max().item(), 1.0)
+
     def test_generate_scout_heatmap_gt(self):
         boxes = [
             [1000.0, 500.0, 200.0, 100.0],  # Box 1
@@ -26,11 +42,11 @@ class TestAdaPothScoutUnit(unittest.TestCase):
             boxes,
             img_w=3840,
             img_h=2160,
-            heat_w=60,
-            heat_h=34,
-            expand_ratio=0.25,
+            heat_w=120,
+            heat_h=68,
+            expand_ratio=0.30,
         )
-        self.assertEqual(heat.shape, (34, 60))
+        self.assertEqual(heat.shape, (68, 120))
         self.assertGreaterEqual(heat.min(), 0.0)
         self.assertLessEqual(heat.max(), 1.0)
         self.assertGreater(heat.max(), 0.8)

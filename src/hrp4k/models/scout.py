@@ -89,40 +89,50 @@ class SEBlock(nn.Module):
 
 if TORCH_AVAILABLE:
     class MobileNetV3Scout(nn.Module):
-        """MobileNetV3-Small based Region Scout Network (< 1.5M parameters).
+        """MobileNetV3-Small based Region Scout Network with Stride-8 FPN Head (~320K parameters).
         
         Processes low-resolution thumbnail (e.g. 960x540) and produces a single-channel
-        heatmap (e.g. 60x34, stride 16) representing pothole presence likelihood.
+        high-resolution heatmap (e.g. 120x68, stride 8) via Multi-Scale Feature Pyramid Fusion,
+        providing 4x sharper localization for ultra-fine/small potholes compared to stride-16.
         """
-        def __init__(self, in_channels: int = 3, feature_dim: int = 576):
+        def __init__(self, in_channels: int = 3, fpn_channels: int = 48):
             super().__init__()
 
-            # MobileNetV3-Small Backbone (Stride 16 output)
-            self.stem = _build_conv_bn_act(in_channels, 16, kernel_size=3, stride=2, padding=1)  # 1/2
+            # Stem: Stride 2 (1/2)
+            self.stem = _build_conv_bn_act(in_channels, 16, kernel_size=3, stride=2, padding=1)
 
-            self.stages = nn.Sequential(
-                InvertedResidual(16, 16, 16, stride=2, use_se=True),   # 1/4
-                InvertedResidual(16, 72, 24, stride=2, use_se=False),  # 1/8
+            # Stage 1: Stride 2 -> Stride 4 (1/4)
+            self.stage1 = InvertedResidual(16, 16, 16, stride=2, use_se=True)
+
+            # Stage 2: Stride 2 -> Stride 8 (1/8)
+            self.stage2 = nn.Sequential(
+                InvertedResidual(16, 72, 24, stride=2, use_se=False),
                 InvertedResidual(24, 88, 24, stride=1, use_se=False),
-                InvertedResidual(24, 96, 40, stride=2, use_se=True),   # 1/16
+            )
+
+            # Stage 3 & 4: Stride 2 -> Stride 16 (1/16)
+            self.stage3 = nn.Sequential(
+                InvertedResidual(24, 96, 40, stride=2, use_se=True),
                 InvertedResidual(40, 240, 40, stride=1, use_se=True),
                 InvertedResidual(40, 240, 40, stride=1, use_se=True),
                 InvertedResidual(40, 120, 48, stride=1, use_se=True),
                 InvertedResidual(48, 144, 48, stride=1, use_se=True),
                 InvertedResidual(48, 288, 96, stride=1, use_se=True),
             )
-            
-            self.conv_head = _build_conv_bn_act(96, feature_dim, kernel_size=1, stride=1, padding=0)
 
-            # Lightweight Depthwise Separable Heatmap Prediction Head (~1.5M total model params)
+            # Lateral connections
+            self.lateral_c4 = nn.Conv2d(96, fpn_channels, kernel_size=1)
+            self.lateral_c3 = nn.Conv2d(24, fpn_channels, kernel_size=1)
+
+            # FPN smooth conv (Stride 8)
+            self.fpn_smooth = DepthwiseSeparableConv(fpn_channels, fpn_channels, stride=1)
+
+            # Heatmap prediction head (Stride 8)
             self.heatmap_head = nn.Sequential(
-                nn.Conv2d(feature_dim, feature_dim, kernel_size=3, stride=1, padding=1, groups=feature_dim, bias=False),
-                nn.BatchNorm2d(feature_dim),
+                nn.Conv2d(fpn_channels, 32, kernel_size=3, stride=1, padding=1, bias=False),
+                nn.BatchNorm2d(32),
                 nn.SiLU(inplace=True),
-                nn.Conv2d(feature_dim, 64, kernel_size=1, stride=1, padding=0, bias=False),
-                nn.BatchNorm2d(64),
-                nn.SiLU(inplace=True),
-                nn.Conv2d(64, 1, kernel_size=1, stride=1, padding=0),
+                nn.Conv2d(32, 1, kernel_size=1, stride=1, padding=0),
                 nn.Sigmoid(),
             )
 
@@ -132,12 +142,20 @@ if TORCH_AVAILABLE:
             Args:
                 x: Tensor of shape (B, 3, H, W) normalized to [0, 1] or ImageNet stats.
             Returns:
-                heatmap: Tensor of shape (B, 1, H//16, W//16) with values in [0, 1].
+                heatmap: Tensor of shape (B, 1, ceil(H/8), ceil(W/8)) with values in [0, 1].
             """
-            feat = self.stem(x)
-            feat = self.stages(feat)
-            feat = self.conv_head(feat)
-            heatmap = self.heatmap_head(feat)
+            x0 = self.stem(x)
+            c2 = self.stage1(x0)
+            c3 = self.stage2(c2)
+            c4 = self.stage3(c3)
+
+            # FPN Top-Down pathway
+            p4 = self.lateral_c4(c4)
+            p4_up = F.interpolate(p4, size=c3.shape[2:], mode="bilinear", align_corners=False)
+            p3 = self.lateral_c3(c3) + p4_up
+            p3 = self.fpn_smooth(p3)
+
+            heatmap = self.heatmap_head(p3)
             return heatmap
 
         def count_parameters(self) -> int:
@@ -152,15 +170,15 @@ def generate_scout_heatmap_gt(
     boxes_xywh: list[list[float]] | np.ndarray,
     img_w: int = 3840,
     img_h: int = 2160,
-    heat_w: int = 60,
-    heat_h: int = 34,
-    expand_ratio: float = 0.25,
+    heat_w: int = 120,
+    heat_h: int = 68,
+    expand_ratio: float = 0.30,
 ) -> np.ndarray:
     """Generate Coverage-Aware Soft Region Target heatmap for Region Scout training.
     
     Creates a dense rectangular region target (value 1.0 inside object box)
-    with smooth falloff margin (25% expansion), providing direct supervision
-    for region coverage instead of sharp center point.
+    with smooth falloff margin and adaptive minimum footprint (>= 3x3 cells),
+    providing direct supervision for region coverage even for tiny potholes.
     """
     heatmap = np.zeros((heat_h, heat_w), dtype=np.float32)
     if len(boxes_xywh) == 0:
@@ -185,8 +203,10 @@ def generate_scout_heatmap_gt(
         bw = max(1.0, u1 - u0)
         bh = max(1.0, v1 - v0)
 
-        sigma_x = max(1.0, bw * expand_ratio)
-        sigma_y = max(1.0, bh * expand_ratio)
+        # Adaptive expansion: small objects get wider expansion to ensure visibility
+        exp_r = max(expand_ratio, 0.45) if (bw < 3.0 or bh < 3.0) else expand_ratio
+        sigma_x = max(1.5, bw * exp_r)
+        sigma_y = max(1.5, bh * exp_r)
 
         # Distance from grid points to bounding box rectangle
         dx = np.maximum(0.0, np.maximum(u0 - grid_x, grid_x - u1))
@@ -202,7 +222,7 @@ def generate_scout_heatmap_gt(
 
 if TORCH_AVAILABLE:
     class ScoutLoss(nn.Module):
-        """Scout Loss combining Dense Region Focal Loss with True GT Region Coverage Loss."""
+        """Scout Loss combining Dense Region Focal Loss with Scale-Aware True GT Region Coverage Loss."""
         def __init__(
             self,
             alpha: float = 2.0,
@@ -228,6 +248,9 @@ if TORCH_AVAILABLE:
             orig_sizes: list[tuple[int, int]] | None = None,
             gt_centers: list[list[tuple[float, float]]] | None = None,
         ) -> dict[str, torch.Tensor]:
+            # Always compute loss in float32 for numerical stability in AMP training
+            pred = pred.float()
+            target = target.float()
             pred = torch.clamp(pred, self.eps, 1.0 - self.eps)
             
             pos_mask = (target >= 0.70)
@@ -243,7 +266,7 @@ if TORCH_AVAILABLE:
             else:
                 focal_loss = neg_loss.mean() * 100.0
 
-            # True GT Region Coverage Loss: penalizes low average activation across the entire GT box
+            # Scale-Aware True GT Region Coverage Loss
             coverage_loss = torch.tensor(0.0, device=pred.device)
             if gt_boxes is not None and orig_sizes is not None:
                 cov_losses = []
@@ -267,7 +290,9 @@ if TORCH_AVAILABLE:
                         roi_act = pred[i, 0, v0:v1, u0:u1]
                         if roi_act.numel() > 0:
                             mean_act = roi_act.mean()
-                            cov_losses.append(F.relu(self.target_cov - mean_act))
+                            area_ratio = (w * h) / float(orig_w * orig_h)
+                            scale_weight = 2.0 if area_ratio < 0.001 else 1.0
+                            cov_losses.append(scale_weight * F.relu(self.target_cov - mean_act))
                 if cov_losses:
                     coverage_loss = torch.stack(cov_losses).mean()
             elif gt_centers is not None:

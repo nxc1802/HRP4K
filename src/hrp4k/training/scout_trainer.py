@@ -329,7 +329,12 @@ def train_scout(
 
     criterion = ScoutLoss(lambda_cov=lambda_cov)
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=actual_epochs, eta_min=1e-5)
+
+    warmup_epochs = min(3, max(1, actual_epochs // 10))
+    warmup_scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=0.1, total_iters=warmup_epochs)
+    main_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(1, actual_epochs - warmup_epochs), eta_min=1e-5)
+    scheduler = torch.optim.lr_scheduler.SequentialLR(optimizer, schedulers=[warmup_scheduler, main_scheduler], milestones=[warmup_epochs])
+
     scaler = torch.cuda.amp.GradScaler(enabled=(dev.type == "cuda"))
 
     start_epoch = 0
@@ -372,8 +377,10 @@ def train_scout(
             optimizer.zero_grad()
             with torch.cuda.amp.autocast(enabled=(dev.type == "cuda")):
                 preds = model(imgs)
-                loss_dict = criterion(preds, targets, gt_boxes=orig_boxes, orig_sizes=orig_sizes, gt_centers=gt_centers)
-                loss = loss_dict["loss"]
+            
+            # Compute loss in FP32 for numerical stability (prevent NaN/overflow)
+            loss_dict = criterion(preds.float(), targets.float(), gt_boxes=orig_boxes, orig_sizes=orig_sizes, gt_centers=gt_centers)
+            loss = loss_dict["loss"]
 
             scaler.scale(loss).backward()
             scaler.unscale_(optimizer)
@@ -388,7 +395,7 @@ def train_scout(
         scheduler.step()
         epoch_time = time.time() - t0
 
-        # Validation phase: Evaluate Region Recall
+        # Validation Phase
         model.eval()
         val_loss_list = []
         val_recalls = []
@@ -406,7 +413,8 @@ def train_scout(
 
                 with torch.cuda.amp.autocast(enabled=(dev.type == "cuda")):
                     preds = model(imgs)
-                    loss_dict = criterion(preds, targets, gt_boxes=orig_boxes, orig_sizes=orig_sizes, gt_centers=gt_centers)
+                
+                loss_dict = criterion(preds.float(), targets.float(), gt_boxes=orig_boxes, orig_sizes=orig_sizes, gt_centers=gt_centers)
                 val_loss_list.append(float(loss_dict["loss"].item()))
 
                 # Evaluate candidate regions for each sample
@@ -438,6 +446,7 @@ def train_scout(
             "gt_coverage": mean_cov,
             "false_region_rate": mean_false_rate,
             "avg_k": mean_k,
+            "lr": float(optimizer.param_groups[0]["lr"]),
             "epoch_time_s": epoch_time,
         }
         history.append(epoch_record)
@@ -446,7 +455,7 @@ def train_scout(
             f"Epoch [{epoch+1}/{actual_epochs}] - "
             f"Train Loss: {mean_train_loss:.4f}, Val Loss: {mean_val_loss:.4f} | "
             f"🎯 Region Recall: {mean_recall*100:.2f}%, GT Cov: {mean_cov*100:.2f}%, "
-            f"False Rate: {mean_false_rate*100:.1f}%, Avg K: {mean_k:.2f} ({epoch_time:.1f}s)"
+            f"False Rate: {mean_false_rate*100:.1f}%, Avg K: {mean_k:.2f}, LR: {optimizer.param_groups[0]['lr']:.6f} ({epoch_time:.1f}s)"
         )
 
         # Save last checkpoint
@@ -460,7 +469,7 @@ def train_scout(
         }
         torch.save(ckpt_state, str(last_ckpt))
 
-        # Checkpoint Selection: Prioritize Region Recall >= 97% first
+        # Checkpoint Selection: Prioritize Region Recall
         is_best = False
         if mean_recall > best_recall:
             is_best = True
@@ -481,6 +490,24 @@ def train_scout(
                 path_in_repo=f"checkpoints/{output_dir.name}",
             )
 
+    # Threshold & K Sweep Evaluation (if not smoke)
+    sweep_results = None
+    if not smoke and best_ckpt.is_file():
+        try:
+            print("\n[Scout Evaluation] Running Threshold & K-Sweep on Valid and Test splits...")
+            sweep_results = sweep_scout_eval(
+                data_dir=data_dir,
+                weights_path=best_ckpt,
+                splits=("valid", "test"),
+                device=str(dev),
+            )
+            sweep_path = output_dir / "sweep_results.json"
+            with sweep_path.open("w", encoding="utf-8") as f:
+                json.dump(sweep_results, f, indent=2)
+            print(f"[Scout Evaluation] Saved sweep results to {sweep_path}")
+        except Exception as exc:
+            print(f"[Scout Evaluation Warning] Sweep evaluation failed: {exc}")
+
     # Save metrics JSON and configuration
     final_payload = {
         "model_name": "MobileNetV3Scout",
@@ -490,6 +517,7 @@ def train_scout(
         "best_region_recall": best_recall,
         "final_epoch": actual_epochs,
         "history": history,
+        "sweep_results": sweep_results,
         "config": {
             "epochs": epochs,
             "batch_size": batch_size,
@@ -616,6 +644,41 @@ def evaluate_scout_model(
                         path_in_repo=f"metrics/{out_p.name}",
                     )
                 except Exception as e:
-                    print(f"[Cloud Warning] Failed to upload scout evaluation report to HF: {e}")
-
     return summary
+
+
+def sweep_scout_eval(
+    data_dir: Path | str,
+    weights_path: Path | str,
+    splits: tuple[str, ...] = ("valid", "test"),
+    thresholds: list[float] = [0.01, 0.02, 0.03, 0.05, 0.08, 0.10, 0.15, 0.20],
+    k_values: list[int] = [1, 2, 3, 4, 6],
+    context_margin: float = 0.30,
+    device: str | None = None,
+) -> dict[str, Any]:
+    """Sweep thresholds and K budgets on validation/test splits to construct Recall(K) curves."""
+    results: dict[str, Any] = {}
+    for split in splits:
+        results[split] = {
+            "threshold_sweep": {},
+            "k_sweep": {},
+        }
+        # 1. Sweep thresholds at fixed k_max=4
+        for th in thresholds:
+            rep = evaluate_scout_model(data_dir, split=split, weights_path=weights_path, threshold=th, context_margin=context_margin, k_max=4, device=device)
+            results[split]["threshold_sweep"][f"tau_{th:.2f}"] = {
+                "region_recall": rep["mean_region_recall"],
+                "gt_coverage": rep["mean_gt_coverage"],
+                "false_region_rate": rep["mean_false_region_rate"],
+                "avg_k": rep["mean_k"],
+            }
+        # 2. Sweep K at fixed threshold=0.05
+        for k in k_values:
+            rep = evaluate_scout_model(data_dir, split=split, weights_path=weights_path, threshold=0.05, context_margin=context_margin, k_max=k, device=device)
+            results[split]["k_sweep"][f"k_{k}"] = {
+                "region_recall": rep["mean_region_recall"],
+                "gt_coverage": rep["mean_gt_coverage"],
+                "false_region_rate": rep["mean_false_region_rate"],
+                "avg_k": rep["mean_k"],
+            }
+    return results
