@@ -6,7 +6,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Iterable
 
-from .paths import image_path, SPLITS
+from .paths import image_path, SPLITS, resolve_data_dir
 
 
 def scale_class(area_ratio: float) -> str:
@@ -22,8 +22,9 @@ def scale_class(area_ratio: float) -> str:
 SCALE_ORDER = ("ultra_fine", "fine", "medium", "large")
 
 
-def load_split(data_dir: Path, split: str) -> dict[str, Any]:
-    path = data_dir / f"{split}.json"
+def load_split(data_dir: Path | str, split: str) -> dict[str, Any]:
+    resolved = resolve_data_dir(data_dir)
+    path = resolved / f"{split}.json"
     if not path.is_file():
         raise FileNotFoundError(f"Missing annotation: {path}")
     with path.open(encoding="utf-8") as handle:
