@@ -641,9 +641,8 @@ def evaluate_scout_model(
                         local_path=out_p,
                         token=token,
                         repo_type=rtype,
-                        path_in_repo=f"metrics/{out_p.name}",
-                    )
                 except Exception as e:
+                    print(f"[Cloud Warning] Failed to upload scout evaluation report to HF: {e}")
     return summary
 
 
