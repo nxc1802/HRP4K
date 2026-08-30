@@ -7,9 +7,9 @@ from pathlib import Path
 
 import numpy as np
 
-from hrp4k_suite.diagnostics import diagnose
-from hrp4k_suite.processing import make_views
-from hrp4k_suite.training import train_yolo
+from hrp4k.diagnostics.diagnostics import diagnose
+from hrp4k.methods.base import make_views
+from hrp4k.training.runner import train_yolo
 
 
 class ProcessingTests(unittest.TestCase):

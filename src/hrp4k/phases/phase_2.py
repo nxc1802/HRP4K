@@ -9,7 +9,7 @@ from ..evaluation.coco import evaluate_files
 from ..infra.upload import ensure_weights
 from ..methods.base import METHOD_REGISTRY
 
-RUNNABLE_METHODS = ["resize", "sliced-nms", "perspective-grid", "sahi", "zoomdet-geometry", "zoomdet-neural", "adapoth", "adapoth-oracle"]
+RUNNABLE_METHODS = ["resize", "sliced-nms", "perspective-grid", "sahi", "zoomdet-geometry", "zoomdet-neural"]
 
 
 def run_phase_2(
@@ -30,10 +30,6 @@ def run_phase_2(
     evaluate_after: bool = True,
     ground_truth: Path | None = None,
     eval_confidence: float = 0.25,
-    scout_weights: Path | str | None = None,
-    context_margin: float = 0.20,
-    k_max: int = 4,
-    boundary_penalty: float = 0.70,
     hf_repo: str | None = None,
     hf_token: str | None = None,
     hf_sync: bool = False,
@@ -68,10 +64,6 @@ def run_phase_2(
                 warmup=warmup,
                 detector_name=detector_name,
                 precision=precision,
-                scout_weights=scout_weights,
-                context_margin=context_margin,
-                k_max=k_max,
-                boundary_penalty=boundary_penalty,
             )
             eval_metrics = None
             if evaluate_after and gt_path.exists():
@@ -119,10 +111,6 @@ def run_phase_2(
         warmup=warmup,
         detector_name=detector_name,
         precision=precision,
-        scout_weights=scout_weights,
-        context_margin=context_margin,
-        k_max=k_max,
-        boundary_penalty=boundary_penalty,
     )
     
     gt_path = ground_truth or (data_dir / f"{split}.json")

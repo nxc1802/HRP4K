@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from hrp4k_suite.dataset import dataset_completeness, prepare_dataset_view
+from hrp4k.data.views import dataset_completeness, prepare_dataset_view
 
 
 class DatasetTests(unittest.TestCase):
@@ -48,7 +48,7 @@ class DatasetTests(unittest.TestCase):
             identity = {"annotation_hash_match": {s: True for s in ("train", "valid", "test")},
                         "official_dataset_identity": True, "official_training_complete": True,
                         "official_benchmark_complete": True, "dataset_note": "test"}
-            with patch("hrp4k_suite.dataset.verify_dataset_identity", return_value=identity):
+            with patch("hrp4k.data.identity.verify_dataset_identity", return_value=identity):
                 official = prepare_dataset_view(source, root / "official")
                 smoke = prepare_dataset_view(source, root / "smoke", 1, 1, 1)
             self.assertEqual(official["benchmark_label"], "official")

@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 import unittest
 
-from hrp4k_suite.predictions import validate_predictions
+from hrp4k.inference.schema import validate_predictions
 
 
 GT = {"images": [{"id": 1, "width": 100, "height": 80}], "categories": [{"id": 7}]}

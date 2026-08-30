@@ -1,0 +1,5 @@
+method:
+  name: zoomdet
+  parameters:
+    canvas_size: 640
+    horizon_ratio: 0.40

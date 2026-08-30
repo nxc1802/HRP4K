@@ -4,7 +4,7 @@ import unittest
 
 import numpy as np
 
-from hrp4k_suite.transforms import CropTransform, GridWarpTransform, IdentityTransform, SeparableWarpTransform
+from hrp4k.methods.base import CropTransform, GridWarpTransform, IdentityTransform, SeparableWarpTransform
 
 
 class TransformTests(unittest.TestCase):

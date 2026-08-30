@@ -26,7 +26,7 @@ hrp4k = "hrp4k.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["hrp4k*", "hrp4k_suite*"]
+include = ["hrp4k*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

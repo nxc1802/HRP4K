@@ -1,6 +1,0 @@
-detector:
-  name: yolo11n-p2-lite
-  framework: ultralytics
-  checkpoint: yolo11n.pt
-  input_size: 960
-  confidence: 0.05

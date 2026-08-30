@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from hrp4k_suite.dataset_identity import verify_dataset_identity
+from hrp4k.data.identity import verify_dataset_identity
 
 
 class DatasetIdentityTests(unittest.TestCase):
@@ -20,7 +20,7 @@ class DatasetIdentityTests(unittest.TestCase):
     def test_generate_and_verify_content_manifest(self):
         import tempfile
         from pathlib import Path
-        from hrp4k_suite.dataset_identity import generate_content_manifest, verify_content_manifest
+        from hrp4k.data.identity import generate_content_manifest, verify_content_manifest
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

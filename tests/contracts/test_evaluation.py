@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from hrp4k_suite.evaluation import evaluate
+from hrp4k.evaluation.coco import evaluate
 
 
 def ground_truth():

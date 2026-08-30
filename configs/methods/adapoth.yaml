@@ -1,8 +1,0 @@
-method:
-  name: adapoth
-  parameters:
-    scout_weights: checkpoints/scout/scout_best.pt
-    threshold: 0.05
-    context_margin: 0.30
-    k_max: 4
-    boundary_penalty: 0.70

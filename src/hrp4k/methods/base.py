@@ -173,11 +173,6 @@ METHOD_REGISTRY = {
     "zoomdet": {"type": "nonlinear-warp", "requires_training": False, "implementation": "native", "status": "ready"},
     "zoomdet-geometry": {"type": "nonlinear-warp", "requires_training": False, "implementation": "road-geometry-prior", "status": "ready"},
     "zoomdet-neural": {"type": "nonlinear-warp", "requires_training": True, "implementation": "official-neural-network", "status": "ready"},
-    "adapoth": {"type": "adaptive-region-scout", "requires_training": True, "implementation": "adapoth-lite-core", "status": "ready"},
-    "adapoth-lite": {"type": "adaptive-region-scout", "requires_training": True, "implementation": "adapoth-lite-core", "status": "ready"},
-    "adapoth-oracle": {"type": "adaptive-region-scout", "requires_training": False, "implementation": "oracle-upper-bound", "status": "ready"},
-    "adapoth-fixed": {"type": "adaptive-region-scout", "requires_training": True, "implementation": "fixed-k-ablation", "status": "ready"},
-    "adapoth-random": {"type": "adaptive-region-scout", "requires_training": False, "implementation": "random-crop-ablation", "status": "ready"},
 }
 
 METHOD_STATUS = {
@@ -191,10 +186,6 @@ def make_views(
     method: str,
     tile_size: int = 960,
     overlap: float = 0.2,
-    scout_weights: Any | None = None,
-    context_margin: float = 0.20,
-    k_max: int = 4,
-    gt_boxes_4k: list[list[float]] | None = None,
     device: str | None = None,
 ) -> list[ProcessedView]:
     import warnings
@@ -203,21 +194,6 @@ def make_views(
         raise ValueError("Official SAHI is executed by the generic runner, not make_views()")
     if method == "resize":
         return [ProcessedView(image, IdentityTransform(), width, height)]
-    if method.startswith("adapoth"):
-        from .adapoth import make_adapoth_views
-        views, _ = make_adapoth_views(
-            image=image,
-            method=method,
-            scout_weights=scout_weights,
-            threshold=0.30,
-            context_margin=context_margin,
-            k_max=k_max,
-            crop_size=(640, 640),
-            global_size=(960, 544),
-            gt_boxes_4k=gt_boxes_4k,
-            device=device,
-        )
-        return views
     if method in {"zoomdet", "zoomdet-geometry"}:
         from .zoomdet import make_zoomdet_view
         return [make_zoomdet_view(image, canvas_size=tile_size if tile_size <= 1280 else 640, mode="geometry")]

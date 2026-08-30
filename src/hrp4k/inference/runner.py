@@ -52,8 +52,6 @@ def predict_detector(
     data_dir: Path, split: str, detector: DetectorAdapter, output_path: Path, method: str = "resize",
     *, limit: int | None = None, image_size: int = 640, confidence: float = 0.05,
     tile_size: int = 960, overlap: float = 0.2, warmup: int = 20, precision: str = "fp32",
-    scout_weights: Path | str | None = None, context_margin: float = 0.20, k_max: int = 4,
-    boundary_penalty: float = 0.70,
 ) -> dict[str, Any]:
     """Framework-agnostic detector runner producing the canonical experiment schema."""
     if method not in METHOD_REGISTRY or METHOD_REGISTRY[method]["status"] == "external-required":
@@ -73,19 +71,12 @@ def predict_detector(
     if limit is not None:
         images = images[:limit]
 
-    img_to_anns: dict[int, list[list[float]]] = {}
-    for ann in coco.get("annotations", []):
-        img_to_anns.setdefault(int(ann["image_id"]), []).append(list(map(float, ann["bbox"])))
-
     warmup_count = min(max(0, warmup), len(images))
     for image in images[:warmup_count]:
         source = cv2.imread(str(image_path(data_dir, split, image["file_name"])))
         if source is None:
             continue
-        gts = img_to_anns.get(int(image["id"]), [])
-        for view in make_views(source, method, tile_size, overlap, scout_weights=scout_weights,
-                               context_margin=context_margin, k_max=k_max, gt_boxes_4k=gts,
-                               device=getattr(detector, "device", None)):
+        for view in make_views(source, method, tile_size, overlap, device=getattr(detector, "device", None)):
             detector.warmup(view.image, image_size)
     cuda_synchronize_if_needed()
     torch = None
@@ -103,11 +94,8 @@ def predict_detector(
                 source = cv2.imread(str(image_path(data_dir, split, image["file_name"])))
             if source is None:
                 continue
-            gts = img_to_anns.get(int(image["id"]), [])
             with Timer() as processor_timer:
-                views = make_views(source, method, tile_size, overlap, scout_weights=scout_weights,
-                                   context_margin=context_margin, k_max=k_max, gt_boxes_4k=gts,
-                                   device=getattr(detector, "device", None))
+                views = make_views(source, method, tile_size, overlap, device=getattr(detector, "device", None))
             candidates: list[dict[str, Any]] = []
             detector_latency = 0.0
             if hasattr(detector, "predict_batch") and len(views) > 1:
@@ -116,11 +104,6 @@ def predict_detector(
                     batch_dets = detector.predict_batch([v.image for v in views], view_imgsz, confidence)
                 detector_latency = detector_timer.elapsed_ms
                 for view, detections in zip(views, batch_dets):
-                    # Boundary penalty for local crop views in AdaPoth
-                    if view.metadata.get("type") == "local_crop" and boundary_penalty < 1.0:
-                        vh, vw = view.image.shape[:2]
-                        from ..methods.adapoth import apply_boundary_penalty
-                        detections = apply_boundary_penalty(detections, vw, vh, boundary_margin=8, penalty=boundary_penalty)
                     for raw_detection in detections:
                         detection = _as_detection(raw_detection)
                         mapped_box = view.map_box(detection.xyxy)
@@ -133,10 +116,6 @@ def predict_detector(
                     with Timer() as detector_timer:
                         detections = detector.predict(view.image, view_imgsz, confidence)
                     detector_latency += detector_timer.elapsed_ms
-                    if view.metadata.get("type") == "local_crop" and boundary_penalty < 1.0:
-                        vh, vw = view.image.shape[:2]
-                        from ..methods.adapoth import apply_boundary_penalty
-                        detections = apply_boundary_penalty(detections, vw, vh, boundary_margin=8, penalty=boundary_penalty)
                     for raw_detection in detections:
                         detection = _as_detection(raw_detection)
                         mapped_box = view.map_box(detection.xyxy)
@@ -262,8 +241,6 @@ def predict_yolo(
     limit: int | None = None, image_size: int = 640, confidence: float = 0.05,
     tile_size: int = 960, overlap: float = 0.2, device: str | None = None, warmup: int = 20,
     detector_name: str = "ultralytics", precision: str = "fp32",
-    scout_weights: Path | str | None = None, context_margin: float = 0.20, k_max: int = 4,
-    boundary_penalty: float = 0.70,
 ) -> dict[str, Any]:
     coco = load_split(data_dir, split)
     category_ids = [int(category["id"]) for category in coco.get("categories", [])]
@@ -274,6 +251,4 @@ def predict_yolo(
     detector = create_detector(detector_name, weights, category_id, device, precision, allow_ultralytics=True)
     return predict_detector(data_dir, split, detector, output_path, method, limit=limit,
                             image_size=image_size, confidence=confidence, tile_size=tile_size,
-                            overlap=overlap, warmup=warmup, precision=precision,
-                            scout_weights=scout_weights, context_margin=context_margin,
-                            k_max=k_max, boundary_penalty=boundary_penalty)
+                            overlap=overlap, warmup=warmup, precision=precision)

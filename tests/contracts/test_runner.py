@@ -7,9 +7,9 @@ from pathlib import Path
 
 import numpy as np
 
-from hrp4k_suite.detectors import Detection
-from hrp4k_suite.predictions import validate_predictions
-from hrp4k_suite.runner import predict_detector
+from hrp4k.detectors.base import Detection
+from hrp4k.inference.schema import validate_predictions
+from hrp4k.inference.runner import predict_detector
 
 
 class MockDetector:

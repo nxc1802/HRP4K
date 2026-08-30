@@ -11,7 +11,7 @@ venv/bin/pip install -e '.[vision,sahi,dev]'
 
 Môi trường smoke đã xác minh được pin tại `requirements/benchmark-lock.txt`. Mỗi run lưu toàn bộ `pip freeze`, phiên bản Torch/CUDA/Ultralytics, Git commit và dataset manifest/hash trong thư mục run.
 
-Trong workspace hiện tại có thể dùng trực tiếp binary `venv/bin/hrp4k` hoặc module `venv/bin/python -m hrp4k` (hỗ trợ tương thích ngược `hrp4k_suite`).
+Trong workspace hiện tại có thể dùng trực tiếp binary `venv/bin/hrp4k` hoặc module `venv/bin/python -m hrp4k`.
 
 ## Chạy nhanh toàn pipeline
 
@@ -28,7 +28,7 @@ Lệnh này chạy tuần tự:
 
 1. Phase 0: integrity + thống kê annotation + quality sample.
 2. Phase 1: tạo dataset nhỏ bằng symlink, train YOLO11n đúng 1 epoch với AMP.
-3. Phase 2: smoke inference `resize`, `sliced-nms`, `perspective-grid` và export unified COCO JSON.
+3. Phase 2: smoke inference `resize`, `sliced-nms`, `perspective-grid`, `sahi`, `zoomdet` và export unified COCO JSON.
 4. Phase 3: evaluate + sinh diagnostic report từ prediction đã lưu.
 
 Full training cần cờ xác nhận `--allow-full` và manifest của single official downloaded release đã khớp ba annotation hash. Bản release hiện thiếu một số file train từ nguồn tải; dự án coi đây là official version duy nhất trong khi liên hệ tác giả để xin archive đầy đủ. Smoke subset vẫn luôn mang nhãn `smoke`.

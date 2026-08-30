@@ -14,8 +14,7 @@ OFFICIAL_MODELS = [
     "yolov5m-official",
     "rt-detr-v1",
     "rt-detr-v2",
-    "yolo11n-p2",
-    "yolo11n-p2-lite",
+    "d-fine",
 ]
 
 
