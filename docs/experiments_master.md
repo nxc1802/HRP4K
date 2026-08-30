@@ -67,9 +67,37 @@ Khi phân tích phân bố giá trị kích hoạt của Scout Headmap ($[0.03, 
 | **$\tau = 0.12$** | **$34.10\%$** | $59 / 173$ | $25\%$ | $24\%$ | $21\%$ | $15\%$ | $15\%$ | **$1.71$** | Tiết kiệm compute cao cho ảnh đường sạch |
 | **$\tau = 0.30$ (Mặc định thô)** | **$79.77\%$** | $138 / 173$ | $0\%$ | $100\%$ | $0\%$ | $0\%$ | $0\%$ | **$1.00$** | Kích hoạt Safety Road Fallback Window |
 
-> [!TIP]
-> **Giải trình khoa học về tính nhất quán trong bảng Ablation ban đầu:**
-> Tại ngưỡng cố định $\tau = 0.30$, các pixel heatmap thô đều thấp hơn $0.30$, kích hoạt cơ chế an toàn **Safety Road Crop Fallback** ($1$ crop lớn diện tích $70\%\text{ chiều ngang} \times 60\%\text{ chiều dọc}$ mặt đường). Điều này lý giải tại sao $K_{\text{avg}} = 1.00$ và các biến thể $K_{\max}$, Margin ban đầu có chỉ số đo giống nhau. Khi áp dụng ngưỡng chuẩn hóa theo độ lệch chuẩn $\tau \in [0.08, 0.12]$, mô hình thể hiện trọn vẹn đặc tính thích ứng động $K \in [0, 4]$ với $K_{\text{avg}} = 2.85$.
+### 3.3. Đột Phá Khảo Sát Scout Trên Ảnh 4K Gốc (Native 4K MobileNetV3 Scout vs Thumbnail Scout):
+
+Nhằm kiểm chứng giả thuyết về giới hạn trần định vị do mất mát độ phân giải không gian trên ảnh thumbnail $960\text{p}$ ($16\times$ downsampling $\to 68\times 120$ heatmap), mô hình **MobileNetV3 Scout (Stride-8 FPN Multi-Scale Head)** đã được huấn luyện và đánh giá trực tiếp trên **toàn bộ ảnh 4K gốc ($3840 \times 2160 \to 480 \times 270\text{ heatmap}$)** trong $10$ Epochs:
+
+#### A. Diễn Biến Hội Tụ 10 Epochs Của 4K Native Scout:
+| Epoch | Train Loss | Val Loss | **Region Recall** | **GT Coverage** | False Region Rate | Avg $K$ | Learning Rate | Thời Gian / Epoch |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Ep 1** | $48.63$ | $29.08$ | $40.57\%$ | $40.52\%$ | $89.0\%$ | $1.00$ | $0.001000$ | $895.0\text{s}$ |
+| **Ep 2** | $14.82$ | $4.98$ | $40.57\%$ | $40.52\%$ | $89.2\%$ | $1.08$ | $0.000970$ | $963.6\text{s}$ |
+| **Ep 3** | $5.41$ | $4.14$ | $61.68\%$ | $61.65\%$ | $87.1\%$ | $3.57$ | $0.000884$ | $930.7\text{s}$ |
+| **Ep 4** | $4.83$ | $3.49$ | $56.91\%$ | $57.04\%$ | $90.6\%$ | $3.97$ | $0.000753$ | $929.7\text{s}$ |
+| **Ep 5** | $4.32$ | $3.49$ | $61.78\%$ | $61.96\%$ | $88.5\%$ | $3.85$ | $0.000591$ | $934.7\text{s}$ |
+| **Ep 6** | $4.13$ | $3.20$ | $73.66\%$ | $73.75\%$ | $84.6\%$ | $3.98$ | $0.000419$ | $899.2\text{s}$ |
+| **Ep 7** 👑 | $3.87$ | $3.05$ | **$\mathbf{76.51\%}$** | **$\mathbf{76.21\%}$** | **$\mathbf{83.4\%}$** | **$4.00$** | $0.000258$ | $897.7\text{s}$ |
+| **Ep 8** | $3.80$ | $3.02$ | $73.62\%$ | $73.30\%$ | $84.6\%$ | $4.00$ | $0.000126$ | $955.0\text{s}$ |
+| **Ep 9** | $3.54$ | $2.98$ | $69.13\%$ | $68.75\%$ | $86.2\%$ | $4.00$ | $0.000040$ | $943.7\text{s}$ |
+| **Ep 10** | $3.37$ | $2.98$ | $73.78\%$ | $73.69\%$ | $84.5\%$ | $4.00$ | $0.000010$ | $934.4\text{s}$ |
+
+#### B. Bảng Quét Ngưỡng $\tau$ Và Ngân Sách Crop $K$ Trên Tập Test ($900$ Ảnh 4K Độc Lập):
+| Tham Số Khảo Sát | Giá Trị Cấu Hình | **Region Recall (Test)** | **GT Coverage (Test)** | **False Region Rate** | **Avg $K_{\text{crops}}$** | Nhận Xét Khoa Học |
+| :---: | :---: | :---: | :---: | :---: | :---: | :--- |
+| **Threshold Sweep** ($K=4$) | $\tau = 0.01$ | $78.13\%$ | $77.58\%$ | $84.5\%$ | $3.96$ | Ngưỡng quá thấp, nhận diện nhiều nhiễu nền |
+| | $\tau = 0.05$ | $78.13\%$ | $77.58\%$ | $84.5\%$ | $3.99$ | Mức ngưỡng cân bằng mặc định |
+| | $\tau = 0.10$ | $79.02\%$ | $78.39\%$ | $84.4\%$ | $4.00$ | Lọc bớt nhiễu nhẹ |
+| | $\tau = 0.15$ | $80.90\%$ | $80.70\%$ | $83.9\%$ | $3.99$ | Bắt đầu tập trung vào vùng mật độ cao |
+| | **$\tau = 0.20$** 🚀 | **$\mathbf{84.86\%}$** | **$\mathbf{84.23\%}$** | **$\mathbf{82.18\%}$** | **$3.93$** | **Vượt trần recall: Định vị cực kỳ sắc nét trên ảnh 4K gốc** |
+| **K-Budget Sweep** ($\tau = 0.05$) | $K_{\max} = 1$ | $63.21\%$ | $63.30\%$ | $63.7\%$ | $1.00$ | 1 crop duy nhất chỉ lấy được ổ gà lớn nhất |
+| | $K_{\max} = 2$ | $70.79\%$ | $70.87\%$ | $75.3\%$ | $2.00$ | Bao phủ thêm cụm ổ gà phụ |
+| | $K_{\max} = 3$ | $75.06\%$ | $74.87\%$ | $81.3\%$ | $2.99$ | Gần tiệm cận mức tối ưu |
+| | $K_{\max} = 4$ | $78.13\%$ | $77.58\%$ | $84.5\%$ | $3.99$ | Cân bằng compute / recall chuẩn |
+| | $K_{\max} = 6$ | **$79.75\%$** | $79.04\%$ | $88.8\%$ | $5.97$ | Tăng nhẹ recall nhưng tỷ lệ crop trượt tăng cao |
 
 ---
 
