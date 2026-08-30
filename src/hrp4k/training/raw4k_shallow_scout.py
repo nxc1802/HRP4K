@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import random
 import sys
@@ -157,7 +158,7 @@ else:
 
 
 # ==============================================================================
-# 2. Ground Truth Heatmap Generator
+# 2. Ground Truth Heatmap Generator: Coverage-Aware Soft Region Target
 # ==============================================================================
 
 def generate_raw4k_scout_gt(
@@ -166,11 +167,14 @@ def generate_raw4k_scout_gt(
     img_h: int = 2160,
     heat_w: int = 960,
     heat_h: int = 540,
-    expand_ratio: float = 0.20,
-    sigma_x_scale: float = 0.35,
-    sigma_y_scale: float = 0.50,
+    expand_ratio: float = 0.25,
 ) -> np.ndarray:
-    """Generate expanded Region Scout Ground-Truth heatmap for Raw 4K."""
+    """Generate coverage-aware soft region target heatmap for Raw 4K.
+    
+    Creates a dense rectangular region target (value 1.0 inside object box)
+    with smooth falloff margin (25% expansion), providing direct supervision
+    for region coverage instead of sharp center point.
+    """
     heatmap = np.zeros((heat_h, heat_w), dtype=np.float32)
     if len(boxes_xywh) == 0:
         return heatmap
@@ -186,35 +190,43 @@ def generate_raw4k_scout_gt(
         if w <= 0 or h <= 0:
             continue
 
-        cx = (x + w * 0.5) * scale_x
-        cy = (y + h * 0.5) * scale_y
-        w_heat = max(1.0, w * (1.0 + expand_ratio) * scale_x)
-        h_heat = max(1.0, h * (1.0 + expand_ratio) * scale_y)
+        u0 = x * scale_x
+        v0 = y * scale_y
+        u1 = (x + w) * scale_x
+        v1 = (y + h) * scale_y
 
-        sigma_x = max(0.5, sigma_x_scale * w_heat)
-        sigma_y = max(0.5, sigma_y_scale * h_heat)
+        bw = max(1.0, u1 - u0)
+        bh = max(1.0, v1 - v0)
 
-        exponent = -(((grid_x - cx) ** 2) / (2.0 * sigma_x ** 2) + ((grid_y - cy) ** 2) / (2.0 * sigma_y ** 2))
-        gaussian = np.exp(exponent)
+        sigma_x = max(1.0, bw * expand_ratio)
+        sigma_y = max(1.0, bh * expand_ratio)
 
-        np.maximum(heatmap, gaussian, out=heatmap)
+        # Distance from point to box rectangle
+        dx = np.maximum(0.0, np.maximum(u0 - grid_x, grid_x - u1))
+        dy = np.maximum(0.0, np.maximum(v0 - grid_y, grid_y - v1))
+
+        dist_sq = (dx / sigma_x) ** 2 + (dy / sigma_y) ** 2
+        soft_region = np.exp(-0.5 * dist_sq).astype(np.float32)
+
+        np.maximum(heatmap, soft_region, out=heatmap)
 
     return np.clip(heatmap, 0.0, 1.0)
 
 
 # ==============================================================================
-# 3. Loss Function: Scout Heatmap + GT Coverage Loss
+# 3. Loss Function: Dense Region Focal Loss + True Region Coverage Loss
 # ==============================================================================
 
 if TORCH_AVAILABLE:
     class Raw4KScoutLoss(nn.Module):
-        """Scout Loss combining Calibrated CenterNet Focal Loss with Positive Center Boost."""
+        """Scout Loss combining Dense Region Focal Loss with True GT Region Coverage Loss."""
         def __init__(
             self,
             alpha: float = 2.0,
             beta: float = 4.0,
-            pos_weight: float = 5.0,
+            pos_weight: float = 3.0,
             lambda_cov: float = 3.0,
+            target_cov: float = 0.85,
             eps: float = 1e-4,
         ):
             super().__init__()
@@ -222,20 +234,22 @@ if TORCH_AVAILABLE:
             self.beta = beta
             self.pos_weight = pos_weight
             self.lambda_cov = lambda_cov
+            self.target_cov = target_cov
             self.eps = eps
 
         def forward(
             self,
             pred: torch.Tensor,
             target: torch.Tensor,
-            gt_centers: list[list[tuple[float, float]]] | None = None,
+            gt_boxes: list[list[list[float]]] | None = None,
+            orig_sizes: list[tuple[int, int]] | None = None,
         ) -> dict[str, torch.Tensor]:
             pred = torch.clamp(pred, self.eps, 1.0 - self.eps)
             
-            pos_mask = (target >= 0.80)
-            neg_mask = (target < 0.80)
+            pos_mask = (target >= 0.70)
+            neg_mask = (target < 0.70)
 
-            # Balanced Focal Loss
+            # Balanced Dense Region Focal Loss
             pos_loss = -((1.0 - pred) ** self.alpha) * torch.log(pred) * pos_mask.float()
             neg_loss = -((1.0 - target) ** self.beta) * (pred ** self.alpha) * torch.log(1.0 - pred) * neg_mask.float()
 
@@ -243,27 +257,37 @@ if TORCH_AVAILABLE:
             if num_pos > 0:
                 focal_loss = (self.pos_weight * pos_loss.sum() + neg_loss.sum()) / num_pos
             else:
-                # Background-only normalization
                 focal_loss = neg_loss.mean() * 100.0
 
-            # Center Peak Loss
+            # True GT Region Coverage Loss: penalizes low average activation across the entire GT box
             coverage_loss = torch.tensor(0.0, device=pred.device)
-            if gt_centers is not None:
+            if gt_boxes is not None and orig_sizes is not None:
                 cov_losses = []
-                b, _, h, w = pred.shape
-                for i, centers in enumerate(gt_centers):
-                    if not centers:
+                b, _, heat_h, heat_w = pred.shape
+                for i, boxes in enumerate(gt_boxes):
+                    if not boxes:
                         continue
-                    for cy, cx in centers:
-                        iy = int(np.clip(round(cy), 0, h - 1))
-                        ix = int(np.clip(round(cx), 0, w - 1))
-                        p_val = pred[i, 0, iy, ix]
-                        cov_losses.append(F.relu(0.90 - p_val))
+                    orig_w, orig_h = orig_sizes[i]
+                    scale_x = float(heat_w) / float(orig_w)
+                    scale_y = float(heat_h) / float(orig_h)
+                    for box in boxes:
+                        x, y, w, h = box[:4]
+                        if w <= 0 or h <= 0:
+                            continue
+                        u0 = int(np.clip(math.floor(x * scale_x), 0, heat_w - 1))
+                        u1 = int(np.clip(math.ceil((x + w) * scale_x) + 1, u0 + 1, heat_w))
+                        v0 = int(np.clip(math.floor(y * scale_y), 0, heat_h - 1))
+                        v1 = int(np.clip(math.ceil((y + h) * scale_y) + 1, v0 + 1, heat_h))
+
+                        roi_act = pred[i, 0, v0:v1, u0:u1]
+                        if roi_act.numel() > 0:
+                            mean_act = roi_act.mean()
+                            cov_losses.append(F.relu(self.target_cov - mean_act))
                 if cov_losses:
                     coverage_loss = torch.stack(cov_losses).mean()
             else:
                 if pos_mask.any():
-                    coverage_loss = F.relu(0.85 - pred[pos_mask]).mean()
+                    coverage_loss = F.relu(self.target_cov - pred[pos_mask].mean())
 
             total_loss = focal_loss + self.lambda_cov * coverage_loss
             return {
@@ -313,11 +337,11 @@ class Raw4KCandidateGenerator:
     """Adaptive Dynamic Cluster ROI Generator from Raw 4K Scout Heatmap."""
     def __init__(
         self,
-        threshold: float = 0.04,
+        threshold: float = 0.05,
         min_crop_size: int = 256,
         max_crop_size: int = 512,
         alpha_score: float = 0.70,
-        context_margin: float = 0.30,
+        context_margin: float = 0.25,
         region_nms_iou: float = 0.35,
         merge_iou_thresh: float = 0.15,
         k_max: int = 6,
@@ -352,8 +376,14 @@ class Raw4KCandidateGenerator:
         if max_val < self.threshold:
             return []
 
-        # Adaptive threshold: keep high confidence peaks without dropping faint co-occurring potholes
-        eff_thresh = max(self.threshold, 0.08 * max_val)
+        # Percentile/Adaptive threshold: extract regions above base threshold or high percentile
+        above_base = heatmap[heatmap >= self.threshold]
+        if above_base.size > 0:
+            p75 = float(np.percentile(above_base, 75))
+            eff_thresh = max(self.threshold, min(0.35 * max_val, 0.50 * p75))
+        else:
+            eff_thresh = self.threshold
+
         binary_mask = (heatmap >= eff_thresh).astype(np.uint8)
 
         components = []
@@ -370,7 +400,6 @@ class Raw4KCandidateGenerator:
                 u1 = u0 + uw
                 v1 = v0 + vh
 
-                # Fast local slicing
                 crop_hmap = heatmap[v0:v1, u0:u1]
                 crop_lbl = labels[v0:v1, u0:u1]
                 comp_vals = crop_hmap[crop_lbl == label]
@@ -388,7 +417,7 @@ class Raw4KCandidateGenerator:
         if not components:
             return []
 
-        # 3. Dynamic Cluster Box Scaling (256 -> 512) with Context Margin
+        # Dynamic Cluster Box Scaling (256 -> 512) with Context Margin
         raw_candidates: list[CandidateRegion] = []
         for comp in components:
             u_center = (comp["u0"] + comp["u1"]) * 0.5
@@ -399,7 +428,6 @@ class Raw4KCandidateGenerator:
             w_raw = (comp["u1"] - comp["u0"]) * scale_x
             h_raw = (comp["v1"] - comp["v0"]) * scale_y
 
-            # Dynamic cluster sizing: scale with object size + 25% margin, clamped between [min_crop_size, max_crop_size]
             exp_w = w_raw * (1.0 + 2.0 * self.context_margin)
             exp_h = h_raw * (1.0 + 2.0 * self.context_margin)
             
@@ -418,13 +446,13 @@ class Raw4KCandidateGenerator:
                 area=(x1 - x0) * (y1 - y0),
             ))
 
-        # 4. ROI Merging: Merge highly overlapping or adjacent candidate boxes
+        # ROI Merging: Merge highly overlapping or adjacent candidate boxes
         merged_candidates = self._merge_clusters(raw_candidates, self.merge_iou_thresh, max_size=self.max_crop_size)
 
-        # 5. Region NMS
+        # Region NMS
         kept = self._region_nms(merged_candidates, self.region_nms_iou)
 
-        # 6. Top-K (K <= 6)
+        # Top-K (K <= 6)
         return kept[:self.k_max]
 
     def _merge_clusters(self, regions: list[CandidateRegion], iou_threshold: float, max_size: int = 512) -> list[CandidateRegion]:
@@ -614,14 +642,22 @@ def evaluate_raw4k_scout_regions(
 
     false_regions = 0
     for cx1, cy1, cx2, cy2 in c_boxes:
-        has_gt = False
+        has_useful_coverage = False
         for gt in gt_boxes_4k:
             gx, gy, gw, gh = gt[:4]
             gx1, gy1, gx2, gy2 = gx, gy, gx + gw, gy + gh
-            if max(gx1, cx1) < min(gx2, cx2) and max(gy1, cy1) < min(gy2, cy2):
-                has_gt = True
+            gt_area = max(1e-6, gw * gh)
+            ix1 = max(gx1, cx1)
+            iy1 = max(gy1, cy1)
+            ix2 = min(gx2, cx2)
+            iy2 = min(gy2, cy2)
+            inter_w = max(0.0, ix2 - ix1)
+            inter_h = max(0.0, iy2 - iy1)
+            cov = (inter_w * inter_h) / gt_area
+            if cov >= 0.50:  # Useful crop must cover at least 50% of the pothole!
+                has_useful_coverage = True
                 break
-        if not has_gt:
+        if not has_useful_coverage:
             false_regions += 1
 
     scale_bin_recalls = {
@@ -1022,12 +1058,13 @@ def train_raw4k_scout(
         for step, batch in enumerate(train_loader):
             imgs = preprocess_imgs_on_gpu(batch["image"])
             targets = batch["heatmap"].to(dev, non_blocking=True)
-            gt_centers = batch["gt_centers"]
+            orig_boxes = batch["orig_boxes"]
+            orig_sizes = batch["orig_sizes"]
 
             if use_cuda_amp:
                 with torch.amp.autocast('cuda', enabled=True):
                     preds = model(imgs)
-                    loss_dict = criterion(preds, targets, gt_centers)
+                    loss_dict = criterion(preds, targets, orig_boxes, orig_sizes)
                     loss = loss_dict["loss"] / accumulate_grad_batches
                 scaler.scale(loss).backward()
                 if (step + 1) % accumulate_grad_batches == 0 or (step + 1) == len(train_loader):
@@ -1039,7 +1076,7 @@ def train_raw4k_scout(
                     scheduler.step()
             else:
                 preds = model(imgs)
-                loss_dict = criterion(preds, targets, gt_centers)
+                loss_dict = criterion(preds, targets, orig_boxes, orig_sizes)
                 loss = loss_dict["loss"] / accumulate_grad_batches
                 loss.backward()
                 if (step + 1) % accumulate_grad_batches == 0 or (step + 1) == len(train_loader):
@@ -1075,16 +1112,17 @@ def train_raw4k_scout(
             for batch_idx, batch in enumerate(val_loader):
                 imgs = preprocess_imgs_on_gpu(batch["image"])
                 targets = batch["heatmap"].to(dev, non_blocking=True)
-                gt_centers = batch["gt_centers"]
+                orig_boxes = batch["orig_boxes"]
+                orig_sizes = batch["orig_sizes"]
 
                 t_inf0 = time.time()
                 if use_cuda_amp:
                     with torch.amp.autocast('cuda', enabled=True):
                         preds = model(imgs)
-                        loss_dict = criterion(preds, targets, gt_centers)
+                        loss_dict = criterion(preds, targets, orig_boxes, orig_sizes)
                 else:
                     preds = model(imgs)
-                    loss_dict = criterion(preds, targets, gt_centers)
+                    loss_dict = criterion(preds, targets, orig_boxes, orig_sizes)
                 latencies.append((time.time() - t_inf0) / max(1, imgs.shape[0]))
                 val_loss_list.append(float(loss_dict["loss"].item()))
 
