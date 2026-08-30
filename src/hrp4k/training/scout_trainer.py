@@ -554,6 +554,8 @@ def evaluate_scout_model(
     k_max: int = 4,
     device: str | None = None,
     limit: int | None = None,
+    img_size: tuple[int, int] = (540, 960),
+    heat_size: tuple[int, int] = (68, 120),
     hf_repo: str | None = None,
     hf_token: str | None = None,
     hf_sync: bool = False,
@@ -579,7 +581,7 @@ def evaluate_scout_model(
         model.load_state_dict(state_dict)
     model.eval()
 
-    ds = ScoutDataset(data_dir, split=split, limit=limit, augment=False)
+    ds = ScoutDataset(data_dir, split=split, img_size=img_size, heat_size=heat_size, limit=limit, augment=False)
     eval_batch_size = 32 if dev.type == "cuda" else 8
     loader = DataLoader(
         ds,
