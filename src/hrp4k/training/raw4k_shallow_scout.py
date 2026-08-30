@@ -337,13 +337,13 @@ class Raw4KCandidateGenerator:
     """Adaptive Dynamic Cluster ROI Generator from Raw 4K Scout Heatmap."""
     def __init__(
         self,
-        threshold: float = 0.05,
-        min_crop_size: int = 256,
+        threshold: float = 0.04,
+        min_crop_size: int = 384,
         max_crop_size: int = 512,
         alpha_score: float = 0.70,
-        context_margin: float = 0.25,
+        context_margin: float = 0.30,
         region_nms_iou: float = 0.35,
-        merge_iou_thresh: float = 0.15,
+        merge_iou_thresh: float = 0.20,
         k_max: int = 6,
         min_region_size: int = 4,
     ):
@@ -372,19 +372,10 @@ class Raw4KCandidateGenerator:
         scale_y = float(source_height) / float(heat_h)
 
         max_val = float(np.max(heatmap)) if heatmap.size > 0 else 0.0
-        # If entire heatmap is low (clean road without potholes), return empty list (K = 0)
         if max_val < self.threshold:
             return []
 
-        # Percentile/Adaptive threshold: extract regions above base threshold or high percentile
-        above_base = heatmap[heatmap >= self.threshold]
-        if above_base.size > 0:
-            p75 = float(np.percentile(above_base, 75))
-            eff_thresh = max(self.threshold, min(0.35 * max_val, 0.50 * p75))
-        else:
-            eff_thresh = self.threshold
-
-        binary_mask = (heatmap >= eff_thresh).astype(np.uint8)
+        binary_mask = (heatmap >= self.threshold).astype(np.uint8)
 
         components = []
         if cv2 is not None:
@@ -417,7 +408,7 @@ class Raw4KCandidateGenerator:
         if not components:
             return []
 
-        # Dynamic Cluster Box Scaling (256 -> 512) with Context Margin
+        # Dynamic Cluster Box Scaling with Context Margin
         raw_candidates: list[CandidateRegion] = []
         for comp in components:
             u_center = (comp["u0"] + comp["u1"]) * 0.5
@@ -431,8 +422,8 @@ class Raw4KCandidateGenerator:
             exp_w = w_raw * (1.0 + 2.0 * self.context_margin)
             exp_h = h_raw * (1.0 + 2.0 * self.context_margin)
             
-            box_side = max(exp_w, exp_h)
-            box_w = max(float(self.min_crop_size), min(float(self.max_crop_size), box_side))
+            box_side = max(float(self.min_crop_size), max(exp_w, exp_h))
+            box_w = min(float(self.max_crop_size), box_side)
             box_h = box_w
 
             x0 = int(np.clip(cx - box_w * 0.5, 0, max(0, source_width - box_w)))
@@ -531,11 +522,11 @@ class Raw4KCandidateGenerator:
         for y in range(h):
             for x in range(w):
                 if binary_mask[y, x] and not visited[y, x]:
-                    queue = [(y, x)]
                     visited[y, x] = True
+                    queue = [(y, x)]
+                    vals = []
                     min_x, max_x = x, x
                     min_y, max_y = y, y
-                    vals = []
 
                     while queue:
                         cy, cx = queue.pop(0)
@@ -573,7 +564,7 @@ def evaluate_raw4k_scout_regions(
     img_w: int = 3840,
     img_h: int = 2160,
 ) -> dict[str, Any]:
-    """Evaluate Scout Candidate Generation Quality with upgrade.md metrics."""
+    """Evaluate Scout Candidate Generation Quality with rigorous global metrics."""
     total_4k_area = float(img_w * img_h)
     
     c_boxes = []
@@ -592,6 +583,10 @@ def evaluate_raw4k_scout_regions(
     if len(gt_boxes_4k) == 0:
         return {
             "total_gts": 0,
+            "covered_50": 0,
+            "covered_75": 0,
+            "covered_90": 0,
+            "cov_list": [],
             "recall_50": 1.0,
             "recall_75": 1.0,
             "recall_90": 1.0,
@@ -599,6 +594,7 @@ def evaluate_raw4k_scout_regions(
             "false_region_rate": 0.0 if len(c_boxes) == 0 else 1.0,
             "k_crops": len(c_boxes),
             "processed_area_ratio": processed_area_ratio,
+            "scale_bin_stats": {},
             "scale_bin_recalls": {},
         }
 
@@ -654,7 +650,7 @@ def evaluate_raw4k_scout_regions(
             inter_w = max(0.0, ix2 - ix1)
             inter_h = max(0.0, iy2 - iy1)
             cov = (inter_w * inter_h) / gt_area
-            if cov >= 0.50:  # Useful crop must cover at least 50% of the pothole!
+            if cov >= 0.50:
                 has_useful_coverage = True
                 break
         if not has_useful_coverage:
@@ -667,6 +663,10 @@ def evaluate_raw4k_scout_regions(
 
     return {
         "total_gts": total_gts,
+        "covered_50": covered_50,
+        "covered_75": covered_75,
+        "covered_90": covered_90,
+        "cov_list": cov_list,
         "recall_50": float(covered_50 / total_gts),
         "recall_75": float(covered_75 / total_gts),
         "recall_90": float(covered_90 / total_gts),
@@ -674,6 +674,7 @@ def evaluate_raw4k_scout_regions(
         "false_region_rate": float(false_regions / len(c_boxes)) if c_boxes else 0.0,
         "k_crops": len(c_boxes),
         "processed_area_ratio": processed_area_ratio,
+        "scale_bin_stats": scale_bin_stats,
         "scale_bin_recalls": scale_bin_recalls,
     }
 
@@ -1098,14 +1099,15 @@ def train_raw4k_scout(
         # Validation Loop
         model.eval()
         val_loss_list = []
-        recalls_50 = []
-        recalls_75 = []
-        recalls_90 = []
-        coverages = []
+        total_val_gts = 0
+        total_covered_50 = 0
+        total_covered_75 = 0
+        total_covered_90 = 0
+        total_cov_values = []
         false_rates = []
         k_crops_list = []
         area_ratios = []
-        scale_recalls: dict[str, list[float]] = {}
+        global_scale_stats: dict[str, dict[str, int]] = {}
 
         latencies = []
         with torch.no_grad():
@@ -1130,35 +1132,45 @@ def train_raw4k_scout(
                 for i in range(len(batch["image_ids"])):
                     hmap = pred_np[i, 0]
                     orig_w, orig_h = batch["orig_sizes"][i]
-                    orig_boxes = batch["orig_boxes"][i]
+                    boxes = batch["orig_boxes"][i]
 
                     candidates = candidate_gen.generate(hmap, source_width=orig_w, source_height=orig_h)
-                    res = evaluate_raw4k_scout_regions(orig_boxes, candidates, img_w=orig_w, img_h=orig_h)
+                    res = evaluate_raw4k_scout_regions(boxes, candidates, img_w=orig_w, img_h=orig_h)
 
-                    recalls_50.append(res["recall_50"])
-                    recalls_75.append(res["recall_75"])
-                    recalls_90.append(res["recall_90"])
-                    coverages.append(res["mean_gt_coverage"])
+                    if res["total_gts"] > 0:
+                        total_val_gts += res["total_gts"]
+                        total_covered_50 += res["covered_50"]
+                        total_covered_75 += res["covered_75"]
+                        total_covered_90 += res["covered_90"]
+                        total_cov_values.extend(res["cov_list"])
+
+                        for s_bin, stat in res.get("scale_bin_stats", {}).items():
+                            global_scale_stats.setdefault(s_bin, {"total": 0, "covered_75": 0})
+                            global_scale_stats[s_bin]["total"] += stat["total"]
+                            global_scale_stats[s_bin]["covered_75"] += stat["covered_75"]
+
                     false_rates.append(res["false_region_rate"])
                     k_crops_list.append(res["k_crops"])
                     area_ratios.append(res["processed_area_ratio"])
-
-                    for s_bin, val in res["scale_bin_recalls"].items():
-                        scale_recalls.setdefault(s_bin, []).append(val)
 
                 if (batch_idx + 1) % 15 == 0 or (batch_idx + 1) == len(val_loader) or batch_idx == 0:
                     log_msg(f"  [Validation] Batch [{batch_idx+1:03d}/{len(val_loader):03d}] (Loss: {val_loss_list[-1]:.4f})")
 
         mean_train_loss = float(np.mean(train_loss_list)) if train_loss_list else 0.0
         mean_val_loss = float(np.mean(val_loss_list)) if val_loss_list else 0.0
-        m_rec50 = float(np.mean(recalls_50)) if recalls_50 else 0.0
-        m_rec75 = float(np.mean(recalls_75)) if recalls_75 else 0.0
-        m_rec90 = float(np.mean(recalls_90)) if recalls_90 else 0.0
-        m_cov = float(np.mean(coverages)) if coverages else 0.0
+        m_rec50 = float(total_covered_50 / max(1, total_val_gts))
+        m_rec75 = float(total_covered_75 / max(1, total_val_gts))
+        m_rec90 = float(total_covered_90 / max(1, total_val_gts))
+        m_cov = float(np.mean(total_cov_values)) if total_cov_values else 0.0
         m_false = float(np.mean(false_rates)) if false_rates else 0.0
         m_k = float(np.mean(k_crops_list)) if k_crops_list else 0.0
         m_area = float(np.mean(area_ratios)) if area_ratios else 0.0
         avg_latency_ms = float(np.mean(latencies) * 1000.0) if latencies else 0.0
+
+        scale_bin_recalls = {
+            s_bin: float(stat["covered_75"] / max(1, stat["total"]))
+            for s_bin, stat in global_scale_stats.items()
+        }
 
         peak_vram_mb = 0.0
         if torch.cuda.is_available():
@@ -1178,7 +1190,7 @@ def train_raw4k_scout(
             "latency_ms": avg_latency_ms,
             "peak_vram_mb": peak_vram_mb,
             "epoch_time_s": epoch_time,
-            "scale_bin_recalls": {k: float(np.mean(v)) for k, v in scale_recalls.items()},
+            "scale_bin_recalls": scale_bin_recalls,
         }
         history.append(epoch_record)
 
