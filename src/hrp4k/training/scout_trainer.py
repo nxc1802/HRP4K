@@ -580,7 +580,15 @@ def evaluate_scout_model(
     model.eval()
 
     ds = ScoutDataset(data_dir, split=split, limit=limit, augment=False)
-    loader = DataLoader(ds, batch_size=1, shuffle=False, collate_fn=_collate_fn)
+    eval_batch_size = 32 if dev.type == "cuda" else 8
+    loader = DataLoader(
+        ds,
+        batch_size=eval_batch_size,
+        shuffle=False,
+        collate_fn=_collate_fn,
+        num_workers=4 if dev.type == "cuda" else 0,
+        pin_memory=(dev.type == "cuda"),
+    )
     candidate_gen = CandidateGenerator(threshold=threshold, context_margin=context_margin, k_max=k_max)
 
     recalls = []
@@ -591,26 +599,31 @@ def evaluate_scout_model(
 
     with torch.no_grad():
         for batch in loader:
-            img = batch["image"].to(dev)
-            img_id = batch["image_ids"][0]
-            orig_w, orig_h = batch["orig_sizes"][0]
-            orig_boxes = batch["orig_boxes"][0]
+            imgs = batch["image"].to(dev, non_blocking=True)
+            with torch.cuda.amp.autocast(enabled=(dev.type == "cuda")):
+                preds = model(imgs)
+            pred_nps = preds.float().cpu().numpy()
 
-            pred_heatmap = model(img).cpu().numpy()[0, 0]
-            candidates = candidate_gen.generate(pred_heatmap, source_width=orig_w, source_height=orig_h)
-            res = evaluate_scout_regions(orig_boxes, candidates)
+            for i in range(len(batch["image_ids"])):
+                img_id = batch["image_ids"][i]
+                orig_w, orig_h = batch["orig_sizes"][i]
+                orig_boxes = batch["orig_boxes"][i]
+                hmap = pred_nps[i, 0]
 
-            recalls.append(res["region_recall"])
-            coverages.append(res["gt_coverage_ratio"])
-            false_rates.append(res["false_region_rate"])
-            k_crops_list.append(res["k_crops"])
+                candidates = candidate_gen.generate(hmap, source_width=orig_w, source_height=orig_h)
+                res = evaluate_scout_regions(orig_boxes, candidates)
 
-            per_image_results.append({
-                "image_id": img_id,
-                "candidates": [c.xyxy for c in candidates],
-                "scores": [c.score for c in candidates],
-                **res,
-            })
+                recalls.append(res["region_recall"])
+                coverages.append(res["gt_coverage_ratio"])
+                false_rates.append(res["false_region_rate"])
+                k_crops_list.append(res["k_crops"])
+
+                per_image_results.append({
+                    "image_id": img_id,
+                    "candidates": [c.xyxy for c in candidates],
+                    "scores": [c.score for c in candidates],
+                    **res,
+                })
 
     summary = {
         "split": split,
