@@ -276,6 +276,8 @@ def train_scout(
     # Resolve device
     if device is None or device == "auto":
         dev = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
+    elif str(device).isdigit():
+        dev = torch.device(f"cuda:{device}")
     else:
         dev = torch.device(device)
 
@@ -535,7 +537,12 @@ def evaluate_scout_model(
     data_dir = Path(data_dir)
     weights_path = ensure_weights(weights_path)
     
-    dev = torch.device(device if device else ("cuda" if torch.cuda.is_available() else "cpu"))
+    if device is None or device == "auto":
+        dev = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
+    elif str(device).isdigit():
+        dev = torch.device(f"cuda:{device}")
+    else:
+        dev = torch.device(device)
     model = MobileNetV3Scout().to(dev)
 
     if Path(weights_path).is_file():
