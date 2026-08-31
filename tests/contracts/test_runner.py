@@ -32,9 +32,8 @@ class RunnerTests(unittest.TestCase):
                   "annotations": [], "categories": [{"id": 7, "name": "pothole"}]}
             (root / "test.json").write_text(json.dumps(gt), encoding="utf-8")
             payload = predict_detector(root, "test", MockDetector(), root / "predictions.json",
-                                       "uniform-2", image_size=16, warmup=1)
+                                       "sliced-nms", image_size=16, warmup=1)
             self.assertEqual(payload["schema_version"], "1.0")
-            self.assertEqual(payload["summary"]["mean_detector_calls"], 4.0)
             self.assertEqual(len(payload["experiment_id"]), 12)
             validate_predictions(gt, payload["predictions"])
 

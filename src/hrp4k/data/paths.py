@@ -22,7 +22,12 @@ def resolve_data_dir(data_dir: Path | str | None = None) -> Path:
     """Resolve HRP4K dataset path, checking local path first, then Kaggle input datasets before fallback."""
     if data_dir is not None:
         target = Path(data_dir).expanduser()
-        if target.is_dir() and (target / "train").is_dir() and (target / "train.json").is_file():
+        if target.is_dir() and (
+            (target / "train.json").is_file()
+            or (target / "test.json").is_file()
+            or (target / "valid.json").is_file()
+            or (target / "dataset.yaml").is_file()
+        ):
             return target
         if target.is_dir() and (target / "HRP4K" / "train").is_dir():
             return target / "HRP4K"

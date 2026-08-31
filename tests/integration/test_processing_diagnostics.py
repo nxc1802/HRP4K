@@ -20,8 +20,6 @@ class ProcessingTests(unittest.TestCase):
     def test_view_counts_and_geometry(self):
         image = np.zeros((2160, 3840, 3), dtype=np.uint8)
         self.assertEqual(len(make_views(image, "resize")), 1)
-        self.assertEqual(len(make_views(image, "uniform-2")), 4)
-        self.assertEqual(len(make_views(image, "uniform-3")), 9)
         self.assertEqual(len(make_views(image, "sliced-nms", 960, 0.2)), 25)
         perspective = make_views(image, "perspective-grid", 960, 0.2)
         self.assertEqual(len(perspective), 9)

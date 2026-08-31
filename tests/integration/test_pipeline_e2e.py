@@ -10,18 +10,17 @@ from hrp4k.data.views import prepare_dataset_view
 class TestPipelineIntegration(unittest.TestCase):
     def test_cli_parser_subcommands(self):
         parser = build_parser()
-        args = parser.parse_args(["config", "show", "--detector", "yolo11m", "--profile", "smoke"])
-        self.assertEqual(args.command, "config")
-        self.assertEqual(args.config_command, "show")
-        self.assertEqual(args.detector, "yolo11m")
-        self.assertEqual(args.profile, "smoke")
-
-        args = parser.parse_args(["config", "validate", "--detector", "yolo11m"])
-        self.assertEqual(args.config_command, "validate")
-
-        args = parser.parse_args(["experiment", "id", "--config", "configs/base.yaml"])
+        args = parser.parse_args(["experiment", "yolo11m-resolution-640", "--dry-run"])
         self.assertEqual(args.command, "experiment")
-        self.assertEqual(args.experiment_command, "id")
+        self.assertEqual(args.name, "yolo11m-resolution-640")
+        self.assertTrue(args.dry_run)
+
+        args = parser.parse_args(["setup", "--skip-dataset"])
+        self.assertEqual(args.command, "setup")
+        self.assertTrue(args.skip_dataset)
+
+        args = parser.parse_args(["experiment", "list"])
+        self.assertEqual(args.name, "list")
 
     def test_phase0_on_data(self):
         data_dir = Path("HRP4K")

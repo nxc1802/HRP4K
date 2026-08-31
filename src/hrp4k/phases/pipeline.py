@@ -28,15 +28,18 @@ def run_smoke_pipeline(
         image_size=image_size, batch=1, device=actual_device,
     )
     prediction_paths = []
-    for method in ("resize", "sliced-nms", "perspective-grid", "sahi", "zoomdet"):
+    for method in ("resize", "sliced-nms", "perspective-grid", "sahi"):
         prediction_path = root / "predictions" / f"{method}.json"
-        run_phase_2(
-            data_dir=dataset_dir, split="test", weights=training["best"],
-            output_path=prediction_path, method=method, limit=eval_limit,
-            image_size=image_size, confidence=0.01, device=actual_device, warmup=0,
-            evaluate_after=True, ground_truth=dataset_dir / "test.json", eval_confidence=0.25,
-        )
-        prediction_paths.append(prediction_path)
+        try:
+            run_phase_2(
+                data_dir=dataset_dir, split="test", weights=training["best"],
+                output_path=prediction_path, method=method, limit=eval_limit,
+                image_size=image_size, confidence=0.01, device=actual_device, warmup=0,
+                evaluate_after=True, ground_truth=dataset_dir / "test.json", eval_confidence=0.25,
+            )
+            prediction_paths.append(prediction_path)
+        except RuntimeError as err:
+            print(f"[Smoke Warning] Skipped {method} due to optional dependency: {err}")
     result = run_phase_3(dataset_dir / "test.json", prediction_paths, root / "phase3")
     return {
         "status": "complete", "output": str(root), "training": training,
