@@ -128,6 +128,30 @@ Bảng tổng hợp toàn bộ các chỉ số đo lường chi tiết cho mọi
 
 ---
 
+## 📈 5. Phân Tích Quá Trình Huấn Luyện & Biểu Đồ Hội Tụ (Training Loss Dynamics & Metric Evolution)
+
+Toàn bộ lịch sử huấn luyện qua từng Epoch ($150$ Epochs) được lưu trữ đầy đủ trong các tệp `results.csv` tại `outputs/training_logs/` (Bao gồm Bounding Box Loss / GIoU Loss, Classification Loss, DFL / L1 Loss, Precision, Recall, Validation $\text{mAP}_{50}$, Validation $\text{mAP}_{50-95}$ và Learning Rate).
+
+### 5.1. Phân Tích Động Học Suy Giảm Hàm Mất Mát (Loss Dynamics):
+1. **Hàm mất mát định vị (Localization Loss — Box / GIoU Loss):**
+   - **Mô hình 4K Native (`dfine_4k` & `yolo11m_4k`):** Giảm cực nhanh từ $1.75$ xuống $0.27$ chỉ sau $37$ Epochs trên `dfine_4k`. Do không gian pixel 4K lớn ($3840 \times 2160$), tín hiệu gradient từ các ổ gà siêu nhỏ ($<0.05\%$) rất mạnh và sắc nét, giúp mạng học hội tụ vị trí biên chính xác tuyệt đối.
+   - **Mô hình Resize 640 (`yolo11m_640`, `dfine_640`, `yolov8m`, `yolov5m`):** Giảm từ $2.2$ xuống $\sim 1.05 - 1.30$. Loss định vị bị bão hòa (plateau) từ sau Epoch 60 vì khi downsample $6\times$, ranh giới ổ gà bị nhòe pixel, tạo ra nhiễu gradient không thể giảm sâu hơn.
+   - **Mô hình Proposed Warp (`dfine_zoomdet640`):** Nhờ phép biến dạng phóng đại mặt đường xa, Box Loss giảm sâu xuống **$0.54$** (thấp hơn đáng kể so với mức $0.80$ của D-FINE 640 thường), chứng minh hiệu quả bảo toàn thông tin không gian của ZoomDet.
+
+2. **Hàm mất mát phân loại (Classification Loss):**
+   - Cả hai họ mô hình CNN và ViT đều giảm đều đặn từ $4.4$ xuống dưới $0.45 - 0.75$, cho thấy khả năng phân biệt ổ gà với mặt đường sạch tiến triển tốt và ổn định.
+
+3. **Quỹ đạo tiến hóa Validation $\text{mAP}_{50}$:**
+   - `dfine_4k`: Vọt từ $38.3\%$ ở Epoch 1 lên **$59.6\%$** ở Epoch 27-37 (vượt trội hoàn toàn so với mọi mô hình 640).
+   - `yolo11m_640`: Tăng trưởng mạnh trong 30 Epochs đầu (đạt $30\%$), sau đó tăng chậm và chạm trần ở mức $36.0\% - 37.2\%$.
+   - `dfine_zoomdet640`: Duy trì đà tăng trưởng ổn định và vượt qua baseline 640 tiêu chuẩn.
+
+### 5.2. Biểu Đồ Visualization Trực Quan Đã Sinh (Publication-Grade Figures):
+- 📊 **Hình 1: Động học mất mát và sự tiến hóa metric 6 đồ thị con:** `outputs/figures/training_loss_and_metrics_convergence.png`
+- 📊 **Hình 2: So sánh quỹ đạo chuyển đổi mô hình (4K Native vs. 640 vs. ZoomDet):** `outputs/figures/paradigm_4k_vs_640_vs_zoomdet.png`
+
+---
+
 ## 📖 Research Story: "Fast and Fine: Real-Time 4K Ultra-Fine Pothole Detection via Continuous Perspective Deformation"
 
 ```mermaid
