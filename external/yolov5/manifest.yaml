@@ -1,9 +1,0 @@
-name: yolov5m-official
-framework: official external
-upstream_repo: "ultralytics/yolov5"
-upstream_commit: "master"
-status: external-required
-model:
-  weights: "yolov5m.pt"
-  image_size: 640
-  confidence: 0.05

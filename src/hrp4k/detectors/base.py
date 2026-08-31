@@ -26,13 +26,8 @@ def create_detector(
     name: str, weights, category_id: int, device: str | None = None, precision: str = "fp32",
     allow_ultralytics: bool = False,
 ) -> DetectorAdapter:
-    """Create a core detector or fail clearly for isolated official runtimes."""
-    if name in {"ultralytics", "yolov5m-compat", "yolov8m", "yolo11m", "yolo11n-p2", "yolo11n-p2-lite"}:
+    """Create a detector adapter. Only YOLO11m and RT-DETR-L are supported via Ultralytics."""
+    if name in {"ultralytics", "yolo11m", "rtdetr-l", "rtdetr_l", "rtdetr"}:
         from .ultralytics import UltralyticsAdapter
         return UltralyticsAdapter(weights, category_id, device, name, precision)
-    if allow_ultralytics and name in {"yolov5m-official", "yolov5m", "rt-detr-v1", "rt-detr-v2", "rtdetr_v1", "rtdetr_v2", "rtdetr"}:
-        from .ultralytics import UltralyticsAdapter
-        return UltralyticsAdapter(weights, category_id, device, name, precision)
-    if name in {"yolov5m-official", "rt-detr-v1", "rt-detr-v2", "d-fine", "dfine"}:
-        raise RuntimeError(f"{name} requires its official isolated runtime and canonical export contract")
-    raise ValueError(f"Unknown detector: {name}")
+    raise ValueError(f"Unknown detector: {name!r}; supported: yolo11m, rtdetr-l")

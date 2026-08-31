@@ -9,7 +9,7 @@ from ..evaluation.coco import evaluate_files
 from ..infra.upload import ensure_weights
 from ..methods.base import METHOD_REGISTRY
 
-RUNNABLE_METHODS = ["resize", "sliced-nms", "perspective-grid", "sahi", "zoomdet-geometry", "zoomdet-neural"]
+RUNNABLE_METHODS = ["resize", "sliced-nms", "perspective-grid", "sahi"]
 
 
 def run_phase_2(
@@ -35,7 +35,7 @@ def run_phase_2(
     hf_sync: bool = False,
 ) -> dict[str, Any]:
     """Execute Phase 2 resolution allocation and canonical COCO prediction with multi-method support."""
-    if detector_name in {"d-fine", "dfine"}:
+    if detector_name in {"d-fine", "dfine", "rtdetr-l", "rtdetr_l", "rtdetr"}:
         detector_name = "ultralytics"
     
     weights = ensure_weights(weights)

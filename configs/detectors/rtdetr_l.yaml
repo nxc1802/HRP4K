@@ -1,6 +1,6 @@
 detector:
-  name: yolov5m-compat
+  name: rtdetr-l
   framework: ultralytics
-  checkpoint: yolov5mu.pt
+  checkpoint: rtdetr-l.pt
   input_size: 640
   confidence: 0.05

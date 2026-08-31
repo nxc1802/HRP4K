@@ -1,6 +1,0 @@
-detector:
-  name: d-fine
-  framework: official external
-  checkpoint: dfine_m_coco.pth
-  input_size: 640
-  confidence: 0.05

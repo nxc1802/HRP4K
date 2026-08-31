@@ -15,14 +15,11 @@ __pycache__/
 *.pth
 *.onnx
 *.engine
-yolo11n.pt
 
 # Output / Results / Logs
-results/*
-!results/reports/
-!results/visualizations/
 outputs/
 runs/
+checkpoints/
 *.log
 status.json
 

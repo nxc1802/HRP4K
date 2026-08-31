@@ -4,52 +4,22 @@ from typing import Any
 
 
 BASELINE_PRESETS: dict[str, dict[str, Any]] = {
-    "yolov5m-compat": {
-        "family": "YOLOv5", "framework": "ultralytics", "weights": "yolov5mu.pt", "size": "medium",
-        "reproduction_scope": "Ultralytics compatibility checkpoint; not the original YOLOv5 paper repository",
-        "status": "smoke-capable; paper reproduction not claimed",
-    },
-    "yolov5m-official": {
-        "family": "YOLOv5", "framework": "official external", "weights": "yolov5m.pt", "size": "medium",
-        "reproduction_scope": "Original YOLOv5 repository in an isolated environment",
-        "status": "external runner required",
-    },
-    "yolov8m": {
-        "family": "YOLOv8", "framework": "ultralytics", "weights": "yolov8m.pt", "size": "medium",
-        "reproduction_scope": "Ultralytics implementation with project-resolved protocol",
-        "status": "smoke-capable; full experiment pending",
-    },
     "yolo11m": {
         "family": "YOLOv11", "framework": "ultralytics", "weights": "yolo11m.pt", "size": "medium",
         "reproduction_scope": "Ultralytics implementation with project-resolved protocol",
-        "status": "smoke-capable; full experiment pending",
+        "status": "ready",
     },
-    "rt-detr-v1": {
-        "family": "RT-DETRv1", "framework": "ultralytics", "weights": "rtdetr-l.pt", "size": "large",
-        "reproduction_scope": "Ultralytics RT-DETR-L baseline detector",
-        "status": "smoke-capable; full experiment ready",
-    },
-    "rt-detr-v2": {
-        "family": "RT-DETRv2", "framework": "ultralytics", "weights": "rtdetr-x.pt", "size": "extra-large",
-        "reproduction_scope": "Ultralytics RT-DETR-X baseline detector",
-        "status": "smoke-capable; full experiment ready",
-    },
-    "d-fine": {
-        "family": "D-FINE", "framework": "ultralytics", "weights": "rtdetr-l.pt", "size": "medium",
-        "reproduction_scope": "D-FINE/RT-DETR Fine-grained Distribution Refinement SOTA transformer baseline",
-        "status": "smoke-capable; ready",
+    "rtdetr-l": {
+        "family": "RT-DETR-L", "framework": "ultralytics", "weights": "rtdetr-l.pt", "size": "large",
+        "reproduction_scope": "Ultralytics RT-DETR-L Transformer baseline detector (32.8M params)",
+        "status": "ready",
     },
 }
 
 
 DETECTOR_STATUS = {
-    "yolov5m-compat": "Ultralytics compatibility preset configured; ready",
-    "yolov5m-official": "Ultralytics official YOLOv5m preset configured; ready",
-    "yolov8m": "Ultralytics medium preset configured; ready",
-    "yolo11m": "Ultralytics medium preset configured; ready",
-    "rt-detr-v1": "Ultralytics RT-DETR-L preset configured; ready",
-    "rt-detr-v2": "Ultralytics RT-DETR-X preset configured; ready",
-    "d-fine": "Ultralytics D-FINE/RT-DETR-L preset configured; ready",
+    "yolo11m": "Ultralytics YOLOv11 medium preset configured; ready",
+    "rtdetr-l": "Ultralytics RT-DETR-L preset configured; ready",
 }
 
 

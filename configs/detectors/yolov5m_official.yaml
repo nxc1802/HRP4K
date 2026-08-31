@@ -1,6 +1,0 @@
-detector:
-  name: yolov5m-official
-  framework: official external
-  checkpoint: yolov5m.pt
-  input_size: 640
-  confidence: 0.05

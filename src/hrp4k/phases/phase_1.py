@@ -9,12 +9,7 @@ from ..training.runner import train_yolo
 
 OFFICIAL_MODELS = [
     "yolo11m",
-    "yolov8m",
-    "yolov5m-compat",
-    "yolov5m-official",
-    "rt-detr-v1",
-    "rt-detr-v2",
-    "d-fine",
+    "rtdetr-l",
 ]
 
 

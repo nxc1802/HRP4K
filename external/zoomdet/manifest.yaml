@@ -1,8 +1,0 @@
-name: zoomdet
-method_type: nonlinear-warp
-upstream_repo: "twangnh/zoomdet_code"
-upstream_commit: "main"
-status: external-required
-adaptation:
-  warp_type: "adaptive-grid"
-  input_canvas: [640, 640]

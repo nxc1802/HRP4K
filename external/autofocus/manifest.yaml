@@ -1,8 +1,0 @@
-name: autofocus
-method_type: coarse-to-fine
-upstream_repo: "mahyarnajibi/AutoFocus"
-upstream_commit: "master"
-status: external-required
-adaptation:
-  focus_pixel_head: true
-  focus_chip_generation: true

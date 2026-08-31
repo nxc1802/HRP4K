@@ -1,104 +1,94 @@
-# HRP4K Benchmark & Analysis Suite
+# HRP4K — High-Resolution Pothole 4K Benchmark
 
-CLI tái lập pipeline Phase 0–3 cho HRP4K (v0.5.0 - Architecture Upgrade 3.0). Repository ưu tiên dữ liệu thật, official split và unified COCO prediction; không tự động split lại hay coi smoke result là benchmark khoa học.
+Reproducible research benchmark for pothole detection on 4K UHD road imagery.
 
-## Cài đặt
-
-```bash
-python -m venv venv
-venv/bin/pip install -e '.[vision,sahi,dev]'
-```
-
-Môi trường smoke đã xác minh được pin tại `requirements/benchmark-lock.txt`. Mỗi run lưu toàn bộ `pip freeze`, phiên bản Torch/CUDA/Ultralytics, Git commit và dataset manifest/hash trong thư mục run.
-
-Trong workspace hiện tại có thể dùng trực tiếp binary `venv/bin/hrp4k` hoặc module `venv/bin/python -m hrp4k`.
-
-## Chạy nhanh toàn pipeline
+## Quick Start
 
 ```bash
-venv/bin/hrp4k run-smoke \
-  --data HRP4K \
-  --weights yolo11n.pt \
-  --train-limit 24 \
-  --eval-limit 8 \
-  --imgsz 320
+# 1. One-command setup
+hrp4k setup
+
+# 2. Run any experiment
+hrp4k experiment yolo11m-resolution-640
+hrp4k experiment rtdetr-l-resolution-4k
+hrp4k experiment yolo11m-slicing-sliced-nms
 ```
 
-Lệnh này chạy tuần tự:
+## Research Scope
 
-1. Phase 0: integrity + thống kê annotation + quality sample.
-2. Phase 1: tạo dataset nhỏ bằng symlink, train YOLO11n đúng 1 epoch với AMP.
-3. Phase 2: smoke inference `resize`, `sliced-nms`, `perspective-grid`, `sahi`, `zoomdet` và export unified COCO JSON.
-4. Phase 3: evaluate + sinh diagnostic report từ prediction đã lưu.
+Two detectors only:
+- **YOLO11m** — Ultralytics YOLOv11 Medium (CNN)
+- **RT-DETR-L** — Ultralytics Real-Time DEtection TRansformer Large (32.8M params)
 
-Full training cần cờ xác nhận `--allow-full` và manifest của single official downloaded release đã khớp ba annotation hash. Bản release hiện thiếu một số file train từ nguồn tải; dự án coi đây là official version duy nhất trong khi liên hệ tác giả để xin archive đầy đủ. Smoke subset vẫn luôn mang nhãn `smoke`.
+Three experiment phases:
 
-## Modular Configuration (Upgrade 3.0)
+### Phase 1 — Resolution
+Train both detectors at 4K, 2K, 1K, and 640 resolution.
+
+### Phase 2 — Spatial Decomposition / Slicing
+Inference-only experiments using frozen 640 checkpoint:
+- Full Image (Baseline)
+- Sliced-NMS
+- SAHI
+- Perspective Grid
+
+### Phase 3 — Proposed Method
+Pipeline skeleton only (no training, no benchmark, no claimed results).
+
+## CLI Commands
+
+| Command | Description |
+| :--- | :--- |
+| `hrp4k setup` | One-command environment setup |
+| `hrp4k experiment <name>` | Run an official experiment |
+| `hrp4k experiment list` | List all registered experiments |
+| `hrp4k status` | Show detector and experiment status |
+| `hrp4k preflight` | Verify dataset and runtime |
+| `hrp4k train` | Direct training (prefer `experiment`) |
+| `hrp4k predict` | Direct inference (prefer `experiment`) |
+| `hrp4k evaluate` | Standalone COCO evaluation |
+| `hrp4k push-hf` | Upload artifacts to Hugging Face |
+
+## Experiment Matrix
+
+```
+hrp4k experiment list
+```
+
+### Resolution (8 experiments)
+```
+yolo11m-resolution-4k      rtdetr-l-resolution-4k
+yolo11m-resolution-2k      rtdetr-l-resolution-2k
+yolo11m-resolution-1k      rtdetr-l-resolution-1k
+yolo11m-resolution-640     rtdetr-l-resolution-640
+```
+
+### Slicing (8 experiments)
+```
+yolo11m-slicing-full              rtdetr-l-slicing-full
+yolo11m-slicing-sliced-nms        rtdetr-l-slicing-sliced-nms
+yolo11m-slicing-sahi              rtdetr-l-slicing-sahi
+yolo11m-slicing-perspective-grid  rtdetr-l-slicing-perspective-grid
+```
+
+## Dataset
+
+**HRP4K** — 6,003 images (3840×2160, 16:9)
+- Train: 4,202 images
+- Valid: 901 images
+- Test: 900 images (600 positive + 300 negative)
+
+## Hugging Face Storage
+
+All experiment artifacts are automatically synced to:
+[Cuong2004/HRP4K](https://huggingface.co/datasets/Cuong2004/HRP4K)
+
+## Installation
 
 ```bash
-# Xem cấu hình hợp nhất (base + detector + method + profile)
-venv/bin/hrp4k config show --detector yolo11m --method sliced_nms --profile smoke
-
-# Kiểm tra hợp lệ trước khi khởi tạo GPU
-venv/bin/hrp4k config validate --detector yolo11m --method sliced_nms --profile smoke
-
-# Tính experiment ID bất biến
-venv/bin/hrp4k experiment id --config configs/base.yaml
+pip install -e ".[vision]"
 ```
 
-## CLI theo phase
+## License
 
-```bash
-# Phase 0
-venv/bin/hrp4k analyze --data HRP4K --output outputs/phase0
-
-# Chuẩn bị subset deterministic, giữ official split
-venv/bin/hrp4k prepare-smoke --data HRP4K --output outputs/smoke/dataset
-
-# Phase 1 smoke training
-venv/bin/hrp4k train --smoke \
-  --dataset outputs/smoke/dataset/dataset.yaml \
-  --weights yolo11n.pt --output outputs/smoke/runs/yolo11n
-
-# Preflight identity/dependencies
-venv/bin/hrp4k preflight --data HRP4K --require-official
-
-# Phase 2 inference: resize | uniform-2 | uniform-3 | sliced-nms | sahi | perspective-grid
-venv/bin/hrp4k predict \
-  --data outputs/smoke/dataset --split test \
-  --weights outputs/smoke/runs/yolo11n/weights/best.pt \
-  --method sliced-nms --output outputs/smoke/predictions/sliced_nms.json
-
-# Config-driven equivalent
-venv/bin/hrp4k run --config configs/experiments/yolo11m_resize_smoke.yaml
-
-# Unified evaluator
-venv/bin/hrp4k evaluate \
-  --ground-truth outputs/smoke/dataset/test.json \
-  --predictions outputs/smoke/predictions/sliced_nms.json \
-  --output outputs/smoke/predictions/sliced_nms_metrics.json
-
-# Phase 3: không inference lại
-venv/bin/hrp4k diagnose \
-  --ground-truth outputs/smoke/dataset/test.json \
-  --predictions \
-    outputs/smoke/predictions/resize.json \
-    outputs/smoke/predictions/sliced-nms.json \
-    outputs/smoke/predictions/perspective-grid.json \
-  --output outputs/smoke/phase3
-```
-
-Ba preset medium cho Phase 1 có thể được chọn bằng `--preset yolov5m-compat|yolov8m|yolo11m`. Preset YOLOv5 dùng compatibility checkpoint `yolov5mu.pt` và không được coi là exact reproduction của original YOLOv5 repository. `hrp4k status` hiển thị provenance và trạng thái của toàn bộ sáu baseline.
-
-`prepare-dataset` mặc định chọn toàn bộ ảnh official release khả dụng; `prepare-smoke` mới dùng giới hạn 24/12/12. Evaluator fail-fast với prediction lỗi; diagnostics cũng dùng cùng validator và bỏ qua metrics/per-image JSON nếu người dùng vô tình truyền wildcard rộng.
-
-`hrp4k status` cho biết baseline nào đã được triển khai và learned method nào còn cần reproduction từ official repository.
-
-## Ranh giới kết quả
-
-- Các file COCO công khai không có metadata city/material trên từng ảnh, nên suite không suy đoán hai trường này.
-- `sliced-nms` là sliced inference tự triển khai với overlap + global NMS. `sahi` là integration riêng qua optional official library (`pip install -e '.[sahi]'`).
-- `perspective-grid` là geometry baseline thủ công phân bổ nhiều detector crop hơn cho far field, không phải reproduction của learned Two-Plane Prior.
-- AutoFocus, AdaZoom, FOVEA, learned TPP và ZoomDet được giữ trong status matrix nhưng chưa tạo số liệu giả.
-
-Protocol đã freeze nằm tại [METHODS](docs/methodology/methods.md) và [REPRODUCIBILITY](docs/architecture/reproducibility.md). Toàn bộ hệ thống tài liệu được tổ chức tại [docs/](docs/README.md). Generic runner lưu schema version, experiment ID, detector/method/runtime provenance, CUDA-synchronized latency và canonical predictions trong mỗi output.
+MIT

@@ -1,4 +1,0 @@
-method:
-  name: two-plane-prior
-  parameters: {}
-# Status: external-required — requires paper-faithful external training/runtime

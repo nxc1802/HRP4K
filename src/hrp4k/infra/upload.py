@@ -309,12 +309,9 @@ def ensure_weights(
     if (Path("HRP4K") / path_obj).is_file():
         return Path("HRP4K") / path_obj
 
-    # If it's a standard ultralytics asset (like yolo11m.pt, yolov8m.pt), let ultralytics download
+    # If it's a standard ultralytics asset (like yolo11m.pt, rtdetr-l.pt), let ultralytics download
     if str(weights_path) in {
         "yolo11n.pt", "yolo11s.pt", "yolo11m.pt", "yolo11l.pt", "yolo11x.pt",
-        "yolov8n.pt", "yolov8s.pt", "yolov8m.pt", "yolov8l.pt", "yolov8x.pt",
-        "yolov5nu.pt", "yolov5su.pt", "yolov5mu.pt", "yolov5lu.pt", "yolov5xu.pt",
-        "yolov5n.pt", "yolov5s.pt", "yolov5m.pt", "yolov5l.pt", "yolov5x.pt",
         "rtdetr-l.pt", "rtdetr-x.pt",
     }:
         return path_obj

@@ -15,7 +15,7 @@
 | **Batch Adaptation** | **Gradient Accumulation** | - 640 & 1K: `batch = 16` (1x accum)<br>- 2K: `batch = 4` (4x accum)<br>- 4K: `batch = 2` (8x accum $\to$ Effective Batch = 16) |
 | **AMP / Precision** | **FP16 (AMP = True)** | Tự động bật mixed precision tăng tốc và tiết kiệm VRAM |
 | **Rectangular (`rect`)** | **True (cho 4K/2K/1K)** | Bảo toàn tỷ lệ khung hình $16:9$, tránh padding đen thừa |
-| **Early Stopping** | **Disabled (`patience = 100`)** | Cho phép model chạy trọn vẹn 150 epochs |
+| **Early Stopping** | **patience = 10** | Dừng sớm nếu không cải thiện sau 10 epoch |
 | **Augmentation** | **Chuẩn HRP4K** | `mosaic = 1.0` (đóng ở 10 epoch cuối), `translate = 0.1`, `scale = 0.5`, `fliplr = 0.5`, `hsv_h = 0.015`, `hsv_s = 0.7`, `hsv_v = 0.4`, `erasing = 0.4` |
 | **Seed** | **42** | Deterministic = True |
 | **Dataset Split** | **HRP4K Canonical** | Train: 4,202 ảnh \| Valid: 901 ảnh \| Test: 900 ảnh (600 pos + 300 neg) |

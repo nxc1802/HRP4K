@@ -109,11 +109,7 @@ def train_yolo(
     resolved_weights = ensure_weights(weights, repo_id=hf_repo, token=hf_token)
     if not Path(resolved_weights).is_file() and str(resolved_weights) not in {
         "yolo11n.pt", "yolo11s.pt", "yolo11m.pt", "yolo11l.pt", "yolo11x.pt",
-        "yolov8n.pt", "yolov8s.pt", "yolov8m.pt", "yolov8l.pt", "yolov8x.pt",
-        "yolov5nu.pt", "yolov5su.pt", "yolov5mu.pt", "yolov5lu.pt", "yolov5xu.pt",
-        "yolov5n.pt", "yolov5s.pt", "yolov5m.pt", "yolov5l.pt", "yolov5x.pt",
         "rtdetr-l.pt", "rtdetr-x.pt",
-        "dfine_n.pt", "dfine_s.pt", "dfine_m.pt", "dfine_l.pt", "dfine_x.pt",
     }:
         if resume:
             raise FileNotFoundError(
@@ -164,7 +160,7 @@ def train_yolo(
             print(f"[Cloud Sync Warning] Failed to trigger epoch sync: {cb_exc}")
 
     weights_str = str(resolved_weights).lower()
-    is_transformer = "rtdetr" in weights_str or "dfine" in weights_str or "d-fine" in weights_str
+    is_transformer = "rtdetr" in weights_str
     is_4k = (actual_imgsz == 3840 or (isinstance(actual_imgsz, (list, tuple)) and 3840 in actual_imgsz))
 
     # Build gradient accumulation candidates: For 4K Transformer, start directly at batch=2 to avoid OOM retry cycle
@@ -197,18 +193,9 @@ def train_yolo(
                 base_lr0 = 0.0001
                 base_warmup_bias_lr = 0.0
                 base_weight_decay = 0.0001
-                use_amp = False  # Transformer Deformable Attention on 4K requires FP32 to prevent NaN overflow
+                use_amp = not is_4k  # FP32 for 4K to prevent NaN in Deformable Attention; FP16 otherwise
             else:
-                p2_lite_yaml = Path(__file__).resolve().parents[1] / "models" / "yolo11n_p2_lite.yaml"
-                is_p2_preset = (experiment and experiment.get("name") in {"yolo11n-p2", "yolo11n-p2-lite"}) or "p2" in str(resolved_weights).lower()
-                if is_p2_preset and not resume and p2_lite_yaml.is_file() and not str(resolved_weights).endswith(".pt"):
-                    model = YOLO(str(p2_lite_yaml))
-                    try:
-                        model.load("yolo11n.pt")
-                    except Exception:
-                        pass
-                else:
-                    model = YOLO(str(resolved_weights))
+                model = YOLO(str(resolved_weights))
                 opt_name = "SGD"
                 base_lr0 = 0.01
                 base_warmup_bias_lr = 0.1
@@ -245,6 +232,7 @@ def train_yolo(
                 fliplr=0.5,
                 seed=seed,
                 deterministic=True,
+                patience=10,
                 workers=0 if smoke else 8,
                 cache=False if smoke else "ram",
                 plots=use_plots,

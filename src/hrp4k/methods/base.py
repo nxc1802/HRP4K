@@ -36,83 +36,6 @@ class CropTransform:
 
 
 @dataclass
-class SeparableWarpTransform:
-    """Monotonic source->warped axis maps used by FOVEA/TPP-style methods."""
-    source_x: np.ndarray
-    warped_x: np.ndarray
-    source_y: np.ndarray
-    warped_y: np.ndarray
-
-    def __post_init__(self):
-        for values, name in ((self.source_x, "source_x"), (self.warped_x, "warped_x"),
-                             (self.source_y, "source_y"), (self.warped_y, "warped_y")):
-            values = np.asarray(values, dtype=float)
-            if values.ndim != 1 or len(values) < 2 or np.any(np.diff(values) <= 0):
-                raise ValueError(f"{name} must be a strictly increasing 1-D map")
-            setattr(self, name, values)
-        if len(self.source_x) != len(self.warped_x) or len(self.source_y) != len(self.warped_y):
-            raise ValueError("source and warped axis maps must have matching lengths")
-
-    @staticmethod
-    def _map_boxes(boxes: np.ndarray, src_x, dst_x, src_y, dst_y) -> np.ndarray:
-        result = np.asarray(boxes, dtype=float).copy()
-        result[:, [0, 2]] = np.interp(result[:, [0, 2]], src_x, dst_x)
-        result[:, [1, 3]] = np.interp(result[:, [1, 3]], src_y, dst_y)
-        return result
-
-    def forward_boxes(self, boxes_xyxy: np.ndarray) -> np.ndarray:
-        return self._map_boxes(boxes_xyxy, self.source_x, self.warped_x, self.source_y, self.warped_y)
-
-    def inverse_boxes(self, boxes_xyxy: np.ndarray) -> np.ndarray:
-        return self._map_boxes(boxes_xyxy, self.warped_x, self.source_x, self.warped_y, self.source_y)
-
-
-@dataclass
-class GridWarpTransform:
-    """Dense source/warped point maps for ZoomDet-style non-separable warps."""
-    forward_grid: np.ndarray  # [canvas_h, canvas_w, 2] -> maps canvas (u, v) to source (x, y)
-    inverse_grid: np.ndarray  # [sample_h, sample_w, 2] -> maps source (x, y) to canvas (u, v)
-    source_size: tuple[int, int] = (3840, 2160)  # (w, h)
-    canvas_size: tuple[int, int] = (640, 640)    # (w, h)
-
-    def __post_init__(self):
-        self.forward_grid = np.asarray(self.forward_grid, dtype=float)
-        self.inverse_grid = np.asarray(self.inverse_grid, dtype=float)
-        for grid, name in ((self.forward_grid, "forward_grid"), (self.inverse_grid, "inverse_grid")):
-            if grid.ndim != 3 or grid.shape[2] != 2 or grid.shape[0] < 2 or grid.shape[1] < 2:
-                raise ValueError(f"{name} must have shape [height,width,2]")
-
-    @staticmethod
-    def _sample(grid: np.ndarray, points: np.ndarray, domain_w: float, domain_h: float) -> np.ndarray:
-        gh, gw = grid.shape[:2]
-        gx = np.clip(points[:, 0] / max(1.0, domain_w - 1.0) * (gw - 1), 0, gw - 1)
-        gy = np.clip(points[:, 1] / max(1.0, domain_h - 1.0) * (gh - 1), 0, gh - 1)
-        x0 = np.floor(gx).astype(int); y0 = np.floor(gy).astype(int)
-        x1 = np.minimum(x0 + 1, gw - 1); y1 = np.minimum(y0 + 1, gh - 1)
-        wx = (gx - x0)[:, None]; wy = (gy - y0)[:, None]
-        top = grid[y0, x0] * (1 - wx) + grid[y0, x1] * wx
-        bottom = grid[y1, x0] * (1 - wx) + grid[y1, x1] * wx
-        return top * (1 - wy) + bottom * wy
-
-    def _map_boxes(self, grid: np.ndarray, boxes: np.ndarray, domain_w: float, domain_h: float) -> np.ndarray:
-        boxes = np.asarray(boxes, dtype=float)
-        if len(boxes) == 0:
-            return np.empty((0, 4), dtype=float)
-        corners = np.stack((boxes[:, [0, 1]], boxes[:, [2, 1]], boxes[:, [2, 3]], boxes[:, [0, 3]]), axis=1)
-        mapped = self._sample(grid, corners.reshape(-1, 2), domain_w, domain_h).reshape(-1, 4, 2)
-        return np.column_stack((mapped[:, :, 0].min(1), mapped[:, :, 1].min(1),
-                                mapped[:, :, 0].max(1), mapped[:, :, 1].max(1)))
-
-    def forward_boxes(self, boxes_xyxy: np.ndarray) -> np.ndarray:
-        """Map source 4K boxes -> canvas boxes."""
-        return self._map_boxes(self.inverse_grid, boxes_xyxy, self.source_size[0], self.source_size[1])
-
-    def inverse_boxes(self, boxes_xyxy: np.ndarray) -> np.ndarray:
-        """Map canvas boxes -> source 4K boxes."""
-        return self._map_boxes(self.forward_grid, boxes_xyxy, self.canvas_size[0], self.canvas_size[1])
-
-
-@dataclass
 class ProcessedView:
     image: np.ndarray
     transform: CoordinateTransform
@@ -161,18 +84,9 @@ def _starts(length: int, window: int, overlap: float) -> list[int]:
 
 METHOD_REGISTRY = {
     "resize": {"type": "inference", "requires_training": False, "implementation": "native", "status": "ready"},
-    "uniform-2": {"type": "crop", "requires_training": False, "implementation": "native", "status": "ready"},
-    "uniform-3": {"type": "crop", "requires_training": False, "implementation": "native", "status": "ready"},
     "sliced-nms": {"type": "crop", "requires_training": False, "implementation": "native", "status": "ready"},
     "sahi": {"type": "crop", "requires_training": False, "implementation": "official-library", "status": "optional-ready"},
     "perspective-grid": {"type": "crop", "requires_training": False, "implementation": "native", "status": "ready"},
-    "autofocus": {"type": "coarse-to-fine", "requires_training": True, "implementation": "paper-reproduction", "status": "external-required"},
-    "adazoom": {"type": "adaptive-crop", "requires_training": True, "implementation": "paper-reproduction", "status": "external-required"},
-    "fovea": {"type": "nonlinear-warp", "requires_training": True, "implementation": "paper-reproduction", "status": "external-required"},
-    "two-plane-prior": {"type": "nonlinear-warp", "requires_training": True, "implementation": "paper-reproduction", "status": "external-required"},
-    "zoomdet": {"type": "nonlinear-warp", "requires_training": False, "implementation": "native", "status": "ready"},
-    "zoomdet-geometry": {"type": "nonlinear-warp", "requires_training": False, "implementation": "road-geometry-prior", "status": "ready"},
-    "zoomdet-neural": {"type": "nonlinear-warp", "requires_training": True, "implementation": "official-neural-network", "status": "ready"},
 }
 
 METHOD_STATUS = {
@@ -188,28 +102,11 @@ def make_views(
     overlap: float = 0.2,
     device: str | None = None,
 ) -> list[ProcessedView]:
-    import warnings
     height, width = image.shape[:2]
     if method == "sahi":
         raise ValueError("Official SAHI is executed by the generic runner, not make_views()")
     if method == "resize":
         return [ProcessedView(image, IdentityTransform(), width, height)]
-    if method in {"zoomdet", "zoomdet-geometry"}:
-        from .zoomdet import make_zoomdet_view
-        return [make_zoomdet_view(image, canvas_size=tile_size if tile_size <= 1280 else 640, mode="geometry")]
-    if method == "zoomdet-neural":
-        from .zoomdet import make_zoomdet_view
-        return [make_zoomdet_view(image, canvas_size=tile_size if tile_size <= 1280 else 640, mode="neural")]
-    if method.startswith("uniform"):
-        grid = int(method.split("-", 1)[1]) if "-" in method else 2
-        views = []
-        for row in range(grid):
-            y0, y1 = round(row * height / grid), round((row + 1) * height / grid)
-            for col in range(grid):
-                x0, x1 = round(col * width / grid), round((col + 1) * width / grid)
-                views.append(ProcessedView(image[y0:y1, x0:x1], CropTransform(x0, y0), x1 - x0, y1 - y0,
-                                           {"crop": [x0, y0, x1, y1]}))
-        return views
     if method == "sliced-nms":
         views = []
         window_w = min(tile_size, width)
@@ -219,10 +116,6 @@ def make_views(
                 views.append(ProcessedView(image[y0:y0 + window_h, x0:x0 + window_w], CropTransform(x0, y0), window_w, window_h,
                                            {"crop": [x0, y0, x0 + window_w, y0 + window_h]}))
         return views
-    if method == "perspective-bands":
-        warnings.warn("'perspective-bands' removes vertical context but does not magnify horizontally; use 'perspective-grid'", DeprecationWarning)
-        boundaries = [0, round(height * 0.45), round(height * 0.72), height]
-        return [ProcessedView(image[y0:y1], CropTransform(0, y0), width, y1 - y0) for y0, y1 in zip(boundaries, boundaries[1:])]
     if method == "perspective-grid":
         # Hand-designed ground-plane baseline with 2D (horizontal + vertical) overlap.
         # Far bands receive more horizontal crops and therefore more detector pixels.
