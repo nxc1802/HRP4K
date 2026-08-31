@@ -1,14 +1,36 @@
 # HRP4K CLI Commands Reference
 
-## Primary Commands
+## 0. Quickstart & Repository Setup
 
-### `hrp4k setup`
-One-command environment setup: dependencies, dataset, HF credentials.
+### Step 1: Clone Repository
+```bash
+git clone https://github.com/nxc1802/HRP4K.git
+cd HRP4K
+```
+
+### Step 2: Configure Environment (`.env`)
+Create a `.env` file in the project root to enable automated Hugging Face checkpoint syncing, dataset downloads, and results reporting:
+
+```bash
+cat << 'EOF' > .env
+HF_TOKEN=<YOUR_HF_TOKEN>
+HF_REPO=Cuong2004/HRP4K
+EOF
+```
+
+*(Note: `.env` is ignored by git via `.gitignore` to prevent secret leaks.)*
+
+### Step 3: Install & Environment Setup (`hrp4k setup`)
+One-command environment setup: installs dependencies, verifies GPU runtime, downloads dataset from Hugging Face, and checks credentials:
 
 ```bash
 hrp4k setup
-hrp4k setup --skip-dataset  # Skip dataset download
+hrp4k setup --skip-dataset  # Skip dataset download if already downloaded
 ```
+
+---
+
+## Primary Commands
 
 ### `hrp4k experiment <name>`
 Run any official experiment by name. Auto-resumes from HF if previous state exists.
@@ -86,6 +108,13 @@ Create full dataset view with symlinks.
 
 ### `hrp4k prepare-smoke`
 Create minimal smoke dataset view.
+
+### `hrp4k report`
+Update `docs/Experiment_Final.md` with latest local/remote experiment metrics:
+
+```bash
+hrp4k report
+```
 
 ### `hrp4k run-smoke`
 Run end-to-end smoke pipeline.
