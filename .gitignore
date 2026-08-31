@@ -23,13 +23,14 @@ checkpoints/
 *.log
 status.json
 
-# Environment & OS
+# Environment & OS & Local configs
 venv/
 .venv/
 .env
 .env.*
 .env.local
 !.env.example
+commands.md
 .DS_Store
 .vscode/
 .idea/
