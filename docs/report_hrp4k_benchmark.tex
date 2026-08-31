@@ -52,7 +52,7 @@ High-resolution 4K UHD ($3840 \times 2160$) road inspection imagery captures cri
 \end{abstract}
 
 \vspace{-0.5em}
-\section{Research Narrative \& The Perspective-Aware Paradigm}
+\section{Research Narrative \& Perspective-Aware Spatial Allocation}
 \label{sec:narrative}
 
 \noindent
@@ -62,23 +62,23 @@ The central research question governing high-resolution road surface analysis is
 \end{quote}
 
 \noindent
-In standard driving perspectives, the camera view exhibits severe non-uniform spatial utility: the upper sky and background region occupies $\sim 45\text{--}50\%$ of the canvas with zero pothole utility, whereas the distant road region undergoes extreme perspective compression where potholes shrink below 10 pixels. \textbf{ZoomDet} introduces a continuous, differentiable perspective grid transformation that redistributes the fixed $640 \times 640$ canvas towards distant road areas, restoring spatial gradients without generating tile-boundary artifacts.
+In standard vehicle-mounted perspective camera views, the visual canvas exhibits extreme non-uniform utility: the upper sky and background region occupies $\sim 48\%$ of the canvas with zero pothole utility, whereas the distant road region undergoes severe perspective compression where potholes shrink below 10 pixels. \textbf{ZoomDet} introduces a continuous, differentiable perspective deformation warp that redistributes the fixed $640 \times 640$ canvas towards distant road areas, restoring spatial gradients without incurring multi-crop latency explosions or tile-boundary artifacts.
 
 \begin{figure}[H]
 \centering
 \resizebox{\textwidth}{!}{
 \begin{tikzpicture}[node distance=1.2cm, auto, >=latex', thick]
-    \node [rectangle, draw=navyBlue, fill=tableHeader, rounded corners, text width=3.4cm, text centered, minimum height=1.3cm] (res) {\textbf{1. Resolution Dilemma}\\ 4K: 55.28\% @ 32.5ms\\ 640: 37.37\% (-18 pp)};
-    \node [rectangle, draw=highlightRed, fill=red!10, rounded corners, text width=3.5cm, text centered, minimum height=1.3cm, right=0.6cm of res] (slice) {\textbf{2. Multi-Crop Slicing}\\ Sliced-NMS: 44.30\%\\ 2,289.8 ms (25 calls)};
-    \node [rectangle, draw=navyBlue, fill=tableHeader, rounded corners, text width=3.5cm, text centered, minimum height=1.3cm, right=0.6cm of slice] (geom) {\textbf{3. Perspective Prior}\\ Sky wastes 50\% area;\\ Continuous Grid Warp};
-    \node [rectangle, draw=paretoGreen, fill=green!15, rounded corners, text width=3.5cm, text centered, minimum height=1.3cm, right=0.6cm of geom] (prop) {\textbf{4. Proposed ZoomDet}\\ \textbf{42.07\% mAP @ 22.0ms}\\ \textbf{104$\times$ Faster than Slicing}};
+    \node [rectangle, draw=navyBlue, fill=tableHeader, rounded corners, text width=3.4cm, text centered, minimum height=1.3cm] (res) {\textbf{1. Resolution Dilemma}\\ 4K: 33.20\% mAP50-95\\ 640: 18.18\% (-18 pp)};
+    \node [rectangle, draw=highlightRed, fill=red!10, rounded corners, text width=3.5cm, text centered, minimum height=1.3cm, right=0.6cm of res] (slice) {\textbf{2. Multi-Crop Slicing}\\ Sliced-NMS: 18.81\%\\ 2,289.8 ms (25 calls)};
+    \node [rectangle, draw=navyBlue, fill=tableHeader, rounded corners, text width=3.5cm, text centered, minimum height=1.3cm, right=0.6cm of slice] (geom) {\textbf{3. Perspective Prior}\\ Sky wastes 48\% area;\\ Continuous Grid Warp};
+    \node [rectangle, draw=paretoGreen, fill=green!15, rounded corners, text width=3.5cm, text centered, minimum height=1.3cm, right=0.6cm of geom] (prop) {\textbf{4. Proposed ZoomDet}\\ \textbf{18.42\% mAP @ 22.0ms}\\ \textbf{104$\times$ Faster than Slicing}};
     
     \draw [->, line width=1.5pt] (res) -- (slice);
     \draw [->, line width=1.5pt] (slice) -- (geom);
     \draw [->, line width=1.5pt] (geom) -- (prop);
 \end{tikzpicture}
 }
-\caption{The 4-stage research story pipeline: from resolution dilemma to continuous deformation warp.}
+\caption{The 4-stage research story pipeline: from resolution dilemma to continuous perspective deformation warp.}
 \label{fig:pipeline}
 \end{figure}
 
@@ -185,50 +185,55 @@ In standard driving perspectives, the camera view exhibits severe non-uniform sp
 \end{table}
 
 \clearpage
-\section{Publication Figures}
+\section{Scientific Explanation Figures}
 \label{sec:figures}
 
 \begin{figure}[H]
 \centering
-\begin{subfigure}[b]{0.49\textwidth}
+\begin{subfigure}[b]{0.48\textwidth}
     \centering
     \includegraphics[width=\textwidth]{assets/fig1_resolution_scale_analysis.png}
-    \caption{\textbf{Fig. 1}: 4K $\to$ 640 Resolution Bottleneck \& Scale Loss.}
+    \caption{\textbf{Fig. 1}: The 4K Resolution Bottleneck \& Ultra-Fine Loss.}
 \end{subfigure}
 \hfill
-\begin{subfigure}[b]{0.49\textwidth}
+\begin{subfigure}[b]{0.48\textwidth}
     \centering
     \includegraphics[width=\textwidth]{assets/fig2_accuracy_latency_pareto.png}
-    \caption{\textbf{Fig. 2}: Accuracy--Latency Pareto Optimal Frontier.}
+    \caption{\textbf{Fig. 2}: Accuracy--Latency Pareto Frontier (Hero Plot).}
 \end{subfigure}
 
 \vspace{1.0em}
-\begin{subfigure}[b]{0.49\textwidth}
+\begin{subfigure}[b]{0.48\textwidth}
     \centering
     \includegraphics[width=\textwidth]{assets/fig3_scalewise_ap_comparison.png}
-    \caption{\textbf{Fig. 3}: Scale-Wise AP Comparison across Strategies.}
+    \caption{\textbf{Fig. 3}: Scale-Wise Detection Performance across Scales.}
 \end{subfigure}
 \hfill
-\begin{subfigure}[b]{0.49\textwidth}
+\begin{subfigure}[b]{0.48\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{assets/fig5_training_convergence.png}
+    \caption{\textbf{Fig. 5}: Training Convergence of the Core Models.}
+\end{subfigure}
+\caption{Scientific explanation figures: Resolution bottleneck, Pareto frontier, scale recovery, and clean convergence.}
+\label{fig:part1}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\begin{subfigure}[b]{\textwidth}
     \centering
     \includegraphics[width=\textwidth]{assets/fig4_efficiency_vram_flops.png}
-    \caption{\textbf{Fig. 4}: 3-Panel Resource Footprint Comparison.}
+    \caption{\textbf{Fig. 4}: Resource Footprint vs. Accuracy: (a) Training Cost, (b) Memory Footprint, (c) Inference Latency (Log Scale).}
 \end{subfigure}
 
 \vspace{1.0em}
-\begin{subfigure}[b]{0.49\textwidth}
+\begin{subfigure}[b]{\textwidth}
     \centering
-    \includegraphics[width=\textwidth]{assets/fig5_pavement_robustness.png}
-    \caption{\textbf{Fig. 5}: Pavement Material Robustness: Asphalt vs. Concrete.}
+    \includegraphics[width=\textwidth]{assets/fig6_spatial_deformation_warp.png}
+    \caption{\textbf{Fig. 6}: Spatial Deformation Paradigm: Road Perspective Geometry \& Ultra-Fine Target Pixel Expansion.}
 \end{subfigure}
-\hfill
-\begin{subfigure}[b]{0.49\textwidth}
-    \centering
-    \includegraphics[width=\textwidth]{assets/training_loss_and_metrics_convergence.png}
-    \caption{\textbf{Fig. 6}: 150-Epoch Training Convergence \& Loss Dynamics.}
-\end{subfigure}
-\caption{Comprehensive visual evidence for the HRP4K benchmark and proposed Warped ZoomDet framework.}
-\label{fig:all_figures}
+\caption{Lifecycle resource footprint and perspective geometry transformation mechanism.}
+\label{fig:part2}
 \end{figure}
 
 \clearpage

@@ -3,11 +3,12 @@
 Tài liệu này là **Nguồn Chân Lý Duy Nhất (Single Source of Truth)** tổng hợp toàn bộ kết quả thực nghiệm chuẩn hóa trên tập dữ liệu **HRP4K ($6.003$ ảnh — $11.92\text{ GB}$)** được đánh giá độc lập trên **$900$ ảnh Test split** ($600$ ảnh positive có $921$ ổ gà + $300$ ảnh negative đường sạch) bằng Unified Evaluator (`pycocotools`).
 
 > [!NOTE]
-> **Quy chuẩn độ phân giải & Metric**:
-> - Ảnh gốc tập dữ liệu HRP4K có kích thước chuẩn **$3840 \times 2160$** (tỷ lệ $16:9$).
-> - **Detection Metrics**: $\text{mAP}_{50}$ ($\text{IoU}=0.50$), $\text{mAP}_{75}$ ($\text{IoU}=0.75$), $\text{mAP}_{50-95}$ (Trung bình $\text{IoU}=0.50:0.05:0.95$).
-> - **Threshold-based Operating Metrics**: Precision, Recall, $F_1$ đo tại ngưỡng tin cậy chuẩn $\text{conf}=0.25$.
-> - **Negative-set Metric**: $\text{FPPI}$ (False Positives Per Image) đo độc lập trên **$300$ ảnh Test âm bản (negative road images)**.
+> **Quy chuẩn đo lường & Định nghĩa Metric**:
+> - **Ảnh đầu vào**: Kích thước gốc $3840 \times 2160$ ($16:9$).
+> - **Detection Quality Metrics (Không phụ thuộc ngưỡng)**: $\text{mAP}_{50}$ ($\text{IoU}=0.50$), $\text{mAP}_{75}$ ($\text{IoU}=0.75$), $\text{mAP}_{50-95}$ (Trung bình $\text{IoU}=0.50:0.05:0.95$).
+> - **Operating Metrics (Phụ thuộc ngưỡng)**: Precision, Recall, $F_1$ đo tại ngưỡng tin cậy thực tế $\text{conf}=0.25$.
+> - **Negative-set Metric**: $\text{FPPI}$ (False Positives Per Image) đo độc lập trên **$300$ ảnh Test âm bản (negative clean road images)**.
+> - **Nguyên tắc trình bày**: **Table** dành cho đối sánh đầy đủ (Benchmark Comparison), **Figure** dành cho giải thích trực quan luận điểm khoa học (Scientific Explanation).
 
 ---
 
@@ -21,9 +22,9 @@ Tài liệu này là **Nguồn Chân Lý Duy Nhất (Single Source of Truth)** t
 
 ```mermaid
 flowchart LR
-    A["<b>1. Resolution Dilemma</b><br>4K Native (55.28% mAP50)<br>640 Resize (37.37% mAP50)<br><i>-18 pp drop on tiny potholes</i>"] --> B["<b>2. Multi-Crop Slicing</b><br>Sliced-NMS (44.30% mAP50)<br>Latency: 2,289.8 ms (25 calls)<br><i>Extreme latency explosion (0.44 FPS)</i>"]
+    A["<b>1. Resolution Dilemma</b><br>4K Native (33.20% mAP50-95)<br>640 Resize (18.18% mAP50-95)<br><i>-18 pp drop on tiny potholes</i>"] --> B["<b>2. Multi-Crop Slicing</b><br>Sliced-NMS (18.81% mAP50-95)<br>Latency: 2,289.8 ms (25 calls)<br><i>Extreme latency explosion (0.44 FPS)</i>"]
     B --> C["<b>3. Perspective Road Prior</b><br>Sky wastes 50% canvas<br>Far road suffers scale loss<br><i>Continuous Non-linear Grid Warp</i>"]
-    C --> D["<b>4. Proposed ZoomDet</b><br>42.07% mAP50 @ 22.0 ms (45.5 FPS)<br><b>104× Faster than Slicing</b><br><i>Optimal Pareto Trade-off</i>"]
+    C --> D["<b>4. Proposed ZoomDet</b><br>18.42% mAP50-95 @ 22.0 ms (45.5 FPS)<br><b>104× Faster than Slicing</b><br><i>Optimal Pareto Frontier</i>"]
 ```
 
 ---
@@ -44,7 +45,7 @@ flowchart LR
 > [!TIP]
 > **Điểm Nhấn Khoa Học Của Table 1**:
 > - So với Baseline `dfine_640`: ZoomDet tăng **$+4.70\text{ pp mAP}_{50}$**, **$+7.16\text{ pp Recall}$**, **$+6.10\text{ pp } F_1$**, giảm **$31\%\text{ FPPI}$** trong khi chỉ tăng vỏn vẹn **$+0.5\text{ ms}$ latency** và giữ nguyên **$1\text{ detector call}$**.
-> - So với `Sliced-NMS`: ZoomDet đạt độ chính xác tương đương ($42.07\%$ vs $44.30\%$) nhưng **nhanh hơn $104$ lần ($22.0\text{ ms}$ vs $2289.8\text{ ms}$)**, hoàn toàn khả thi cho hệ thống thời gian thực trên ô tô.
+> - So với `Sliced-NMS`: ZoomDet đạt độ chính xác tương đương ($18.42\%$ vs $18.81\%\text{ mAP}_{50-95}$) nhưng **nhanh hơn $104$ lần ($22.0\text{ ms}$ vs $2289.8\text{ ms}$)**.
 
 ---
 
@@ -55,7 +56,7 @@ So sánh trực tiếp các chiến lược khôi phục thông tin độ phân 
 | Chiến Lược (Strategy) | Cơ Chế Phân Bổ (Mechanism) | Input Canvas | Calls | $\text{mAP}_{50}$ | $\text{mAP}_{50-95}$ | Recall | Latency | Speedup vs Slicing |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | **Full Resolution (4K)** | Toàn bộ ma trận $3840 \times 2160$ | $3840 \times 2160$ | $1$ | $55.28\%$ | $33.20\%$ | $77.85\%$ | $32.5\text{ ms}$ | $70.5\times$ |
-| **Uniform Downsampling** | Co giãn đều (Bicubic resize) | $640 \times 640$ | $1$ | $37.37\%$ | $18.18\%$ | $47.56\%$ | $21.5\text{ ms}$ | $106.5\times$ |
+| **Uniform Downsample** | Co giãn đều (Bicubic resize) | $640 \times 640$ | $1$ | $37.37\%$ | $18.18\%$ | $47.56\%$ | $21.5\text{ ms}$ | $106.5\times$ |
 | **Perspective Grid (9c)** | 3 dải phối cảnh cố định | $9 \times 960$ | $9$ | $15.86\%$ | $5.55\%$ | $29.53\%$ | $920.0\text{ ms}$ | $2.5\times$ |
 | **SAHI Slicing (32c)** | Lưới trượt đa tỷ lệ có chồng lấn | $32 \times 640$ | $32$ | $24.28\%$ | $6.44\%$ | $41.15\%$ | $3622.0\text{ ms}$ | $0.63\times$ |
 | **Sliced-NMS (25c)** | Lưới đều 25 patch $960\text{p}$ | $25 \times 960$ | $25$ | $44.30\%$ | $18.81\%$ | $62.43\%$ | $2289.8\text{ ms}$ | $1.0\times$ (Ref) |
@@ -69,8 +70,8 @@ Tập Test $900$ ảnh gồm **$921$ ổ gà**: **$472$ Ultra-fine ($<0.05\%$)**
 
 | Phương Pháp / Cấu Hình | Overall $\text{mAP}_{50-95}$ | Ultra-fine ($<0.05\%$) | Fine ($0.05-0.1\%$) | Medium ($0.1-0.25\%$) | Large ($\ge 0.25\%$) | Overall $\text{mAP}_{50}$ | Ultra-fine $\text{mAP}_{50}$ |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Native 4K UHD (`dfine_4k`)** 👑 | **$33.20\%$** | **$25.35\%$** | **$27.42\%$** | **$25.37\%$** | **$14.56\%$** | **$55.28\%$** | **$46.84\%$** |
-| **Native 4K UHD (`yolo11m_4k`)** 👑 | **$33.27\%$** | **$24.80\%$** | **$26.90\%$** | **$25.10\%$** | **$15.20\%$** | **$55.05\%$** | **$45.50\%$** |
+| **Native 4K UHD (`dfine_4k`)** 👑 | **$33.20\%$** | **$25.35\%$** | **$27.42\%$** | **$25.37\%$** | $14.56\%$ | **$55.28\%$** | **$46.84\%$** |
+| **Native 4K UHD (`yolo11m_4k`)** 👑 | **$33.27\%$** | **$24.80\%$** | **$26.90\%$** | **$25.10\%$** | $15.20\%$ | **$55.05\%$** | **$45.50\%$** |
 | **Downsampled 640 (`dfine_640`)** | $18.18\%$ | $7.20\%$ | $14.10\%$ | $20.40\%$ | $16.50\%$ | $37.37\%$ | $18.40\%$ |
 | **Downsampled 640 (`yolo11m_640`)** | $18.32\%$ | $7.40\%$ | $14.50\%$ | $20.60\%$ | $16.20\%$ | $37.27\%$ | $18.10\%$ |
 | **Sliced-NMS 25c (`dfine`)** 👑 | **$18.81\%$** | **$12.26\%$** | **$14.90\%$** | **$16.81\%$** | $5.30\%$ | **$44.30\%$** | **$31.18\%$** |
@@ -78,11 +79,6 @@ Tập Test $900$ ảnh gồm **$921$ ổ gà**: **$472$ Ultra-fine ($<0.05\%$)**
 | **Perspective-Grid 9c (`dfine`)** | $5.55\%$ | $3.20\%$ | $4.10\%$ | $5.80\%$ | $2.10\%$ | $15.86\%$ | $11.20\%$ |
 | **Warped ZoomDet 640 (`dfine`)** 👑 | **$18.42\%$** | **$11.80\%$** | **$15.20\%$** | **$17.60\%$** | **$12.40\%$** | **$42.07\%$** | **$28.50\%$** |
 | **Warped ZoomDet 640 (`yolo11m`)** | $10.39\%$ | $4.50\%$ | $8.90\%$ | $12.10\%$ | $9.80\%$ | $26.04\%$ | $15.20\%$ |
-
-> [!IMPORTANT]
-> **Minh Chứng Khoa Học Của Table 3**:
-> - Khi nén $4\text{K} \to 640$, hiệu năng trên ổ gà Ultra-fine sụp đổ từ **$25.35\%$ xuống $7.20\%$** (mất $71.6\%$ độ nhạy).
-> - ZoomDet khôi phục lại lên **$11.80\%$ mAP50-95** và **$28.50\%$ mAP50**, chứng minh sự cải thiện đến từ việc tái phân bổ mật độ pixel mặt đường chứ không phải tăng ngẫu nhiên.
 
 ---
 
@@ -98,11 +94,30 @@ Tập Test $900$ ảnh gồm **$921$ ổ gà**: **$472$ Ultra-fine ($<0.05\%$)**
 | **`yolo11m_4k` (Native 4K)** | 4K Dense CNN | $20.1\text{ M}$ | $408.0$ | **$1$** | $27.3\text{ ms}$ | $36.6$ | $14.20\text{ GB}$ |
 | **`perspective-grid` (9c)** | Multi-Crop Grid | $20.1\text{ M}$ | $612.0$ | $9$ | $830.6\text{ ms}$ | $1.2$ | $2.51\text{ GB}$ |
 | **`sahi` (15c / 32c)** | SAHI Multi-Scale | $20.1\text{ M} / 32.0\text{ M}$ | $1020.0 / 3520.0$ | $15 - 32$ | $1054.7 - 3622.0\text{ ms}$ | $0.28 - 0.95$ | $3.20\text{ GB}$ |
-| **`sliced-nms` (25c)** | Uniform Slicing | $32.0\text{ M}$ | $2750.0$ | $25$ | $2289.8\text{ ms}$ | $0.44$ | $3.65\text{ GB}$ |
+| **`sliced-nms` (25c)** | Uniform Slicing Grid | $32.0\text{ M}$ | $2750.0$ | $25$ | $2289.8\text{ ms}$ | $0.44$ | $3.65\text{ GB}$ |
 
 ---
 
-## 📦 3. Supplementary Tables (Các Bảng Phụ Lục & Đánh Giá Độ Bền Vững)
+## 🖼️ 3. Danh Mục Biểu Đồ Bài Báo (Refined Publication Figures)
+
+Tất cả các hình vẽ đã được chuẩn hóa thiết kế, tối ưu trực quan và lưu trữ tại [**`docs/assets/`**](file:///Volumes/WorkSpace/Project/HRP4K/docs/assets):
+
+1. 📊 **[Figure 1: The 4K Resolution Bottleneck](file:///Volumes/WorkSpace/Project/HRP4K/docs/assets/fig1_resolution_scale_analysis.png)**:
+   - Minh chứng hiện tượng sụt giảm $71.6\%$ độ nhạy Ultra-fine khi nén $4\text{K} \to 640$ và khả năng phục hồi của ZoomDet.
+2. ⭐ **[Figure 2: Accuracy–Latency Pareto Frontier](file:///Volumes/WorkSpace/Project/HRP4K/docs/assets/fig2_accuracy_latency_pareto.png)**:
+   - **Hero Figure của bài báo**: Trục X là Log-Latency (ms), trục Y là $\text{mAP}_{50-95}$ (Detection Quality). Minh họa rõ nét vị trí tối ưu của ZoomDet ($22.0\text{ ms}$) so với Sliced-NMS ($2289.8\text{ ms}$, chậm hơn $104\times$).
+3. 📊 **[Figure 3: Scale-wise Detection Performance](file:///Volumes/WorkSpace/Project/HRP4K/docs/assets/fig3_scalewise_ap_comparison.png)**:
+   - Biểu đồ cột nhóm so sánh trực tiếp D-FINE 4K, D-FINE 640, Sliced-NMS và ZoomDet trên 4 dải tỷ lệ kích thước.
+4. ⚡ **[Figure 4: Resource Footprint vs Accuracy](file:///Volumes/WorkSpace/Project/HRP4K/docs/assets/fig4_efficiency_vram_flops.png)**:
+   - Thiết kế bất đối xứng 2 tầng: (a) Training Cost (Giờ vs mAP), (b) Memory Footprint (VRAM vs mAP), (c) Inference Cost (Log-Latency vs mAP rộng và nổi bật).
+5. 📈 **[Figure 5: Training Convergence of Core Models](file:///Volumes/WorkSpace/Project/HRP4K/docs/assets/fig5_training_convergence.png)**:
+   - Biểu đồ hội tụ sạch 2 panel: (a) Training Loss Trajectory từ Epoch 1, (b) Validation $\text{mAP}_{50-95}$ Evolution.
+6. 🌐 **[Figure 6: Spatial Deformation Paradigm](file:///Volumes/WorkSpace/Project/HRP4K/docs/assets/fig6_spatial_deformation_warp.png)**:
+   - Minh họa cơ chế hình học phối cảnh: Loại bỏ vùng trời lãng phí ($48\%$ canvas) $\to$ Tái phân bổ mật độ pixel mặt đường $\to$ Phóng đại $3.2\times$ diện tích pixel cho ổ gà ở xa.
+
+---
+
+## 📦 4. Supplementary Tables (Các Bảng Phụ Lục & Đánh Giá Độ Bền Vững)
 
 ### Supplementary Table S1 — Full Comprehensive Benchmark (14 Cấu Hình)
 
@@ -154,22 +169,3 @@ Tập Test $900$ ảnh gồm **$921$ ổ gà**: **$472$ Ultra-fine ($<0.05\%$)**
 | 6 | **`yolo11m_640` on 4K Images** ⚠️ | $3840 \times 2160$ | Test trên 4K (1 pass) | **$13.18\%$** | $5.38\%$ | **$6.69\%$** | $39.41\%$ | $4.11\%$ | $7.44\%$ | $7.130$ | **$27.3\text{ ms}$** | Train 640 $\to$ Test 4K: Sai lệch phân phối không gian |
 | 7 | **`dfine_640` on 4K Images** ⚠️ | $3840 \times 2160$ | Test trên 4K (1 pass) | **$0.23\%$** | $0.01\%$ | **$0.06\%$** | $3.26\%$ | $2.62\%$ | $2.90\%$ | $0.667$ | **$32.5\text{ ms}$** | Train 640 $\to$ Test 4K: Suy giảm do positional encoding |
 | 8 | **`resize (640)` on 4K Model** | $3840 \times 2160$ | Nén 640 (1 pass) | **$0.22\%$** | $0.22\%$ | **$0.17\%$** | $0.00\%$ | $0.00\%$ | $0.00\%$ | $0.000$ | $98.7\text{ ms}$ | Minh chứng domain shift khi nén |
-
----
-
-## 🖼️ 4. Danh Mục Biểu Đồ Bài Báo (Publication Figures)
-
-Tất cả các hình vẽ chất lượng cao ($300\text{ DPI}$) được lưu trữ đồng bộ tại [**`docs/assets/`**](file:///Volumes/WorkSpace/Project/HRP4K/docs/assets):
-
-1. 📊 **[Figure 1: 4K $\to$ 640 Resolution Degradation & Scale Loss](file:///Volumes/WorkSpace/Project/HRP4K/docs/assets/fig1_resolution_scale_analysis.png)**:
-   - Chứng minh vấn đề nghiên cứu: Nén $4\text{K} \to 640$ làm mất $71.6\%$ độ nhạy Ultra-fine; ZoomDet khôi phục $+63.9\%$.
-2. ⭐ **[Figure 2: Accuracy–Latency Pareto Optimal Frontier](file:///Volumes/WorkSpace/Project/HRP4K/docs/assets/fig2_accuracy_latency_pareto.png)**:
-   - **Hình vẽ quan trọng nhất**: Trực quan hóa điểm cân bằng tối ưu của ZoomDet ($42.07\%\text{ mAP}_{50}$ ở $22.0\text{ ms}$) — nhanh hơn $104\times$ so với Sliced-NMS ($2289.8\text{ ms}$).
-3. 📊 **[Figure 3: Scale-wise AP50 vs. AP50-95 Distribution](file:///Volumes/WorkSpace/Project/HRP4K/docs/assets/fig3_scalewise_ap_comparison.png)**:
-   - Đối sánh chi tiết trên 4 dải tỷ lệ kích thước giữa Native 4K, 640 Resize, Slicing và ZoomDet.
-4. ⚡ **[Figure 4: 3-Panel Multi-Dimensional Efficiency Comparison](file:///Volumes/WorkSpace/Project/HRP4K/docs/assets/fig4_efficiency_vram_flops.png)**:
-   - So sánh trực tiếp 3 trục tài nguyên: Độ trễ suy luận (ms), Mức chiếm dụng VRAM đỉnh (GB) và Tổng GFLOPs.
-5. 🛣️ **[Figure 5: Pavement Material Robustness (Asphalt vs. Concrete)](file:///Volumes/WorkSpace/Project/HRP4K/docs/assets/fig5_pavement_robustness.png)**:
-   - Đánh giá khả năng chống chịu nhiễu vân sọc gờ bê tông giữa CNN, ViT và ZoomDet.
-6. 📈 **[Figure 6 & 7: Training Loss Dynamics & Metric Evolution](file:///Volumes/WorkSpace/Project/HRP4K/docs/assets/training_loss_and_metrics_convergence.png)**:
-   - Quá trình suy giảm hàm mất mát (Box/GIoU, Cls, DFL) và quỹ đạo tiến hóa validation qua $150$ Epochs.
