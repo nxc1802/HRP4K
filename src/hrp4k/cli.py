@@ -54,6 +54,8 @@ def build_parser() -> argparse.ArgumentParser:
     exp.add_argument("--data", type=_path, default=Path("HRP4K"), help="Raw dataset directory")
     exp.add_argument("--output", type=_path, default=Path("outputs/experiments"))
     exp.add_argument("--device", help="CUDA device index or 'cpu'")
+    exp.add_argument("--batch", type=int, help="Override physical batch size (e.g. --batch 16 on 100GB GPU)")
+    exp.add_argument("--accumulation", type=int, help="Override gradient accumulation steps (default: auto)")
     exp.add_argument("--dry-run", action="store_true", help="Show resolved config without executing")
     exp.add_argument("--frozen-checkpoint", type=_path, help="Frozen checkpoint for slicing experiments")
     exp.add_argument("--hf-repo", help="Target Hugging Face repository")
@@ -252,6 +254,13 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         config = resolve_experiment(args.name)
+        if getattr(args, "batch", None):
+            config.batch = args.batch
+            if getattr(args, "accumulation", None):
+                config.accumulation = args.accumulation
+            else:
+                config.accumulation = max(1, config.effective_batch // config.batch)
+            config.effective_batch = config.batch * config.accumulation
 
         # Ensure dataset is ready
         dataset_yaml = args.dataset
