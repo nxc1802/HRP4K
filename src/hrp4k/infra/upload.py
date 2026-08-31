@@ -242,9 +242,11 @@ class BackgroundHFSyncer:
         files_to_upload: list[tuple[Path, str]] = []
 
         if w_dir.is_dir():
-            for pt_file in sorted(w_dir.glob("*.pt")):
+            # Only upload active checkpoints: last.pt (for resume) and best.pt (for evaluation)
+            for target_name in ("last.pt", "best.pt"):
+                pt_file = w_dir / target_name
                 if pt_file.is_file():
-                    files_to_upload.append((pt_file, pt_file.name))
+                    files_to_upload.append((pt_file, target_name))
         elif w_dir.is_file() and w_dir.suffix == ".pt":
             files_to_upload.append((w_dir, w_dir.name))
 
