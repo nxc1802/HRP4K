@@ -19,6 +19,7 @@ def run_resolution_experiment(
     output_dir: Path,
     hf_repo: str | None = None,
     hf_token: str | None = None,
+    hf_sync: bool = True,
     dry_run: bool = False,
 ) -> dict[str, Any]:
     """Execute a full resolution experiment pipeline."""
@@ -88,7 +89,7 @@ def run_resolution_experiment(
         rect=config.rect,
         hf_repo=hf_repo,
         hf_token=hf_token,
-        hf_sync=True,
+        hf_sync=hf_sync,
         path_in_repo=f"experiments/{exp_id}",
     )
 

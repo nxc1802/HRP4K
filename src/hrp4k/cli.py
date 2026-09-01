@@ -60,6 +60,7 @@ def build_parser() -> argparse.ArgumentParser:
     exp.add_argument("--frozen-checkpoint", type=_path, help="Frozen checkpoint for slicing experiments")
     exp.add_argument("--hf-repo", help="Target Hugging Face repository")
     exp.add_argument("--hf-token", help="Hugging Face write access token")
+    exp.add_argument("--no-hf-sync", action="store_true", help="Disable background Hugging Face checkpoint syncing during training")
 
     # -----------------------------------------------------------------------
     # setup-data — Dataset-only setup
@@ -280,6 +281,7 @@ def main(argv: list[str] | None = None) -> int:
                 output_dir=args.output,
                 hf_repo=args.hf_repo,
                 hf_token=args.hf_token,
+                hf_sync=not args.no_hf_sync,
                 dry_run=args.dry_run,
             )
             _print(result)

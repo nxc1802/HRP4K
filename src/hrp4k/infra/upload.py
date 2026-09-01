@@ -265,6 +265,15 @@ class BackgroundHFSyncer:
             "path_in_repo": path_in_repo or self.default_path_in_repo,
             "timestamp": time.time(),
         }
+
+        # Drain any stale pending upload tasks to prevent backlog accumulation
+        while not self._queue.empty():
+            try:
+                self._queue.get_nowait()
+                self._queue.task_done()
+            except Exception:
+                break
+
         self._queue.put(task)
 
     def wait_until_done(self, timeout: float = 60.0) -> None:
