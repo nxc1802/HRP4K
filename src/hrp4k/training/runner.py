@@ -276,25 +276,73 @@ def train_yolo(
     val_metrics = {str(key): float(value) for key, value in getattr(result, "results_dict", {}).items()}
     (run_dir / "val_metrics.json").write_text(json.dumps(val_metrics, indent=2), encoding="utf-8")
 
-    # Evaluate on test split with benchmark confidence (default: 0.001)
+    # Evaluate on test split: Step 1 (Inference -> predictions.json) + Step 2 (Evaluation -> test_metrics.json)
     test_metrics: dict[str, Any] = {}
     if eval_model_path.exists():
         try:
-            eval_model = YOLO(str(eval_model_path))
-            test_res = eval_model.val(
-                data=str(dataset_yaml),
-                split="test",
-                imgsz=actual_imgsz,
-                batch=actual_batch,
-                device=device,
-                plots=not smoke,
-                verbose=True,
-                conf=eval_confidence,
-            )
-            test_metrics = {str(key): float(value) for key, value in getattr(test_res, "results_dict", {}).items()}
-            test_metrics["eval_confidence"] = eval_confidence
-            (run_dir / "test_metrics.json").write_text(json.dumps(test_metrics, indent=2), encoding="utf-8")
+            from ..detectors.ultralytics import UltralyticsAdapter
+            from ..inference.runner import predict_detector
+            from ..evaluation.coco import evaluate_files
+            from ..data.paths import resolve_data_dir
+
+            # Locate dataset test.json
+            raw_data_dir = resolve_data_dir(Path(dataset_yaml).parent if dataset_yaml else "HRP4K")
+            test_gt = raw_data_dir / "test.json"
+            if not test_gt.is_file():
+                for candidate in (Path("HRP4K/test.json"), Path("test.json"), Path("../HRP4K/test.json")):
+                    if candidate.is_file():
+                        test_gt = candidate
+                        raw_data_dir = candidate.parent
+                        break
+
+            test_pred_path = run_dir / "test_predictions.json"
+            adapter = UltralyticsAdapter(eval_model_path, category_id=0, device=device)
+
+            if test_gt.is_file():
+                print(f"\n[Post-Train Inference] Generating predictions on test set ({test_gt.name}) with {eval_model_path.name}...")
+                pred_summary = predict_detector(
+                    data_dir=raw_data_dir,
+                    split="test",
+                    detector=adapter,
+                    output_path=test_pred_path,
+                    method="resize",
+                    image_size=actual_imgsz if isinstance(actual_imgsz, int) else actual_imgsz[0],
+                    confidence=eval_confidence,
+                )
+
+                print(f"[Post-Train Evaluation] Computing 4-Scale, Street-Type, and FPPI decomposition metrics...")
+                test_metrics_path = run_dir / "test_metrics.json"
+                test_metrics = evaluate_files(
+                    gt_path=test_gt,
+                    prediction_path=test_pred_path,
+                    output_path=test_metrics_path,
+                    confidence=eval_confidence,
+                )
+                test_metrics["mean_latency_ms"] = pred_summary.get("mean_end_to_end_latency_ms", 0.0)
+                test_metrics["eval_confidence"] = eval_confidence
+                test_metrics_path.write_text(json.dumps(test_metrics, indent=2), encoding="utf-8")
+                
+                # Also link predictions.json for convenient access
+                (run_dir / "predictions.json").write_text(test_pred_path.read_text(encoding="utf-8"), encoding="utf-8")
+                print(f"[Post-Train Evaluation Complete] AP50: {test_metrics.get('AP50', 0)*100:.2f}%, AP50-95: {test_metrics.get('AP50_95', 0)*100:.2f}%, FPPI: {test_metrics.get('FPPI_official', 0.0):.4f}")
+            else:
+                # Fallback to YOLO internal validation if test.json not found
+                eval_model = YOLO(str(eval_model_path))
+                test_res = eval_model.val(
+                    data=str(dataset_yaml),
+                    split="test",
+                    imgsz=actual_imgsz,
+                    batch=actual_batch,
+                    device=device,
+                    plots=not smoke,
+                    verbose=True,
+                    conf=eval_confidence,
+                )
+                test_metrics = {str(key): float(value) for key, value in getattr(test_res, "results_dict", {}).items()}
+                test_metrics["eval_confidence"] = eval_confidence
+                (run_dir / "test_metrics.json").write_text(json.dumps(test_metrics, indent=2), encoding="utf-8")
         except Exception as exc:
+            print(f"[Post-Train Evaluation Warning] Evaluation encountered an issue: {exc}")
             test_metrics = {"error": str(exc)}
 
     accumulate_steps = max(1, round(target_batch / actual_batch))
@@ -304,11 +352,13 @@ def train_yolo(
     config["effective_batch"] = actual_batch * accumulate_steps
     (run_dir / "resolved_config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
 
-    # Perform final sync of weights, test metrics, and results
+    # Perform final sync of weights, predictions, test metrics, and results
     if syncer.enabled:
         final_files = [
             run_dir / "val_metrics.json",
             run_dir / "test_metrics.json",
+            run_dir / "test_predictions.json",
+            run_dir / "predictions.json",
             run_dir / "results.csv",
             run_dir / "args.yaml",
             run_dir / "resolved_config.json",
@@ -319,7 +369,7 @@ def train_yolo(
             extra_files=final_files,
             path_in_repo=target_repo_path,
         )
-        print("[Cloud Sync] Finalizing upload of best.pt, last.pt and metric artifacts...")
+        print("[Cloud Sync] Finalizing upload of best.pt, last.pt, predictions.json, and metric artifacts...")
         syncer.wait_until_done(timeout=60.0)
         syncer.shutdown(wait=True)
 

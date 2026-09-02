@@ -25,14 +25,25 @@ def iou(a, b) -> float:
     return inter / union if union > 0 else 0.0
 
 
-def _evaluate_at(gt: dict[str, Any], predictions: list[dict[str, Any]], threshold: float, scale: str | None = None):
+def _evaluate_at(
+    gt: dict[str, Any],
+    predictions: list[dict[str, Any]],
+    threshold: float,
+    scale: str | None = None,
+    street_type: str | None = None,
+):
     images = {int(x["id"]): x for x in gt["images"]}
     grouped_gt = defaultdict(list)
     ignored_gt = defaultdict(list)
     for ann in gt["annotations"]:
         im = images[int(ann["image_id"])]
         ratio = float(ann["bbox"][2]) * float(ann["bbox"][3]) / (float(im["width"]) * float(im["height"]))
-        if scale is None or scale_class(ratio) == scale:
+        scale_ok = (scale is None or scale_class(ratio) == scale)
+        
+        im_street = str(im.get("street_type") or im.get("pavement_type") or im.get("surface") or "").lower()
+        street_ok = (street_type is None or im_street == str(street_type).lower())
+
+        if scale_ok and street_ok:
             grouped_gt[int(ann["image_id"])].append(ann)
         else:
             ignored_gt[int(ann["image_id"])].append(ann)
@@ -50,7 +61,7 @@ def _evaluate_at(gt: dict[str, Any], predictions: list[dict[str, Any]], threshol
         is_tp = best_idx >= 0 and best_iou >= threshold
         if is_tp:
             matched[image_id].add(best_idx)
-        if not is_tp and scale is not None and any(iou(pred["bbox"], ann["bbox"]) >= threshold for ann in ignored_gt.get(image_id, [])):
+        if not is_tp and (scale is not None or street_type is not None) and any(iou(pred["bbox"], ann["bbox"]) >= threshold for ann in ignored_gt.get(image_id, [])):
             continue
         records.append((float(pred.get("score", 0)), int(is_tp), int(not is_tp)))
     positives = sum(len(v) for v in grouped_gt.values())
@@ -109,6 +120,7 @@ def evaluate(gt: dict[str, Any], predictions: list[dict[str, Any]], confidence: 
     negative_images_with_fp = {int(p["image_id"]) for p in active if int(p["image_id"]) in negative_ids}
     official = _coco_metrics(gt, predictions)
 
+    # 1. Scale decomposition: ultra_fine, fine, medium, large
     scale_metrics = {}
     for s in SCALE_ORDER:
         scale_evals = {f"{t:.2f}": _evaluate_at(gt, predictions, float(t), scale=s) for t in thresholds}
@@ -120,12 +132,36 @@ def evaluate(gt: dict[str, Any], predictions: list[dict[str, Any]], confidence: 
             "positives": scale_evals["0.50"]["positives"],
         }
 
+    # 2. Street / Pavement Types decomposition: Asphalt, Concrete, Brick
+    known_streets = set()
+    for im in gt.get("images", []):
+        st = im.get("street_type") or im.get("pavement_type") or im.get("surface")
+        if st:
+            known_streets.add(str(st).lower())
+    target_streets = sorted(known_streets) if known_streets else ["asphalt", "concrete", "brick"]
+    street_metrics = {}
+    for st in target_streets:
+        st_evals = {f"{t:.2f}": _evaluate_at(gt, predictions, float(t), street_type=st) for t in thresholds}
+        pos = st_evals["0.50"]["positives"]
+        if pos > 0 or known_streets:
+            street_metrics[st] = {
+                "AP50": st_evals["0.50"]["ap"],
+                "AP75": st_evals["0.75"]["ap"],
+                "AP50_95": float(np.mean([v["ap"] for v in st_evals.values()])),
+                "recall50": st_evals["0.50"]["recall"],
+                "positives": pos,
+            }
+
+    ap50 = official.get("AP50", evaluations["0.50"]["ap"])
+    ap75 = official.get("AP75", evaluations["0.75"]["ap"])
+    ap50_95 = official.get("AP50_95", float(np.mean([v["ap"] for v in evaluations.values()])))
+
     return {
         "protocol": {"iou": "COCO-style 0.50:0.95", "ap_interpolation_points": 101, "confidence_operating_point": confidence},
         "num_images": len(gt["images"]), "num_ground_truth": len(gt["annotations"]), "num_predictions": len(predictions),
-        "AP50": official.get("AP50", evaluations["0.50"]["ap"]),
-        "AP75": official.get("AP75", evaluations["0.75"]["ap"]),
-        "AP50_95": official.get("AP50_95", float(np.mean([v["ap"] for v in evaluations.values()]))),
+        "AP50": ap50,
+        "AP75": ap75,
+        "AP50_95": ap50_95,
         "precision": precision, "recall": recall, "f1": 2 * precision * recall / max(precision + recall, 1e-12),
         "FPPI_official": negative_fp / max(len(negative_ids), 1),
         "FPPI_all_images": fp / max(len(gt["images"]), 1),
@@ -134,6 +170,7 @@ def evaluate(gt: dict[str, Any], predictions: list[dict[str, Any]], confidence: 
         "deprecated_aliases": {"FPPI": "FPPI_all_images", "negative_FPPI": "FPPI_official"},
         "tp": tp, "fp": fp, "fn": fn,
         "scale": scale_metrics,
+        "street_types": street_metrics,
         "iou_threshold_curve": {key: {"AP": value["ap"], "recall": value["recall"]} for key, value in evaluations.items()},
         "coco_evaluator": official,
     }
