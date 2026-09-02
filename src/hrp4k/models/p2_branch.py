@@ -87,6 +87,16 @@ def find_c2_backbone_stage(
     return c2_idx, c2_channels
 
 
+def extract_c2_backbone(model: nn.Module, x: torch.Tensor, c2_layer_idx: int = 1) -> torch.Tensor:
+    """Direct fast extraction of C2 feature map from the backbone without running the full decoder."""
+    _, sub_modules, _ = _unwrap_sequential(model)
+    curr = x
+    for i in range(c2_layer_idx + 1):
+        m = sub_modules[i]
+        curr = m(curr)
+    return curr
+
+
 class P2Adapter(nn.Module):
     """P2 Adapter module: C2 -> 1x1 Conv -> 3x3 Conv -> P2.
 

@@ -232,6 +232,30 @@ def _build_slicing_experiments() -> dict[str, ExperimentConfig]:
 def _build_proposed_experiments() -> dict[str, ExperimentConfig]:
     experiments = {}
 
+    # RT-DETR-L Proposed P2 (2K — Primary Feasibility Checkpoint)
+    name_2k = "rtdetr-l-proposed-p2-2k"
+    experiments[name_2k] = ExperimentConfig(
+        name=name_2k,
+        phase="proposed",
+        detector="rtdetr-l",
+        weights="rtdetr-l.pt",
+        resolution="2k",
+        imgsz=1920,
+        batch=4,
+        accumulation=4,
+        optimizer="AdamW",
+        lr0=0.0005,
+        lrf=0.01,
+        weight_decay=0.0001,
+        warmup_bias_lr=0.0,
+        amp=True,
+        rect=True,
+        epochs=150,
+        patience=10,
+        seed=42,
+        confidence=0.001,
+    )
+
     # RT-DETR-L Proposed P2 (640)
     name_640 = "rtdetr-l-proposed-p2-640"
     experiments[name_640] = ExperimentConfig(
@@ -244,7 +268,7 @@ def _build_proposed_experiments() -> dict[str, ExperimentConfig]:
         batch=16,
         accumulation=1,
         optimizer="AdamW",
-        lr0=0.0001,
+        lr0=0.0005,
         lrf=0.01,
         weight_decay=0.0001,
         warmup_bias_lr=0.0,
@@ -268,7 +292,7 @@ def _build_proposed_experiments() -> dict[str, ExperimentConfig]:
         batch=2,
         accumulation=8,
         optimizer="AdamW",
-        lr0=0.0001,
+        lr0=0.0005,
         lrf=0.01,
         weight_decay=0.0001,
         warmup_bias_lr=0.0,
