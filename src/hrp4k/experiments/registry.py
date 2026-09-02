@@ -229,6 +229,60 @@ def _build_slicing_experiments() -> dict[str, ExperimentConfig]:
     return experiments
 
 
+def _build_proposed_experiments() -> dict[str, ExperimentConfig]:
+    experiments = {}
+
+    # RT-DETR-L Proposed P2 (640)
+    name_640 = "rtdetr-l-proposed-p2-640"
+    experiments[name_640] = ExperimentConfig(
+        name=name_640,
+        phase="proposed",
+        detector="rtdetr-l",
+        weights="rtdetr-l.pt",
+        resolution="640",
+        imgsz=640,
+        batch=16,
+        accumulation=1,
+        optimizer="AdamW",
+        lr0=0.0001,
+        lrf=0.01,
+        weight_decay=0.0001,
+        warmup_bias_lr=0.0,
+        amp=True,
+        rect=True,
+        epochs=150,
+        patience=10,
+        seed=42,
+        confidence=0.001,
+    )
+
+    # RT-DETR-L Proposed P2 (4K)
+    name_4k = "rtdetr-l-proposed-p2-4k"
+    experiments[name_4k] = ExperimentConfig(
+        name=name_4k,
+        phase="proposed",
+        detector="rtdetr-l",
+        weights="rtdetr-l.pt",
+        resolution="4k",
+        imgsz=3840,
+        batch=2,
+        accumulation=8,
+        optimizer="AdamW",
+        lr0=0.0001,
+        lrf=0.01,
+        weight_decay=0.0001,
+        warmup_bias_lr=0.0,
+        amp=False,
+        rect=True,
+        epochs=150,
+        patience=10,
+        seed=42,
+        confidence=0.001,
+    )
+
+    return experiments
+
+
 # ---------------------------------------------------------------------------
 # Complete experiment matrix
 # ---------------------------------------------------------------------------
@@ -236,6 +290,7 @@ def _build_slicing_experiments() -> dict[str, ExperimentConfig]:
 EXPERIMENT_MATRIX: dict[str, ExperimentConfig] = {
     **_build_resolution_experiments(),
     **_build_slicing_experiments(),
+    **_build_proposed_experiments(),
 }
 
 

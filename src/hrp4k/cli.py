@@ -178,6 +178,11 @@ def build_parser() -> argparse.ArgumentParser:
     smoke.add_argument("--imgsz", type=int, default=256)
     smoke.add_argument("--device", default="cpu")
 
+    # -----------------------------------------------------------------------
+    # smoke-proposed — Proposed P2 Feasibility smoke test
+    # -----------------------------------------------------------------------
+    commands.add_parser("smoke-proposed", help="Run local RT-DETR-L + P2 Feasibility smoke test (shape check, loss, fusion)")
+
     return parser
 
 
@@ -299,6 +304,19 @@ def main(argv: list[str] | None = None) -> int:
             )
             _print(result)
 
+        elif config.phase == "proposed":
+            from .experiments.proposed import run_proposed_experiment
+            result = run_proposed_experiment(
+                config=config,
+                dataset_yaml=dataset_yaml,
+                output_dir=args.output,
+                hf_repo=args.hf_repo,
+                hf_token=args.hf_token,
+                hf_sync=not args.no_hf_sync,
+                dry_run=args.dry_run,
+            )
+            _print(result)
+
         else:
             print(f"Unknown phase: {config.phase}")
             return 1
@@ -410,6 +428,13 @@ def main(argv: list[str] | None = None) -> int:
             train_limit=args.train_limit, eval_limit=args.eval_limit,
             image_size=args.imgsz, device=args.device,
         ))
+
+    # ===================================================================
+    # smoke-proposed
+    # ===================================================================
+    elif args.command == "smoke-proposed":
+        from .experiments.proposed import run_proposed_smoke
+        _print(run_proposed_smoke())
 
     return 0
 

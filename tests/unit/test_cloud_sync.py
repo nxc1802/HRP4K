@@ -10,6 +10,13 @@ from hrp4k.infra.upload import BackgroundHFSyncer, get_hf_credentials, load_dote
 from hrp4k.phases.phase_1 import run_phase_1
 
 
+try:
+    import huggingface_hub
+    HAS_HF = True
+except ImportError:
+    HAS_HF = False
+
+
 class TestCloudSyncAndPhase1(unittest.TestCase):
     def test_load_dotenv_parsing(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -70,6 +77,7 @@ class TestCloudSyncAndPhase1(unittest.TestCase):
                 syncer.wait_until_done(timeout=1.0)
                 syncer.shutdown()
 
+    @unittest.skipUnless(HAS_HF, "huggingface_hub is required for this test")
     @patch("huggingface_hub.HfApi")
     def test_syncer_background_upload_flow(self, mock_hf_api_class):
         mock_api_instance = MagicMock()
