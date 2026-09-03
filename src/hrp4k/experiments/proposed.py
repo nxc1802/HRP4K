@@ -211,6 +211,7 @@ def train_rtdetr_p2(
     epochs: int = 150,
     image_size: int | tuple[int, int] | str = 1920,
     batch: int = 16,
+    accumulation: int = 1,
     device: str | None = None,
     allow_full: bool = False,
     experiment: dict[str, Any] | None = None,
@@ -335,10 +336,12 @@ def train_rtdetr_p2(
                 img_size=(img.shape[-2], img.shape[-1]),
             )
             loss = loss_dict["loss_p2_total"]
+            scaled_loss = loss / max(1, accumulation)
+            scaled_loss.backward()
 
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+            if (batch_idx + 1) % max(1, accumulation) == 0 or (batch_idx + 1) == len(train_loader):
+                optimizer.step()
+                optimizer.zero_grad()
 
             epoch_losses.append(loss.item())
 
@@ -532,6 +535,7 @@ def run_proposed_experiment(
         epochs=config.epochs,
         image_size=config.imgsz,
         batch=config.batch,
+        accumulation=config.accumulation,
         device=None,
         allow_full=True,
         experiment={"name": experiment_name, "id": exp_id},
