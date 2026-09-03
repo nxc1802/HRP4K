@@ -20,6 +20,7 @@ import cv2
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
 import contextlib, io
+import time
 
 from hrp4k.data.paths import resolve_data_dir
 from hrp4k.experiments.proposed import RTDETRP2Adapter
@@ -131,6 +132,7 @@ def run_comparison(
     p2_predictions = []
     native_predictions = []
     fused_predictions = []
+    latencies = []
 
     lb = LetterBox(image_size, auto=True, stride=32)
 
@@ -156,15 +158,18 @@ def run_comparison(
         t = torch.from_numpy(lb_img).permute(2, 0, 1).unsqueeze(0).float() / 255.0
         t = t.to(target_device)
 
+        t0 = time.perf_counter()
         with torch.no_grad():
             out = adapter.model(t)
+        lat_ms = (time.perf_counter() - t0) * 1000.0
+        latencies.append(lat_ms)
 
         native_raw = out["native_preds"][0]  # (300, 6)
         p2_raw = out["p2_preds"][0]          # (300, 6)
 
         # Convert to detections
         def get_dets(preds: torch.Tensor, is_native: bool = False) -> list[Detection]:
-            m = preds[:, 4] >= confidence
+            m = preds[:, 4] >= min(confidence, 0.001)
             if is_native and adapter.is_coco_base:
                 m = m & (preds[:, 5].long() == adapter.category_id)
             if not m.any():
@@ -218,91 +223,151 @@ def run_comparison(
         if (idx + 1) % 50 == 0 or idx == len(selected_images) - 1:
             print(f"  Processed {idx + 1}/{len(selected_images)} images...")
 
-    # 3. Compute Metrics with Official Protocol & Scale Decomposition
-    print("\n[Metrics] Computing full COCO evaluation with scale decomposition...")
+    # 3. Save Raw Prediction Files Locally
+    print("\n[Predictions] Saving raw predictions for P2-Only, Native, and Fused...")
+    (out_dir / "test_predictions_p2.json").write_text(json.dumps(p2_predictions, indent=2), encoding="utf-8")
+    (out_dir / "test_predictions_native.json").write_text(json.dumps(native_predictions, indent=2), encoding="utf-8")
+    (out_dir / "test_predictions_fused.json").write_text(json.dumps(fused_predictions, indent=2), encoding="utf-8")
+
+    # 4. Compute Metrics for BOTH Benchmarks:
     from hrp4k.evaluation.coco import evaluate
 
-    p2_eval = evaluate(sub_gt, p2_predictions, confidence=confidence)
-    nat_eval = evaluate(sub_gt, native_predictions, confidence=confidence)
-    fused_eval = evaluate(sub_gt, fused_predictions, confidence=confidence)
+    print("\n[Metrics] 1. Computing Benchmark A: Academic Detection Protocol (COCO-style, conf=0.001)...")
+    p2_acad = evaluate(sub_gt, p2_predictions, confidence=0.001)
+    nat_acad = evaluate(sub_gt, native_predictions, confidence=0.001)
+    fused_acad = evaluate(sub_gt, fused_predictions, confidence=0.001)
+
+    print("[Metrics] 2. Computing Benchmark B: Operational Deployment Protocol (Standard, conf=0.25)...")
+    p2_oper = evaluate(sub_gt, p2_predictions, confidence=0.25)
+    nat_oper = evaluate(sub_gt, native_predictions, confidence=0.25)
+    fused_oper = evaluate(sub_gt, fused_predictions, confidence=0.25)
 
     n_imgs = max(1, len(selected_images))
-    p2_avg_dets = len(p2_predictions) / n_imgs
-    nat_avg_dets = len(native_predictions) / n_imgs
-    fused_avg_dets = len(fused_predictions) / n_imgs
+    mean_lat = float(np.mean(latencies)) if latencies else 0.0
+    fps = 1000.0 / mean_lat if mean_lat > 0 else 0.0
 
-    # 4. Print Comparison Tables
-    print("\n" + "=" * 85)
-    print("TABLE 1: OVERALL BENCHMARK COMPARISON (P2-ONLY vs NATIVE vs FUSED)")
-    print("=" * 85)
-    print(f"{'Metric':<25} | {'P2-Only Head':<16} | {'Native RT-DETR':<16} | {'Fused (Native+P2)':<18}")
-    print("-" * 85)
-    print(f"{'AP50':<25} | {p2_eval.get('AP50', 0)*100:<15.2f}% | {nat_eval.get('AP50', 0)*100:<15.2f}% | {fused_eval.get('AP50', 0)*100:<17.2f}%")
-    print(f"{'AP50-95':<25} | {p2_eval.get('AP50_95', 0)*100:<15.2f}% | {nat_eval.get('AP50_95', 0)*100:<15.2f}% | {fused_eval.get('AP50_95', 0)*100:<17.2f}%")
-    print(f"{'AP75':<25} | {p2_eval.get('AP75', 0)*100:<15.2f}% | {nat_eval.get('AP75', 0)*100:<15.2f}% | {fused_eval.get('AP75', 0)*100:<17.2f}%")
-    print(f"{'Overall Recall':<25} | {p2_eval.get('recall', 0)*100:<15.2f}% | {nat_eval.get('recall', 0)*100:<15.2f}% | {fused_eval.get('recall', 0)*100:<17.2f}%")
-    print(f"{'True Positives (TP)':<25} | {p2_eval.get('tp', 0):<16} | {nat_eval.get('tp', 0):<16} | {fused_eval.get('tp', 0):<18}")
-    print(f"{'Avg Predictions / img':<25} | {p2_avg_dets:<16.2f} | {nat_avg_dets:<16.2f} | {fused_avg_dets:<18.2f}")
-    print(f"{'Total Predictions':<25} | {len(p2_predictions):<16} | {len(native_predictions):<16} | {len(fused_predictions):<18}")
-    print("=" * 85)
+    def delta_str(val_fused: float, val_base: float, is_percent: bool = True, higher_is_better: bool = True) -> str:
+        diff = val_fused - val_base
+        sign = "+" if diff > 0 else ""
+        sym = "▲" if (diff > 0 if higher_is_better else diff < 0) else ("▼" if diff != 0 else "=")
+        if is_percent:
+            return f"{sign}{diff*100:+.2f}% {sym}"
+        return f"{sign}{diff:+.4f} {sym}"
 
-    print("\n" + "=" * 85)
-    print("TABLE 2: SCALE BREAKDOWN COMPARISON (RECALL & AP50 BY POTHOLE SIZE)")
-    print("=" * 85)
-    print(f"{'Scale Category':<25} | {'P2-Only Recall':<16} | {'Native Recall':<16} | {'Fused Recall':<18}")
-    print("-" * 85)
-    for sc in ["ultra_fine", "fine", "medium", "large"]:
-        p2_rec = p2_eval.get("scale", {}).get(sc, {}).get("recall50", 0.0) * 100
-        nat_rec = nat_eval.get("scale", {}).get(sc, {}).get("recall50", 0.0) * 100
-        fused_rec = fused_eval.get("scale", {}).get(sc, {}).get("recall50", 0.0) * 100
-        num_pos = p2_eval.get("scale", {}).get(sc, {}).get("positives", 0)
-        label = f"{sc.capitalize()} ({num_pos})"
-        print(f"{label:<25} | {p2_rec:<15.2f}% | {nat_rec:<15.2f}% | {fused_rec:<17.2f}%")
-    print("-" * 85)
-    print(f"{'Scale Category':<25} | {'P2-Only AP50':<16} | {'Native AP50':<16} | {'Fused AP50':<18}")
-    print("-" * 85)
-    for sc in ["ultra_fine", "fine", "medium", "large"]:
-        p2_ap = p2_eval.get("scale", {}).get(sc, {}).get("AP50", 0.0) * 100
-        nat_ap = nat_eval.get("scale", {}).get(sc, {}).get("AP50", 0.0) * 100
-        fused_ap = fused_eval.get("scale", {}).get(sc, {}).get("AP50", 0.0) * 100
-        num_pos = p2_eval.get("scale", {}).get(sc, {}).get("positives", 0)
-        label = f"{sc.capitalize()} ({num_pos})"
-        print(f"{label:<25} | {p2_ap:<15.2f}% | {nat_ap:<15.2f}% | {fused_ap:<17.2f}%")
-    print("=" * 85)
+    # 5. Print BENCHMARK A: Academic / Scientific Detection Benchmark
+    print("\n" + "=" * 95)
+    print("BENCHMARK A: ACADEMIC / SCIENTIFIC DETECTION BENCHMARK (Protocol: COCO-style, conf=0.001)")
+    print("=" * 95)
+    print(f"{'Metric':<28} | {'Baseline (Native)':<18} | {'Proposed (Fused)':<18} | {'Δ (Gain)':<12} | {'P2-Only':<10}")
+    print("-" * 95)
+    ap50_95_b = nat_acad.get('AP50_95', 0)
+    ap50_95_f = fused_acad.get('AP50_95', 0)
+    print(f"{'mAP50:95':<28} | {ap50_95_b*100:<17.2f}% | {ap50_95_f*100:<17.2f}% | {delta_str(ap50_95_f, ap50_95_b):<12} | {p2_acad.get('AP50_95', 0)*100:<9.2f}%")
 
-    # 5. Save results locally
+    ap50_b = nat_acad.get('AP50', 0)
+    ap50_f = fused_acad.get('AP50', 0)
+    print(f"{'AP50':<28} | {ap50_b*100:<17.2f}% | {ap50_f*100:<17.2f}% | {delta_str(ap50_f, ap50_b):<12} | {p2_acad.get('AP50', 0)*100:<9.2f}%")
+
+    ap75_b = nat_acad.get('AP75', 0)
+    ap75_f = fused_acad.get('AP75', 0)
+    print(f"{'AP75':<28} | {ap75_b*100:<17.2f}% | {ap75_f*100:<17.2f}% | {delta_str(ap75_f, ap75_b):<12} | {p2_acad.get('AP75', 0)*100:<9.2f}%")
+
+    rec_b = nat_acad.get('recall', 0)
+    rec_f = fused_acad.get('recall', 0)
+    print(f"{'Overall Recall':<28} | {rec_b*100:<17.2f}% | {rec_f*100:<17.2f}% | {delta_str(rec_f, rec_b):<12} | {p2_acad.get('recall', 0)*100:<9.2f}%")
+
+    for sc, sc_label in [("ultra_fine", "AP_ultra_fine (<32²)"), ("fine", "AP_fine (32²-96²)"), ("medium", "AP_medium (96²-144²)"), ("large", "AP_large (≥144²)")]:
+        b_val = nat_acad.get("scale", {}).get(sc, {}).get("AP50", 0.0)
+        f_val = fused_acad.get("scale", {}).get(sc, {}).get("AP50", 0.0)
+        p_val = p2_acad.get("scale", {}).get(sc, {}).get("AP50", 0.0)
+        print(f"{sc_label:<28} | {b_val*100:<17.2f}% | {f_val*100:<17.2f}% | {delta_str(f_val, b_val):<12} | {p_val*100:<9.2f}%")
+
+    rec_uf_b = nat_acad.get("scale", {}).get("ultra_fine", {}).get("recall50", 0.0)
+    rec_uf_f = fused_acad.get("scale", {}).get("ultra_fine", {}).get("recall50", 0.0)
+    rec_uf_p = p2_acad.get("scale", {}).get("ultra_fine", {}).get("recall50", 0.0)
+    print(f"{'Recall_ultra_fine (<32²)':<28} | {rec_uf_b*100:<17.2f}% | {rec_uf_f*100:<17.2f}% | {delta_str(rec_uf_f, rec_uf_b):<12} | {rec_uf_p*100:<9.2f}%")
+    print("=" * 95)
+
+    # 6. Print BENCHMARK B: Operational / Deployment Benchmark
+    print("\n" + "=" * 95)
+    print("BENCHMARK B: OPERATIONAL / DEPLOYMENT BENCHMARK (Standard Operating Condition, conf=0.25)")
+    print("=" * 95)
+    print(f"{'Metric':<28} | {'Baseline (Native)':<18} | {'Proposed (Fused)':<18} | {'Δ (Gain)':<12} | {'P2-Only':<10}")
+    print("-" * 95)
+    prec_b = nat_oper.get('precision', 0)
+    prec_f = fused_oper.get('precision', 0)
+    print(f"{'Precision @0.25':<28} | {prec_b*100:<17.2f}% | {prec_f*100:<17.2f}% | {delta_str(prec_f, prec_b):<12} | {p2_oper.get('precision', 0)*100:<9.2f}%")
+
+    rec_op_b = nat_oper.get('recall', 0)
+    rec_op_f = fused_oper.get('recall', 0)
+    print(f"{'Recall @0.25':<28} | {rec_op_b*100:<17.2f}% | {rec_op_f*100:<17.2f}% | {delta_str(rec_op_f, rec_op_b):<12} | {p2_oper.get('recall', 0)*100:<9.2f}%")
+
+    f1_b = nat_oper.get('f1', 0)
+    f1_f = fused_oper.get('f1', 0)
+    print(f"{'F1 @0.25':<28} | {f1_b*100:<17.2f}% | {f1_f*100:<17.2f}% | {delta_str(f1_f, f1_b):<12} | {p2_oper.get('f1', 0)*100:<9.2f}%")
+
+    fppi_b = nat_oper.get('fp', 0) / n_imgs
+    fppi_f = fused_oper.get('fp', 0) / n_imgs
+    fppi_p = p2_oper.get('fp', 0) / n_imgs
+    print(f"{'FP / image (FPPI)':<28} | {fppi_b:<18.4f} | {fppi_f:<18.4f} | {delta_str(fppi_f, fppi_b, is_percent=False, higher_is_better=False):<12} | {fppi_p:<10.4f}")
+
+    fn_b = nat_oper.get('fn', 0) / n_imgs
+    fn_f = fused_oper.get('fn', 0) / n_imgs
+    fn_p = p2_oper.get('fn', 0) / n_imgs
+    print(f"{'FN / image':<28} | {fn_b:<18.4f} | {fn_f:<18.4f} | {delta_str(fn_f, fn_b, is_percent=False, higher_is_better=False):<12} | {fn_p:<10.4f}")
+
+    for sc, sc_label in [("ultra_fine", "Recall_ultra_fine @0.25"), ("fine", "Recall_fine @0.25"), ("medium", "Recall_medium @0.25"), ("large", "Recall_large @0.25")]:
+        b_val = nat_oper.get("scale", {}).get(sc, {}).get("recall50", 0.0)
+        f_val = fused_oper.get("scale", {}).get(sc, {}).get("recall50", 0.0)
+        p_val = p2_oper.get("scale", {}).get(sc, {}).get("recall50", 0.0)
+        print(f"{sc_label:<28} | {b_val*100:<17.2f}% | {f_val*100:<17.2f}% | {delta_str(f_val, b_val):<12} | {p_val*100:<9.2f}%")
+
+    print(f"{'Mean Latency (ms)':<28} | {mean_lat:<18.2f} | {mean_lat:<18.2f} | {'=':<12} | {mean_lat:<10.2f}")
+    print(f"{'Inference FPS':<28} | {fps:<18.2f} | {fps:<18.2f} | {'=':<12} | {fps:<10.2f}")
+    print("=" * 95)
+
+    # 7. Save results locally
     results = {
-        "p2_only": {**p2_eval, "avg_predictions_per_image": p2_avg_dets, "total_predictions": len(p2_predictions)},
-        "native_only": {**nat_eval, "avg_predictions_per_image": nat_avg_dets, "total_predictions": len(native_predictions)},
-        "fused": {**fused_eval, "avg_predictions_per_image": fused_avg_dets, "total_predictions": len(fused_predictions)},
+        "benchmark_academic_conf_0_001": {
+            "baseline_native": nat_acad,
+            "proposed_fused": fused_acad,
+            "p2_only": p2_acad,
+        },
+        "benchmark_operational_conf_0_25": {
+            "baseline_native": {**nat_oper, "fppi": fppi_b, "fn_per_img": fn_b},
+            "proposed_fused": {**fused_oper, "fppi": fppi_f, "fn_per_img": fn_f},
+            "p2_only": {**p2_oper, "fppi": fppi_p, "fn_per_img": fn_p},
+        },
         "settings": {
             "checkpoint": str(ckpt_path),
             "weights": str(weights),
             "image_size": image_size,
-            "confidence": confidence,
             "num_images": len(selected_images),
+            "mean_latency_ms": mean_lat,
+            "fps": fps,
         },
     }
     comp_path = out_dir / "test_metrics_comparison.json"
     comp_path.write_text(json.dumps(results, indent=2), encoding="utf-8")
-    (out_dir / "test_metrics_p2_only.json").write_text(json.dumps(p2_eval, indent=2), encoding="utf-8")
-    (out_dir / "test_metrics_native_only.json").write_text(json.dumps(nat_eval, indent=2), encoding="utf-8")
-    (out_dir / "test_metrics_fused.json").write_text(json.dumps(fused_eval, indent=2), encoding="utf-8")
+    (out_dir / "test_metrics_academic.json").write_text(json.dumps(results["benchmark_academic_conf_0_001"], indent=2), encoding="utf-8")
+    (out_dir / "test_metrics_operational.json").write_text(json.dumps(results["benchmark_operational_conf_0_25"], indent=2), encoding="utf-8")
     print(f"\nSaved comparison results to: {comp_path}")
 
-    # 6. Upload to Hugging Face if requested
+    # 8. Upload to Hugging Face if requested
     if hf_upload:
         try:
             from huggingface_hub import HfApi
             token = hf_token or os.environ.get("HF_TOKEN")
             repo = hf_repo or "Cuong2004/HRP4K"
-            print(f"\n[HF Upload] Uploading comparison metrics to Hugging Face repo: {repo}...")
+            print(f"\n[HF Upload] Uploading comprehensive metrics & predictions to Hugging Face repo: {repo}...")
             api = HfApi(token=token)
             files_to_upload = [
                 (comp_path, "experiments/9b68a1164e96/test/test_metrics_comparison.json"),
-                (out_dir / "test_metrics_p2_only.json", "experiments/9b68a1164e96/test/test_metrics_p2_only.json"),
-                (out_dir / "test_metrics_native_only.json", "experiments/9b68a1164e96/test/test_metrics_native_only.json"),
-                (out_dir / "test_metrics_fused.json", "experiments/9b68a1164e96/test/test_metrics_fused.json"),
+                (out_dir / "test_metrics_academic.json", "experiments/9b68a1164e96/test/test_metrics_academic.json"),
+                (out_dir / "test_metrics_operational.json", "experiments/9b68a1164e96/test/test_metrics_operational.json"),
+                (out_dir / "test_predictions_p2.json", "experiments/9b68a1164e96/test/test_predictions_p2.json"),
+                (out_dir / "test_predictions_native.json", "experiments/9b68a1164e96/test/test_predictions_native.json"),
+                (out_dir / "test_predictions_fused.json", "experiments/9b68a1164e96/test/test_predictions_fused.json"),
             ]
             for local_p, remote_p in files_to_upload:
                 if local_p.is_file():
@@ -311,10 +376,10 @@ def run_comparison(
                         path_in_repo=remote_p,
                         repo_id=repo,
                         repo_type="dataset",
-                        commit_message=f"Add {local_p.name} comparative evaluation",
+                        commit_message=f"Upload {local_p.name} (Academic + Operational benchmarks)",
                     )
                     print(f"  [OK] Uploaded {local_p.name} -> {remote_p}")
-            print("[HF Upload] All comparison metrics successfully synced to Hugging Face!")
+            print("[HF Upload] All metrics and raw predictions successfully synced to Hugging Face!")
         except Exception as upload_exc:
             print(f"[HF Upload Warning] Could not upload to HF: {upload_exc}")
 
