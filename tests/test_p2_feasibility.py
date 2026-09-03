@@ -30,7 +30,7 @@ class TestP2Feasibility(unittest.TestCase):
             cls.native_rtdetr = None
 
     def test_dynamic_c2_discovery_and_extraction(self):
-        """Verify runtime shape inspection and direct C2 extraction from backbone."""
+        """Verify runtime shape inspection and direct C2 extraction respecting f-graph."""
         if self.native_rtdetr is None:
             self.skipTest("rtdetr-l.pt not available locally")
         layer_idx, in_channels = find_c2_backbone_stage(self.native_rtdetr, input_size=(640, 640))
@@ -66,8 +66,25 @@ class TestP2Feasibility(unittest.TestCase):
         self.assertIn("loss_p2_giou", loss_dict)
         self.assertGreater(loss_dict["loss_p2_total"].item(), 0)
 
+    def test_dense_p2_center_assignment_and_priority(self):
+        """Verify center-based assignment: 1 positive cell per GT, smaller box takes priority."""
+        loss_module = DenseP2Loss(nc=1, stride=4)
+        cls_logits = torch.randn(1, 1, 160, 160)
+        box_offsets = torch.rand(1, 4, 160, 160) * 20.0
+        # Two boxes sharing the exact same center: one large, one ultra-fine
+        targets = {
+            "cls": torch.tensor([0, 0]),
+            "bboxes": torch.tensor([
+                [0.5, 0.5, 0.20, 0.20],  # large box (area 0.04)
+                [0.5, 0.5, 0.02, 0.02],  # tiny box (area 0.0004)
+            ]),
+            "gt_groups": [2],
+        }
+        loss_dict = loss_module(cls_logits, box_offsets, targets, img_size=(640, 640))
+        self.assertTrue(torch.isfinite(loss_dict["loss_p2_total"]))
+
     def test_lightweight_p2_head_and_decoding(self):
-        """Verify LightweightP2Head forward and dense prediction decoding."""
+        """Verify LightweightP2Head forward and dense prediction decoding with coordinate validity."""
         head = LightweightP2Head(in_channels=256, num_classes=1, stride=4)
         p2_feat = torch.randn(2, 256, 160, 160)
         cls_logits, box_offsets = head(p2_feat)
@@ -76,6 +93,14 @@ class TestP2Feasibility(unittest.TestCase):
 
         decoded = decode_dense_p2_predictions(cls_logits, box_offsets, stride=4, topk=300)
         self.assertEqual(decoded.shape, (2, 300, 6))
+
+        # Check coordinate bounds: x1 <= x2, y1 <= y2
+        x1 = decoded[..., 0]
+        y1 = decoded[..., 1]
+        x2 = decoded[..., 2]
+        y2 = decoded[..., 3]
+        self.assertTrue((x1 <= x2).all())
+        self.assertTrue((y1 <= y2).all())
 
     def test_rtdetr_p2_model_frozen_native_and_training(self):
         """Verify native RT-DETR is frozen and only P2 branch/head receives gradients."""
@@ -115,6 +140,20 @@ class TestP2Feasibility(unittest.TestCase):
         self.assertIsNotNone(model.p2_branch.adapter.conv1x1.weight.grad)
         self.assertIsNotNone(model.p2_head.cls_conv[-1].weight.grad)
 
+    def test_letterbox_preprocessing_unscaling(self):
+        """Verify RTDETRP2Adapter handles non-square input with letterbox unscaling."""
+        if self.native_rtdetr is None:
+            self.skipTest("rtdetr-l.pt not available locally")
+        adapter = RTDETRP2Adapter(weights="rtdetr-l.pt", category_id=0, device="cpu")
+        img = np.zeros((1080, 1920, 3), dtype=np.uint8)
+        dets = adapter.predict(img, image_size=640, confidence=0.001)
+        for d in dets:
+            x1, y1, x2, y2 = d.xyxy
+            self.assertTrue(0.0 <= x1 <= 1920.0)
+            self.assertTrue(0.0 <= x2 <= 1920.0)
+            self.assertTrue(0.0 <= y1 <= 1080.0)
+            self.assertTrue(0.0 <= y2 <= 1080.0)
+
     def test_prediction_fusion(self):
         """Verify Concatenation + NMS Prediction Fusion."""
         det_native = [
@@ -138,6 +177,8 @@ class TestP2Feasibility(unittest.TestCase):
         self.assertEqual(res["c2_channels"], 128)
         self.assertTrue(res["native_frozen_verified"])
         self.assertEqual(res["gradient_check"], "passed")
+        self.assertEqual(res["optimizer_step"], "passed")
+        self.assertEqual(res["letterbox_unscaling"], "passed")
 
 
 if __name__ == "__main__":

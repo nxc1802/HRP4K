@@ -19,7 +19,7 @@ def _compute_iou_matrix(boxes_a: np.ndarray, boxes_b: np.ndarray) -> np.ndarray:
     area_a = (boxes_a[:, 2] - boxes_a[:, 0]) * (boxes_a[:, 3] - boxes_a[:, 1])
     area_b = (boxes_b[:, 2] - boxes_b[:, 0]) * (boxes_b[:, 3] - boxes_b[:, 1])
     union = area_a[:, None] + area_b[None, :] - intersection
-    return np.where(union > 0, intersection / union, 0.0)
+    return np.where(union > 0, intersection / np.maximum(union, 1e-7), 0.0)
 
 
 def fuse_native_and_p2_predictions(

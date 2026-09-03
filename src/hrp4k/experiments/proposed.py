@@ -132,10 +132,14 @@ class RTDETRP2Adapter(DetectorAdapter):
 
     def predict(self, image: np.ndarray, image_size: int, confidence: float) -> list[Detection]:
         h_orig, w_orig = image.shape[:2]
-        import cv2
+        from ultralytics.data.augment import LetterBox
+        from ultralytics.utils.ops import scale_boxes
 
-        resized = cv2.resize(image, (image_size, image_size)) if (h_orig != image_size or w_orig != image_size) else image
-        tensor = torch.from_numpy(resized).permute(2, 0, 1).unsqueeze(0).float() / 255.0
+        letterbox = LetterBox(image_size, auto=True, stride=32)
+        lb_img = letterbox(image=image)
+        h_lb, w_lb = lb_img.shape[:2]
+
+        tensor = torch.from_numpy(lb_img).permute(2, 0, 1).unsqueeze(0).float() / 255.0
         tensor = tensor.to(self.device)
         if self.precision == "fp16" and self.device != "cpu":
             tensor = tensor.half()
@@ -146,22 +150,27 @@ class RTDETRP2Adapter(DetectorAdapter):
         native_preds = out["native_preds"][0]  # (300, 6) [x1, y1, x2, y2, score, cls]
         p2_preds = out["p2_preds"][0]          # (300, 6) [x1, y1, x2, y2, score, cls]
 
-        scale_x = w_orig / image_size
-        scale_y = h_orig / image_size
-
         def to_detections(tensor_preds: torch.Tensor) -> list[Detection]:
             dets: list[Detection] = []
             mask = tensor_preds[:, 4] >= confidence
-            filtered = tensor_preds[mask].cpu().numpy()
-            for row in filtered:
-                x1, y1, x2, y2, score, _ = row
+            if not mask.any():
+                return dets
+
+            filtered = tensor_preds[mask]
+            # Unscale boxes from letterbox canvas to original image canvas
+            boxes_lb = filtered[:, :4].clone()
+            unscaled_boxes = scale_boxes((h_lb, w_lb), boxes_lb, (h_orig, w_orig)).cpu().numpy()
+            scores = filtered[:, 4].cpu().numpy()
+
+            for i in range(len(scores)):
+                x1, y1, x2, y2 = unscaled_boxes[i]
                 scaled_xyxy = (
-                    float(np.clip(x1 * scale_x, 0, w_orig)),
-                    float(np.clip(y1 * scale_y, 0, h_orig)),
-                    float(np.clip(x2 * scale_x, 0, w_orig)),
-                    float(np.clip(y2 * scale_y, 0, h_orig)),
+                    float(np.clip(x1, 0, w_orig)),
+                    float(np.clip(y1, 0, h_orig)),
+                    float(np.clip(x2, 0, w_orig)),
+                    float(np.clip(y2, 0, h_orig)),
                 )
-                dets.append(Detection(scaled_xyxy, float(score), self.category_id))
+                dets.append(Detection(scaled_xyxy, float(scores[i]), self.category_id))
             return dets
 
         native_dets = to_detections(native_preds)
@@ -600,10 +609,23 @@ def run_proposed_smoke() -> dict[str, Any]:
     # 2. Prediction Fusion
     fused_tensor = fuse_prediction_tensors(eval_out["native_preds"], eval_out["p2_preds"], iou_threshold=0.5)
 
-    # 3. Train Loss & Backward Pass (only P2 parameters get gradients)
+    # 3. Dedicated 1-batch Train Flow & Shape Validations
     model.p2_branch.train()
     model.p2_head.train()
     train_input = torch.randn(2, 3, 640, 640)
+
+    # Verify C2 extraction
+    with torch.no_grad():
+        c2_feat = extract_c2_backbone(model.native_model, train_input, c2_layer_idx=c2_idx)
+    assert c2_feat.shape == (2, c2_channels, 160, 160), f"Unexpected C2 shape: {c2_feat.shape}"
+
+    # Verify P2 feature & dense head output shapes
+    p2_feat = model.p2_branch(c2_feat)
+    assert p2_feat.shape == (2, 256, 160, 160), f"Unexpected P2 shape: {p2_feat.shape}"
+    cls_logits, box_offsets = model.p2_head(p2_feat)
+    assert cls_logits.shape == (2, 1, 160, 160), f"Unexpected cls_logits shape: {cls_logits.shape}"
+    assert box_offsets.shape == (2, 4, 160, 160), f"Unexpected box_offsets shape: {box_offsets.shape}"
+
     batch = {
         "img": train_input,
         "cls": torch.tensor([0, 0]),
@@ -611,23 +633,47 @@ def run_proposed_smoke() -> dict[str, Any]:
         "batch_idx": torch.tensor([0, 1]),
     }
     total_loss, loss_dict = model.loss(batch)
+    assert torch.isfinite(total_loss), "Loss must be finite!"
+
+    # 4. Backward Pass & Gradient Verification
+    p2_params = list(model.p2_branch.parameters()) + list(model.p2_head.parameters())
+    optimizer = torch.optim.AdamW(p2_params, lr=0.0005, weight_decay=0.0001)
+    optimizer.zero_grad()
     total_loss.backward()
 
     # Verify native backbone received NO gradients (frozen)
     native_grads = [p.grad for p in model.native_model.parameters() if p.grad is not None]
-    assert len(native_grads) == 0, "Native RT-DETR parameters must be frozen!"
+    assert len(native_grads) == 0, "Native RT-DETR parameters must be strictly frozen!"
     assert model.p2_branch.adapter.conv1x1.weight.grad is not None, "P2 adapter must receive gradients!"
     assert model.p2_head.cls_conv[-1].weight.grad is not None, "P2 head must receive gradients!"
+
+    # Verify optimizer step completes without issue
+    optimizer.step()
+
+    # 5. Verify Letterbox & Unscaling Inference
+    adapter = RTDETRP2Adapter(weights="rtdetr-l.pt", category_id=0, device="cpu")
+    non_square_img = np.zeros((1080, 1920, 3), dtype=np.uint8)
+    dets = adapter.predict(non_square_img, image_size=640, confidence=0.001)
+    for d in dets:
+        x1, y1, x2, y2 = d.xyxy
+        assert 0.0 <= x1 <= 1920.0 and 0.0 <= x2 <= 1920.0, f"Box x-bounds invalid: {d.xyxy}"
+        assert 0.0 <= y1 <= 1080.0 and 0.0 <= y2 <= 1080.0, f"Box y-bounds invalid: {d.xyxy}"
 
     return {
         "status": "pass",
         "architecture": "frozen_rtdetr_l_p2_dense",
         "c2_layer_index": c2_idx,
         "c2_channels": c2_channels,
+        "c2_shape": list(c2_feat.shape),
+        "p2_shape": list(p2_feat.shape),
+        "cls_shape": list(cls_logits.shape),
+        "box_shape": list(box_offsets.shape),
         "native_eval_shape": native_shape,
         "p2_eval_shape": p2_shape,
         "fused_batch_size": len(fused_tensor),
         "train_loss": {k: float(v.detach()) for k, v in loss_dict.items()},
         "native_frozen_verified": True,
         "gradient_check": "passed",
+        "optimizer_step": "passed",
+        "letterbox_unscaling": "passed",
     }

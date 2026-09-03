@@ -71,7 +71,7 @@ class DenseP2Loss(nn.Module):
         pred_x2 = grid_x.unsqueeze(0) + pred_r
         pred_y2 = grid_y.unsqueeze(0) + pred_b
 
-        img_h, img_w = img_size[0], img_size[1]
+        img_h, img_w = float(img_size[0]), float(img_size[1])
         gt_start = 0
 
         for b in range(bs):
@@ -83,46 +83,55 @@ class DenseP2Loss(nn.Module):
             b_gt_bboxes = gt_bboxes[gt_start:gt_start + num_gt]
             gt_start += num_gt
 
-            # Convert normalized cxcywh to pixel xyxy
-            cx = b_gt_bboxes[:, 0] * img_w
-            cy = b_gt_bboxes[:, 1] * img_h
-            bw = b_gt_bboxes[:, 2] * img_w
-            bh = b_gt_bboxes[:, 3] * img_h
+            # Sort by area descending so smaller/ultra-fine potholes are assigned last
+            # and overwrite overlapping grid centers
+            areas = b_gt_bboxes[:, 2] * b_gt_bboxes[:, 3]
+            sort_indices = torch.argsort(areas, descending=True)
 
-            gx1 = cx - bw / 2.0
-            gy1 = cy - bh / 2.0
-            gx2 = cx + bw / 2.0
-            gy2 = cy + bh / 2.0
+            for idx in sort_indices:
+                bw = float(b_gt_bboxes[idx, 2] * img_w)
+                bh = float(b_gt_bboxes[idx, 3] * img_h)
+                cx = float(b_gt_bboxes[idx, 0] * img_w)
+                cy = float(b_gt_bboxes[idx, 1] * img_h)
 
-            # Assign grid points inside GT bboxes
-            for g in range(num_gt):
-                x_min, y_min, x_max, y_max = gx1[g], gy1[g], gx2[g], gy2[g]
-                inside = (grid_x >= x_min) & (grid_x <= x_max) & (grid_y >= y_min) & (grid_y <= y_max)
-                if not inside.any():
-                    # Ultra-fine object smaller than grid stride -> assign nearest center
-                    cx_idx = int(torch.clamp(cx[g] / stride, 0, w - 1))
-                    cy_idx = int(torch.clamp(cy[g] / stride, 0, h - 1))
-                    inside[cy_idx, cx_idx] = True
+                gx1 = cx - bw / 2.0
+                gy1 = cy - bh / 2.0
+                gx2 = cx + bw / 2.0
+                gy2 = cy + bh / 2.0
 
-                c_idx = int(torch.clamp(b_gt_cls[g], 0, self.nc - 1).item())
-                target_cls[b, c_idx, inside] = 1.0
-                pos_mask[b, inside] = True
+                # Nearest P2 grid cell center
+                cx_idx = int(torch.clamp(torch.round(torch.tensor(cx / stride - 0.5)), 0, w - 1).item())
+                cy_idx = int(torch.clamp(torch.round(torch.tensor(cy / stride - 0.5)), 0, h - 1).item())
 
-                # Target ltrb for positive points
-                target_boxes_ltrb[b, 0, inside] = grid_x[inside] - x_min
-                target_boxes_ltrb[b, 1, inside] = grid_y[inside] - y_min
-                target_boxes_ltrb[b, 2, inside] = x_max - grid_x[inside]
-                target_boxes_ltrb[b, 3, inside] = y_max - grid_y[inside]
+                c_idx = int(torch.clamp(b_gt_cls[idx], 0, self.nc - 1).item())
+                target_cls[b, c_idx, cy_idx, cx_idx] = 1.0
+                pos_mask[b, cy_idx, cx_idx] = True
 
-                p_x1 = pred_x1[b, inside]
-                p_y1 = pred_y1[b, inside]
-                p_x2 = pred_x2[b, inside]
-                p_y2 = pred_y2[b, inside]
-                p_box = torch.stack([p_x1, p_y1, p_x2, p_y2], dim=-1)
-                t_box = torch.tensor([x_min, y_min, x_max, y_max], device=device).expand_as(p_box)
+                grid_cx = (cx_idx + 0.5) * stride
+                grid_cy = (cy_idx + 0.5) * stride
 
-                pred_boxes_xyxy_list.append(p_box)
-                target_boxes_xyxy_list.append(t_box)
+                # Target ltrb distance offsets (non-negative)
+                target_boxes_ltrb[b, 0, cy_idx, cx_idx] = max(0.0, grid_cx - gx1)
+                target_boxes_ltrb[b, 1, cy_idx, cx_idx] = max(0.0, grid_cy - gy1)
+                target_boxes_ltrb[b, 2, cy_idx, cx_idx] = max(0.0, gx2 - grid_cx)
+                target_boxes_ltrb[b, 3, cy_idx, cx_idx] = max(0.0, gy2 - grid_cy)
+
+                # Reconstruct valid positive box for GIoU
+                px1_c = pred_x1[b, cy_idx, cx_idx]
+                py1_c = pred_y1[b, cy_idx, cx_idx]
+                px2_c = pred_x2[b, cy_idx, cx_idx]
+                py2_c = pred_y2[b, cy_idx, cx_idx]
+
+                p_box = torch.stack([
+                    torch.min(px1_c, px2_c),
+                    torch.min(py1_c, py2_c),
+                    torch.max(px1_c, px2_c),
+                    torch.max(py1_c, py2_c),
+                ], dim=-1)
+                t_box = torch.tensor([gx1, gy1, gx2, gy2], device=device, dtype=p_box.dtype)
+
+                pred_boxes_xyxy_list.append(p_box.unsqueeze(0))
+                target_boxes_xyxy_list.append(t_box.unsqueeze(0))
 
         num_pos = max(1.0, float(pos_mask.sum().item()))
 
@@ -192,10 +201,15 @@ def decode_dense_p2_predictions(
     pred_r = box_offsets[:, 2]
     pred_b = box_offsets[:, 3]
 
-    pred_x1 = grid_x.unsqueeze(0) - pred_l
-    pred_y1 = grid_y.unsqueeze(0) - pred_t
-    pred_x2 = grid_x.unsqueeze(0) + pred_r
-    pred_y2 = grid_y.unsqueeze(0) + pred_b
+    pred_x1_raw = grid_x.unsqueeze(0) - pred_l
+    pred_y1_raw = grid_y.unsqueeze(0) - pred_t
+    pred_x2_raw = grid_x.unsqueeze(0) + pred_r
+    pred_y2_raw = grid_y.unsqueeze(0) + pred_b
+
+    pred_x1 = torch.min(pred_x1_raw, pred_x2_raw)
+    pred_y1 = torch.min(pred_y1_raw, pred_y2_raw)
+    pred_x2 = torch.max(pred_x1_raw, pred_x2_raw)
+    pred_y2 = torch.max(pred_y1_raw, pred_y2_raw)
 
     boxes = torch.stack([pred_x1, pred_y1, pred_x2, pred_y2], dim=-1)  # (B, H, W, 4)
     boxes = boxes.view(bs, -1, 4)  # (B, H*W, 4)

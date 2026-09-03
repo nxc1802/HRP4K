@@ -1,795 +1,704 @@
-Đúng. Nếu chốt hướng **Frozen RT-DETR + lightweight P2 head**, thì cách giải quyết sẽ đơn giản hơn đáng kể và loại bỏ luôn phần custom joint-training phức tạp.
+Tôi đã kiểm tra **commit mới nhất** của `nxc1802/HRP4K`.
 
-Dưới đây là toàn bộ các lỗi hiện tại và cách sửa theo đúng hướng này.
+Commit mới nhất hiện tại là:
+
+**`263ec153e52fc132ded4eb47656539935f11964f`**
+`feat(proposed): implement Frozen RT-DETR + Lightweight Dense P2 Head feasibility architecture`
+
+So với commit trước `4e88b4c`, hướng kiến trúc đã được đổi đúng sang **Frozen RT-DETR + Lightweight Dense P2**. Tuy nhiên, tôi vẫn thấy **một số vấn đề cần sửa trước khi chạy feasibility**.
 
 ---
 
-# 1. P2 branch hiện tại **không thực sự được train**
+# 1. P0 — `extract_c2_backbone()` đang bỏ qua graph connection `f`
 
-### Bug
+Đây là lỗi quan trọng nhất tôi phát hiện trong commit mới.
 
-Trong `proposed.py` hiện tại về logic là:
-
-```text
-p2_model = RTDETRP2Model(...)
-       ↓
-rtdetr.train(...)
-```
-
-Nhưng `rtdetr.train()` chỉ train object RT-DETR gốc.
-
-`p2_model` không nằm trong training graph của Ultralytics trainer.
-
-Do đó:
-
-```text
-P2 Adapter
-P2 Head
-    ↓
-không được optimizer update
-```
-
-Thậm chí sau training, code lại save:
+Trong `find_c2_backbone_stage()`, code đã xử lý đúng Ultralytics graph:
 
 ```python
-p2_model.state_dict()
+f = getattr(m, "f", -1)
+
+if f != -1:
+    ...
 ```
 
-nhưng P2 weights gần như vẫn là initialization ban đầu.
-
-### Cách sửa
-
-Với hướng mới:
-
-> **Frozen RT-DETR + lightweight P2 head**
-
-không cần custom joint trainer nữa.
-
-Pipeline:
-
-```text
-Baseline RT-DETR-L checkpoint
-          │
-          │ freeze toàn bộ
-          ▼
-    RT-DETR-L backbone
-          │
-         C2
-          │
-          ▼
-   Lightweight P2 Head
-          │
-          ▼
-     P2 predictions
-```
-
-Chỉ optimize:
-
-```text
-P2 Adapter
-+
-P2 Head
-```
-
-Không optimize:
-
-```text
-RT-DETR backbone
-RT-DETR encoder
-RT-DETR decoder
-RT-DETR native heads
-```
-
-Như vậy có thể dùng một training loop riêng cực kỳ đơn giản cho P2 head, không phải can thiệp vào native RT-DETR loss.
-
----
-
-# 2. Không nên dùng `L_native + λL_P2` nữa
-
-### Bug / thiết kế cũ
-
-Code hiện tại có:
-
-```text
-L_total = L_native + λ L_P2
-```
-
-Nhưng implementation chưa thực sự kết nối được hai loss này.
-
-Quan trọng hơn, với thiết kế Frozen RT-DETR thì **không cần native loss**.
-
-### Cách sửa
-
-Chỉ train:
-
-```text
-L = L_P2
-```
-
-RT-DETR được coi như một feature extractor + native detector frozen.
-
-Điều này làm experiment rất sạch:
-
-```text
-RT-DETR-L baseline
-       │
-       ├── native prediction
-       │
-       └── C2 → P2 head → P2 prediction
-                         │
-                         ▼
-                  concatenate + NMS
-```
-
-P2 head học cách detect tiny objects từ C2.
-
----
-
-# 3. Memory của P2 Transformer hiện tại quá lớn
-
-Đây là vấn đề bạn vừa chốt lại cách giải quyết.
-
-### Bug
-
-`P2QueryHead` hiện tại flatten toàn bộ P2 feature map:
+Nhưng `extract_c2_backbone()` lại làm:
 
 ```python
-feat_proj = feat.flatten(2).permute(0, 2, 1)
+curr = x
+for i in range(c2_layer_idx + 1):
+    m = sub_modules[i]
+    curr = m(curr)
 ```
 
-Sau đó đưa toàn bộ spatial tokens vào Transformer:
+Tức là nó **giả định toàn bộ backbone là sequential thuần túy**.
+
+Trong Ultralytics, các layer có thể có:
 
 ```text
-P2
-↓
-H/4 × W/4
-↓
-flatten
-↓
-~130K tokens @ 2K
-~500K tokens @ 4K
-↓
-Transformer cross-attention
+f = -1
+f = previous_layer
+f = [layer_a, layer_b]
 ```
 
-Đây là thiết kế quá nặng.
+Do đó discovery và extraction hiện tại **không sử dụng cùng một execution semantics**.
+
+### Sửa
+
+`extract_c2_backbone()` phải mirror logic của `find_c2_backbone_stage()`:
+
+```python
+def extract_c2_backbone(
+    model: nn.Module,
+    x: torch.Tensor,
+    c2_layer_idx: int,
+) -> torch.Tensor:
+    _, sub_modules, save_indices = _unwrap_sequential(model)
+
+    curr = x
+    y = []
+
+    for i, m in enumerate(sub_modules[:c2_layer_idx + 1]):
+        f = getattr(m, "f", -1)
+
+        if f != -1:
+            if isinstance(f, int):
+                curr = y[f]
+            else:
+                curr = [
+                    curr if j == -1 else y[j]
+                    for j in f
+                ]
+
+        curr = m(curr)
+        y.append(curr if i in save_indices else None)
+
+    return curr
+```
+
+**Đây là P0.**
 
 ---
 
-# 4. Cách sửa memory: **Frozen RT-DETR + Lightweight P2 Head**
+# 2. P0 — `find_c2_backbone_stage()` có nguy cơ chọn sai C2
 
-Đây là thay đổi quan trọng nhất.
+Code hiện tại:
 
-Không cần P2 Transformer 300 queries kiểu DETR nữa.
+```python
+if stride_h == 4 and stride_w == 4 and i < 6:
+    c2_idx = i
+    c2_channels = x.shape[1]
+```
 
-Thay bằng một **lightweight dense detection head**.
+Nó **không break khi tìm thấy C2**.
 
-Ví dụ:
+Nếu có nhiều layer stride-4 trước layer 6 thì layer cuối cùng thỏa điều kiện sẽ được chọn.
+
+Với một backbone cụ thể có thể vẫn đúng, nhưng discovery logic nên deterministic hơn:
+
+```python
+if stride_h == 4 and stride_w == 4:
+    c2_idx = i
+    c2_channels = x.shape[1]
+    break
+```
+
+Hoặc tốt hơn nữa: xác định **first semantic feature stage at stride 4**, thay vì chỉ dựa vào `i < 6`.
+
+### Tôi khuyến nghị
+
+Trong feasibility:
+
+```text
+first feature map with stride=4
+```
+
+là đủ.
+
+---
+
+# 3. P0 — `P2Adapter` thực tế vẫn không phải "lightweight" nếu giữ 256 channels
+
+Commit mới đã loại bỏ Transformer nên memory đã được giải quyết về mặt **complexity**.
+
+`P2Adapter`:
 
 ```text
 C2
- │
- ▼
+ ↓
 1×1 Conv
- │
- ▼
-Lightweight Conv Block
- │
- ├───────────────┐
- ▼               ▼
-Cls Head       Box Head
- │               │
- ▼               ▼
-class logits    bbox
+ ↓
+256 channels
+ ↓
+3×3 Conv
+ ↓
+256 channels
 ```
 
-Có thể dùng kiến trúc rất đơn giản:
+và `LightweightP2Head` lại có:
 
 ```text
-C2
- ↓
-Conv 1×1
- ↓
-Conv 3×3
- ↓
-Conv 3×3
- ↓
- ┌──────────────┐
- │              │
- ▼              ▼
-Cls             Box
+2 × 3×3 Conv
 ```
 
-Không có:
+cho classification
 
-* Transformer decoder
-* 300 object queries
-* Hungarian matching
-* global attention
-* full-resolution attention matrix
-
-### Memory lúc này
-
-P2 chỉ đi qua convolution:
+và thêm:
 
 ```text
-[B, C, H/4, W/4]
+2 × 3×3 Conv
 ```
 
-CNN complexity gần tuyến tính theo số pixel.
+cho bbox.
 
-Ví dụ 2K:
+Tức là tổng cộng P2 path đang có khá nhiều convolution ở **stride 4 resolution**.
+
+Ở 2K:
 
 ```text
-~480 × 272
-≈ 130K spatial locations
+~480 × 272 ≈ 130K locations
 ```
 
-130K locations với Conv hoàn toàn khả thi hơn rất nhiều so với đưa 130K tokens vào Transformer attention.
+Không còn nguy hiểm như Transformer, nhưng vẫn khá nặng.
 
-4K cũng tương tự.
+### Không phải bug
+
+Đây là **optimization concern**, chưa cần sửa ngay.
+
+Tôi sẽ giữ 256 trước để feasibility có đủ capacity.
+
+Nếu latency/memory quá lớn mới thử:
+
+```text
+256 → 128
+```
 
 ---
 
-# 5. Không cần P2 Head phải là DETR-style Query Head
+# 4. P0 — Loss hiện tại có vấn đề về duplicate positive assignment
 
-Đây là một điểm nên sửa luôn.
-
-Tên hiện tại:
+`DenseP2Loss` đang assign **toàn bộ grid points nằm trong bounding box** là positive:
 
 ```text
-P2QueryHead
+GT box
+┌─────────────────────┐
+│ + + + + + + + + +   │
+│ + + + + + + + + +   │
+│ + + + + + + + + +   │
+└─────────────────────┘
 ```
 
-không còn phù hợp.
+Điều này có thể tạo ra **rất nhiều positive locations cho một pothole**.
 
-Nên chuyển thành:
+Đặc biệt với pothole lớn:
 
 ```text
-P2DenseHead
+one GT → dozens/hundreds of positive cells
+```
+
+Trong khi tiny pothole:
+
+```text
+one GT → 1 cell
+```
+
+Do đó training distribution giữa object size bị lệch mạnh.
+
+### Đáng chú ý hơn
+
+Nếu hai GT boxes overlap, code:
+
+```python
+target_cls[b, c_idx, inside] = 1.0
+target_boxes_ltrb[b, :, inside] = ...
+```
+
+GT sau có thể **ghi đè target box của GT trước**.
+
+Đây là vấn đề thực sự.
+
+### Cách sửa cho feasibility
+
+Không assign toàn bộ box.
+
+Chỉ assign:
+
+> **center region / center point của mỗi GT**
+
+Ví dụ đơn giản nhất:
+
+```text
+GT center
+   ↓
+nearest P2 grid cell
+   ↓
+1 positive location / object
+```
+
+Điều này cũng rất phù hợp với mục tiêu tiny pothole.
+
+Tôi đánh giá đây là **P0/P1**, nên sửa trước training dài.
+
+---
+
+# 5. P0 — `box_offsets` chưa được bảo vệ đủ về numerical stability
+
+Hiện tại:
+
+```python
+box_offsets = self.box_conv(p2_feat) * self.stride
+```
+
+với:
+
+```python
+Conv → ReLU
+```
+
+nên offsets ≥ 0.
+
+Điều này hợp lý.
+
+Nhưng prediction có thể tạo:
+
+```text
+x1 > x2
 ```
 
 hoặc:
 
 ```text
-LightweightP2Head
+y1 > y2
 ```
 
-Mục tiêu của head:
+nếu offset nhỏ/không hợp lệ.
 
-```text
-C2 → dense objectness/classification + bbox
-```
-
-Sau đó convert thành detection list:
-
-```text
-[x1, y1, x2, y2, score, class]
-```
-
-để đưa vào fusion.
-
----
-
-# 6. Loss của P2 cũng phải đổi
-
-Nếu bỏ Query Transformer + Hungarian matching thì:
-
-```text
-P2HeadLoss
-```
-
-hiện tại cũng không còn phù hợp.
-
-Không cần:
-
-```text
-Hungarian matching
-```
-
-Thay bằng dense loss.
-
-Có thể dùng:
-
-```text
-L_P2 =
-    L_cls
-  + λ_box L_box
-  + λ_iou L_GIoU
-```
-
-Trong feasibility version, không cần phát minh loss mới.
-
-Tốt nhất là sử dụng một loss đơn giản, ổn định và dễ giải thích.
-
-Ví dụ:
-
-```text
-L_cls = BCE/Focal
-L_box = L1
-L_iou = GIoU
-```
-
-Điểm quan trọng của paper không nằm ở một loss mới.
-
-Nó nằm ở:
-
-> **bổ sung high-resolution P2 representation cho tiny pothole detection trong khi giữ nguyên RT-DETR detector và chỉ thêm một lightweight auxiliary branch.**
-
----
-
-# 7. P2 không cần P3 → P2
-
-Thiết kế hiện tại:
-
-```text
-C2 → P2
-```
-
-là đúng với hypothesis của experiment.
-
-Không cần:
-
-```text
-C2 + Upsample(P3)
-```
-
-Bởi vì mục tiêu là kiểm tra:
-
-> Liệu raw high-resolution C2 feature có chứa thông tin hữu ích cho ultra-fine potholes mà P3/P4/P5 đã mất không?
-
-Do đó:
-
-```text
-C2
- ↓
-P2
- ↓
-Lightweight P2 Head
-```
-
-là thiết kế clean nhất.
-
----
-
-# 8. RT-DETR phải được freeze hoàn toàn
-
-Hiện tại code cần đảm bảo:
+Nên decode có thể enforce:
 
 ```python
-for p in rtdetr.parameters():
+x1 = min(x1, x2)
+x2 = max(x1, x2)
+```
+
+hoặc clamp width/height.
+
+Đây không phải blocker lớn vì training GIoU có thể giúp, nhưng nên kiểm tra.
+
+---
+
+# 6. P1 — Frozen RT-DETR đã được thực hiện đúng về mặt optimizer
+
+Đây là phần **đã sửa tốt**.
+
+Commit mới:
+
+```python
+p2_params = (
+    list(p2_model.p2_branch.parameters())
+    + list(p2_model.p2_head.parameters())
+)
+
+optimizer = torch.optim.AdamW(p2_params, ...)
+```
+
+và native model:
+
+```python
+for p in self.native_model.parameters():
     p.requires_grad = False
 ```
 
-và:
-
-```python
-rtdetr.eval()
-```
-
-Trong training P2:
-
-```text
-RT-DETR
-    ↓
-no_grad()
-    ↓
-C2
-```
-
-sau đó:
-
-```text
-C2
- ↓
-P2 head
- ↓
-loss
- ↓
-backward
-```
-
-Chỉ P2 parameters nhận gradient.
-
-Có thể verify bằng:
-
-```python
-assert all(
-    p.grad is None
-    for p in rtdetr.parameters()
-)
-```
-
-và:
-
-```python
-assert any(
-    p.grad is not None
-    for p in p2_head.parameters()
-)
-```
-
----
-
-# 9. Proposed không nên khởi tạo từ `rtdetr-l.pt`
-
-### Bug hiện tại
-
-Registry đang kiểu:
-
-```text
-weights = "rtdetr-l.pt"
-```
-
-Đây là pretrained COCO checkpoint.
-
-Nhưng experiment của bạn cần:
-
-```text
-HRP4K-trained RT-DETR-L
-```
-
-### Cách sửa
-
-Pipeline phải là:
-
-```text
-HRP4K RT-DETR-L 2K baseline checkpoint
-                │
-                ▼
-        Frozen RT-DETR-L
-                │
-                ▼
-           C2 feature
-                │
-                ▼
-       train Lightweight P2
-```
-
-Không train từ COCO nếu mục tiêu là đánh giá incremental improvement trên baseline HRP4K.
-
----
-
-# 10. Dùng baseline 2K checkpoint
-
-Đây là checkpoint hợp lý nhất cho feasibility.
-
-Baseline hiện tại:
-
-| Model     | Resolution |      AP50 |   AP50:95 |
-| --------- | ---------: | --------: | --------: |
-| RT-DETR-L |         2K | **62.65** | **37.51** |
-
 Do đó:
 
 ```text
-Baseline:
-RT-DETR-L @ 2K
+RT-DETR parameters
+        ↓
+frozen
+
+P2 adapter
+P2 head
+        ↓
+trainable
 ```
 
-→ freeze
-
-→ train P2 head
-
-→ inference:
-
-```text
-Native RT-DETR predictions
-+
-P2 predictions
-↓
-NMS
-```
-
-Nếu Proposed vượt baseline thì mới mở rộng sang 4K.
+Đúng với thiết kế mới.
 
 ---
 
-# 11. Checkpoint của Proposed hiện tại cần sửa
+# 7. P1 — Nhưng `RTDETRP2Model` có một điểm cần kiểm tra
 
-Không nên chỉ save:
-
-```python
-p2_model.state_dict()
-```
-
-Nên save tối thiểu:
+Trong training:
 
 ```python
-{
-    "p2_state_dict": ...,
-    "optimizer_state_dict": ...,
-    "epoch": ...,
-    "best_metric": ...,
-    "base_checkpoint": ...,
-    "image_size": 2048,
-    "architecture": "frozen_rtdetr_l_p2",
-}
+with torch.no_grad():
+    c2_feat = extract_c2_backbone(
+        p2_model.native_model,
+        img,
+        c2_layer_idx=p2_model.c2_layer_idx
+    )
 ```
 
-Trong đó:
+Điều này đúng.
+
+Nhưng trong `RTDETRP2Model.__init__`:
+
+```python
+self.native_model.eval()
+```
+
+Sau đó training loop:
+
+```python
+p2_model.p2_branch.train()
+p2_model.p2_head.train()
+```
+
+Không gọi:
+
+```python
+p2_model.train()
+```
+
+Đây thực ra lại khá tốt vì tránh việc `.train()` lan xuống native model.
+
+Tuy nhiên cần đặc biệt đảm bảo **P2 BatchNorm được train**.
+
+Hiện tại:
+
+```text
+P2Adapter
+ ├── BN
+ └── BN
+
+P2Head
+ ├── BN
+ ├── BN
+ ├── BN
+ └── BN
+```
+
+đang được `.train()` nên ổn.
+
+---
+
+# 8. P1 — Checkpoint hiện tại đã tốt hơn nhiều
+
+Commit mới save:
+
+```text
+p2_state_dict
+p2_adapter_state_dict
+optimizer_state_dict
+epoch
+mean_p2_loss
+base_checkpoint
+image_size
+architecture
+```
+
+Đây là đúng hướng.
+
+Đặc biệt:
 
 ```text
 base_checkpoint
 ```
 
-phải xác định chính xác RT-DETR baseline nào được dùng.
+giúp biết P2 được train trên baseline nào.
 
 ---
 
-# 12. Inference cũng cần sửa tương ứng
+# 9. P1 — Nhưng `resume=True` hiện chưa thực sự được implement đầy đủ
 
-Pipeline inference nên là:
+Hàm có:
 
-```text
-Input image
-      │
-      ▼
-Frozen RT-DETR-L
-      │
-      ├───────────────┐
-      │               │
-      ▼               ▼
-Native P3/P4/P5     C2
-      │               │
-      ▼               ▼
-Native decoder      P2 Head
-      │               │
-      ▼               ▼
- Native dets        P2 dets
-      │               │
-      └───────┬───────┘
-              ▼
-        Concatenate
-              ▼
-        Class-aware NMS
-              ▼
-         Final output
+```python
+resume: bool = False
 ```
 
-Đây vẫn giữ nguyên quyết định trước đó:
+nhưng logic training tôi thấy trong commit mới vẫn chủ yếu:
 
-> **Fusion Version 0 = concatenate + NMS**
+```text
+load baseline
+initialize P2
+create optimizer
+train
+```
 
-Không thêm:
+Chưa thấy flow đầy đủ:
 
-* score boosting
+```text
+load best_p2.pt
+        ↓
+restore P2
+        ↓
+restore optimizer
+        ↓
+restore epoch
+        ↓
+continue
+```
+
+Vì vậy:
+
+> `resume` hiện tại chưa nên được coi là production-ready.
+
+Không ảnh hưởng feasibility lần đầu, nên **P1**.
+
+---
+
+# 10. P1 — Native prediction và P2 prediction đang được resize về square
+
+Trong adapter:
+
+```python
+resized = cv2.resize(
+    image,
+    (image_size, image_size)
+)
+```
+
+Đây là điểm tôi **không muốn giữ** nếu experiment chính dùng pipeline baseline với aspect ratio / rect preprocessing.
+
+Ví dụ ảnh HRP4K:
+
+```text
+3840 × 2160
+```
+
+bị biến thành:
+
+```text
+2048 × 2048
+```
+
+thay vì letterbox/Ultralytics preprocessing.
+
+Điều này có thể làm:
+
+* distortion
+* thay đổi object geometry
+* scale distribution khác baseline
+
+và khiến comparison không hoàn toàn fair.
+
+### Cần sửa
+
+Proposed inference phải sử dụng **chính preprocessing của baseline RT-DETR**.
+
+Đây là một điểm khá quan trọng cho paper.
+
+---
+
+# 11. P1 — Training DataLoader đang không chắc đã reproduce baseline augmentation
+
+Commit mới tự tạo:
+
+```python
+build_yolo_dataset(...)
+build_dataloader(...)
+```
+
+thay vì reuse toàn bộ training pipeline của `runner.py`.
+
+Điều này có nghĩa:
+
+```text
+Baseline:
+Ultralytics RT-DETR training protocol
+
+Proposed:
+custom P2 dataloader
+```
+
+có thể khác:
+
+* augmentation
+* preprocessing
+* normalization
+* rect behavior
+* mosaic
+* scale
+* hsv
+* flip
+* collate
+
+Đây là vấn đề **fairness**.
+
+### Nhưng có một nuance quan trọng
+
+Vì RT-DETR frozen nên bạn **không cần replicate augmentation 100%** để native model học.
+
+Nhưng P2 phải học trên distribution tương đương baseline.
+
+Do đó tốt nhất là reuse dataset configuration/protocol của baseline càng nhiều càng tốt.
+
+---
+
+# 12. P1 — `batch_data["img"]` có thể không cùng preprocessing semantics với RT-DETR inference
+
+Training:
+
+```python
+img = batch_data["img"].float() / 255.0
+```
+
+Nếu Ultralytics dataloader đã trả image tensor đúng `[0,255]`, điều này ổn.
+
+Nhưng cần verify:
+
+```text
+dtype
+range
+H/W
+rect
+padding
+```
+
+trên server bằng một smoke run.
+
+Không nên assume.
+
+---
+
+# 13. P2 — Fusion implementation ổn
+
+`p2_fusion.py` hiện thực đúng:
+
+```text
+Native detections
+       +
+P2 detections
+       ↓
+concatenate
+       ↓
+class-aware NMS
+```
+
+Không có:
+
 * WBF
+* score boost
 * learned fusion
-* scale-aware weighting
-* confidence calibration
+* scale gating
 
-ở feasibility experiment.
+Đúng với Version 0 đã thống nhất.
 
 ---
 
-# 13. `np` đang thiếu import
+# 14. P2 — `decode_dense_p2_predictions()` có một vấn đề nhỏ
 
-Trong `proposed.py` đang dùng:
+Nó lấy:
 
 ```python
-np.ndarray
+b_scores, b_classes = scores[b].max(dim=0)
 ```
 
-và các thao tác numpy nhưng thiếu:
+tức là:
 
-```python
-import numpy as np
+```text
+mỗi spatial location
+→ chỉ giữ class có score cao nhất
 ```
 
-### Fix
+Với HRP4K:
 
-Thêm ngay đầu file:
-
-```python
-import numpy as np
+```text
+nc = 1
 ```
 
-Đây là bug runtime đơn giản nhưng chắc chắn phải sửa.
+nên **không có vấn đề**.
+
+Có thể giữ nguyên.
 
 ---
 
-# 14. C2 hook hiện tại có thể giữ cho feasibility
+# 15. Tổng kết trạng thái commit mới
 
-Code hiện tại dùng forward hook để lấy C2.
+Tôi đánh giá commit mới **đã giải quyết được 2 blocker lớn nhất của commit cũ**:
 
-Nó chưa phải kiến trúc đẹp nhất, nhưng:
-
-> **không cần refactor ngay.**
-
-Với feasibility:
+### Đã fix
 
 ```text
-RT-DETR
- ↓
-hook C2
- ↓
-P2 Head
+❌ P2 không được train
+        ↓
+✅ Dedicated P2 training loop
 ```
 
-là đủ.
+và:
 
-Sau khi chứng minh Proposed hoạt động, mới refactor thành native forward wrapper nếu cần.
+```text
+❌ Transformer với 130K–500K tokens
+        ↓
+✅ Lightweight dense CNN head
+```
+
+Đồng thời:
+
+```text
+❌ Joint native + P2 training
+        ↓
+✅ Frozen native RT-DETR + L_P2
+```
+
+Đây là một thay đổi **đúng hướng**.
 
 ---
 
-# 15. Không cần tạo thêm metrics/protocol/threshold system
+## Nhưng trước khi chạy server, tôi sẽ sửa 3 thứ này trước
 
-Điểm này **giữ nguyên như cũ**.
+### **P0-1 — Fix C2 extraction**
 
-Không tạo:
+Đồng bộ `extract_c2_backbone()` với Ultralytics `f` graph.
 
-```text
-metrics.py
-threshold.py
-protocol.py
-```
+### **P0-2 — Fix positive assignment**
 
-riêng cho Proposed.
+Không dùng toàn bộ bbox làm positive.
 
-Proposed phải dùng:
+Dùng **center/nearest-grid assignment** để mỗi GT có positive anchor/location rõ ràng.
 
-```text
-same dataset
-same test split
-same image size
-same confidence protocol
-same COCO evaluator
-same scale definitions
-same reporting
-```
+### **P0-3 — Verify preprocessing**
 
-để comparison:
+Đảm bảo:
 
 ```text
-RT-DETR-L
-vs
-RT-DETR-L + P2
+training P2
+       ↕
+baseline RT-DETR inference
 ```
 
-thực sự fair.
+dùng cùng geometry/preprocessing semantics.
 
 ---
 
-# 16. Không cần Stage 1 → Stage 2 nữa
+### Sau đó mới chạy smoke test
 
-Với thiết kế Frozen RT-DETR:
+Không train 150 epochs ngay.
 
-### Không cần:
-
-```text
-Stage 1:
-freeze backbone / train detector
-
-Stage 2:
-unfreeze / joint training
-```
-
-Mà chỉ:
+Test:
 
 ```text
-Step 1
-Load fully-trained HRP4K RT-DETR-L
-
-Step 2
-Freeze RT-DETR
-
-Step 3
-Attach lightweight P2 head
-
-Step 4
-Train P2 head
-
-Step 5
-Fuse predictions
-
-Step 6
-Evaluate
+1 batch
+↓
+C2 shape
+↓
+P2 shape
+↓
+cls shape
+↓
+box shape
+↓
+loss finite
+↓
+backward
+↓
+P2 grad != None
+↓
+RT-DETR grad == None
+↓
+optimizer.step()
 ```
 
-Đây là feasibility experiment rất sạch.
+Nếu pass toàn bộ thì mới chạy **1 epoch/short feasibility @ 2K**.
 
----
-
-# Kiến trúc cuối cùng tôi khuyến nghị
-
-```text
-                 HRP4K RT-DETR-L
-                  pretrained
-                      │
-                 ┌────┴────┐
-                 │ FROZEN  │
-                 └────┬────┘
-                      │
-          ┌───────────┴───────────┐
-          │                       │
-      P3/P4/P5                   C2
-          │                       │
-          ▼                       ▼
-   Native RT-DETR          Lightweight P2
-      Decoder                  Adapter
-          │                       │
-          ▼                       ▼
- Native Predictions          P2 Dense Head
-          │                       │
-          │                       ▼
-          │                  P2 Predictions
-          │                       │
-          └───────────┬───────────┘
-                      ▼
-                Concatenate
-                      ▼
-                Class-aware NMS
-                      ▼
-                 Final Detections
-```
-
-Và training:
-
-```text
-                 Frozen RT-DETR
-                      │
-                     C2
-                      │
-                      ▼
-              Lightweight P2 Head
-                      │
-                      ▼
-                    L_P2
-                      │
-                      ▼
-                   Backward
-                      │
-                      ▼
-             ONLY P2 parameters
-```
-
----
-
-## Thứ tự sửa code
-
-Tôi sẽ ưu tiên chính xác theo thứ tự này:
-
-| Priority | Vấn đề                     | Cách sửa                                       |
-| -------- | -------------------------- | ---------------------------------------------- |
-| **P0**   | P2 không được train        | Tách training loop cho P2                      |
-| **P0**   | Transformer P2 quá nặng    | Bỏ Query Transformer → Lightweight Dense P2    |
-| **P0**   | Generic `rtdetr-l.pt`      | Load **HRP4K 2K baseline checkpoint**          |
-| **P0**   | Joint loss không hoạt động | Bỏ `L_native`, chỉ train `L_P2`                |
-| **P1**   | Checkpoint semantics       | Save P2 + optimizer + base checkpoint metadata |
-| **P1**   | Inference                  | Native + P2 → concat → NMS                     |
-| **P1**   | `np` missing               | `import numpy as np`                           |
-| **P2**   | C2 hook                    | Giữ nguyên cho feasibility                     |
-| **P2**   | Metrics/config/protocol    | **Không sửa**, reuse baseline                  |
-
-### Và quan trọng nhất
-
-Experiment đầu tiên **không cần 4K**.
-
-Chạy:
-
-```text
-RT-DETR-L HRP4K @ 2K
-       ↓
-     frozen
-       ↓
-Lightweight P2 Head
-       ↓
-short training
-       ↓
-compare AP50 / AP50:95
-       ↓
-Ultra-Fine / Small / Medium / Large
-```
-
-Nếu kết quả cho thấy:
-
-```text
-Overall AP ↑
-Ultra-Fine AP ↑
-Small AP ↑
-```
-
-mà không tạo FP quá lớn, lúc đó mới đáng đầu tư tiếp vào **P2 architecture / ablation / 4K**.
-
-Đây cũng là phiên bản có câu chuyện research sạch hơn rất nhiều: **không cố thay thế RT-DETR, mà kiểm tra liệu một high-resolution auxiliary detection path từ C2 có thể bổ sung thông tin scale cực nhỏ bị mất trong native P3/P4/P5 hay không.**
+Commit hiện tại đã ở mức **gần có thể chạy feasibility**, nhưng tôi **chưa khuyến nghị server train dài ngay** vì `extract_c2_backbone()` và target assignment vẫn có thể làm kết quả sai hoặc training behavior không đúng.

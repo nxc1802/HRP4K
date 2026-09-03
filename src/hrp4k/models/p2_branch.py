@@ -72,9 +72,12 @@ def find_c2_backbone_stage(
                 stride_h = input_size[0] // x.shape[-2]
                 stride_w = input_size[1] // x.shape[-1]
                 # Stride 4 stage in early backbone (before downsampling to stride 8 / Stage 3)
-                if stride_h == 4 and stride_w == 4 and i < 6:
+                if stride_h == 4 and stride_w == 4:
                     c2_idx = i
                     c2_channels = x.shape[1]
+                elif stride_h > 4 and c2_idx is not None:
+                    # Reached Stage 3 (stride 8+), so c2_idx is the final semantic stage of C2
+                    break
 
     if was_training:
         det_model.train()
@@ -88,12 +91,21 @@ def find_c2_backbone_stage(
 
 
 def extract_c2_backbone(model: nn.Module, x: torch.Tensor, c2_layer_idx: int = 1) -> torch.Tensor:
-    """Direct fast extraction of C2 feature map from the backbone without running the full decoder."""
-    _, sub_modules, _ = _unwrap_sequential(model)
+    """Direct extraction of C2 feature map from the backbone respecting Ultralytics f-graph connections."""
+    _, sub_modules, save_indices = _unwrap_sequential(model)
     curr = x
-    for i in range(c2_layer_idx + 1):
-        m = sub_modules[i]
+    y: list[Any] = []
+
+    for i, m in enumerate(sub_modules[: c2_layer_idx + 1]):
+        f = getattr(m, "f", -1)
+        if f != -1:
+            if isinstance(f, int):
+                curr = y[f]
+            else:
+                curr = [curr if j == -1 else y[j] for j in f]
         curr = m(curr)
+        y.append(curr if (i in save_indices or i == c2_layer_idx) else None)
+
     return curr
 
 
