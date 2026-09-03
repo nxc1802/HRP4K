@@ -145,12 +145,18 @@ class RTDETRP2Adapter(DetectorAdapter):
     def warmup(self, image: np.ndarray, image_size: int) -> None:
         self.predict(image, image_size, 0.01)
 
-    def predict(self, image: np.ndarray, image_size: int, confidence: float) -> list[Detection]:
+    def predict(
+        self,
+        image: np.ndarray,
+        image_size: int,
+        confidence: float,
+        rect: bool = False,
+    ) -> list[Detection]:
         h_orig, w_orig = image.shape[:2]
         from ultralytics.data.augment import LetterBox
         from ultralytics.utils.ops import scale_boxes
 
-        letterbox = LetterBox(image_size, auto=True, stride=32)
+        letterbox = LetterBox(image_size, auto=True, stride=32) if rect else LetterBox(image_size, auto=False, scale_fill=True)
         lb_img = letterbox(image=image)
         h_lb, w_lb = lb_img.shape[:2]
 
@@ -178,7 +184,12 @@ class RTDETRP2Adapter(DetectorAdapter):
             filtered = tensor_preds[mask]
             # Unscale boxes from letterbox canvas to original image canvas
             boxes_lb = filtered[:, :4].clone()
-            unscaled_boxes = scale_boxes((h_lb, w_lb), boxes_lb, (h_orig, w_orig)).cpu().numpy()
+            if rect:
+                unscaled_boxes = scale_boxes((h_lb, w_lb), boxes_lb, (h_orig, w_orig)).cpu().numpy()
+            else:
+                unscaled_boxes = boxes_lb.cpu().numpy()
+                unscaled_boxes[:, [0, 2]] = unscaled_boxes[:, [0, 2]] / float(w_lb) * float(w_orig)
+                unscaled_boxes[:, [1, 3]] = unscaled_boxes[:, [1, 3]] / float(h_lb) * float(h_orig)
             scores = filtered[:, 4].cpu().numpy()
 
             for i in range(len(scores)):

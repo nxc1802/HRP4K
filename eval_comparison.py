@@ -68,7 +68,8 @@ def run_comparison(
     hf_upload: bool = False,
     hf_repo: str = "Cuong2004/HRP4K",
     hf_token: str | None = None,
-) -> dict:
+    rect: bool = False,
+) -> dict[str, Any]:
     ckpt_path = Path(checkpoint_path).resolve()
     if not ckpt_path.is_file():
         raise FileNotFoundError(f"Checkpoint not found: {ckpt_path}")
@@ -134,7 +135,7 @@ def run_comparison(
     fused_predictions = []
     latencies = []
 
-    lb = LetterBox(image_size, auto=True, stride=32)
+    lb = LetterBox(image_size, auto=True, stride=32) if rect else LetterBox(image_size, auto=False, scale_fill=True)
 
     for idx, im in enumerate(selected_images):
         im_id = int(im["id"])
@@ -177,7 +178,12 @@ def run_comparison(
             if not m.any():
                 return []
             filt = preds[m]
-            unscaled = scale_boxes((h_lb, w_lb), filt[:, :4].clone(), (h_orig, w_orig)).cpu().numpy()
+            if rect:
+                unscaled = scale_boxes((h_lb, w_lb), filt[:, :4].clone(), (h_orig, w_orig)).cpu().numpy()
+            else:
+                unscaled = filt[:, :4].clone().cpu().numpy()
+                unscaled[:, [0, 2]] = unscaled[:, [0, 2]] / float(w_lb) * float(w_orig)
+                unscaled[:, [1, 3]] = unscaled[:, [1, 3]] / float(h_lb) * float(h_orig)
             sc = filt[:, 4].cpu().numpy()
             dets = []
             for i in range(len(sc)):
@@ -403,6 +409,7 @@ def main() -> int:
     parser.add_argument("--hf-upload", action="store_true", help="Upload comparison metrics to Hugging Face")
     parser.add_argument("--hf-repo", default="Cuong2004/HRP4K", help="Target HF repo")
     parser.add_argument("--hf-token", help="Hugging Face write access token")
+    parser.add_argument("--rect", action="store_true", help="Use rectangular letterbox (1088x1920) instead of canonical square (1920x1920 scale_fill=True)")
     args = parser.parse_args()
 
     run_comparison(
@@ -417,6 +424,7 @@ def main() -> int:
         hf_upload=args.hf_upload,
         hf_repo=args.hf_repo,
         hf_token=args.hf_token,
+        rect=args.rect,
     )
     return 0
 
