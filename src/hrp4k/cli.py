@@ -56,6 +56,8 @@ def build_parser() -> argparse.ArgumentParser:
     exp.add_argument("--device", help="CUDA device index or 'cpu'")
     exp.add_argument("--batch", type=int, help="Override physical batch size (e.g. --batch 16 on 100GB GPU)")
     exp.add_argument("--accumulation", type=int, help="Override gradient accumulation steps (default: auto)")
+    exp.add_argument("--epochs", type=int, help="Override number of training epochs (e.g. --epochs 50)")
+    exp.add_argument("--patience", type=int, help="Override early stopping patience (e.g. --patience 10)")
     exp.add_argument("--dry-run", action="store_true", help="Show resolved config without executing")
     exp.add_argument("--frozen-checkpoint", type=_path, help="Frozen checkpoint for slicing experiments")
     exp.add_argument("--hf-repo", help="Target Hugging Face repository")
@@ -267,6 +269,10 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 config.accumulation = max(1, config.effective_batch // config.batch)
             config.effective_batch = config.batch * config.accumulation
+        if getattr(args, "epochs", None) is not None:
+            config.epochs = args.epochs
+        if getattr(args, "patience", None) is not None:
+            config.patience = args.patience
 
         # Ensure dataset is ready
         dataset_yaml = args.dataset

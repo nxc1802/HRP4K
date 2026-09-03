@@ -212,6 +212,7 @@ def train_rtdetr_p2(
     image_size: int | tuple[int, int] | str = 1920,
     batch: int = 16,
     accumulation: int = 1,
+    patience: int = 10,
     device: str | None = None,
     allow_full: bool = False,
     experiment: dict[str, Any] | None = None,
@@ -304,6 +305,7 @@ def train_rtdetr_p2(
     weights_dir = run_dir / "weights"
     weights_dir.mkdir(parents=True, exist_ok=True)
     best_p2_path = weights_dir / "best_p2.pt"
+    patience_counter = 0
 
     for epoch in range(actual_epochs):
         p2_model.p2_branch.train()
@@ -351,9 +353,10 @@ def train_rtdetr_p2(
         mean_loss = float(np.mean(epoch_losses)) if epoch_losses else 0.0
         print(f"Epoch {epoch + 1}/{actual_epochs} - Mean P2 Loss: {mean_loss:.4f}")
 
-        # Save checkpoint
-        if mean_loss < best_loss or epoch == actual_epochs - 1:
+        # Save checkpoint & track early stopping patience
+        if mean_loss < best_loss - 1e-4:
             best_loss = mean_loss
+            patience_counter = 0
             torch.save(
                 {
                     "p2_state_dict": p2_model.p2_head.state_dict(),
@@ -367,6 +370,12 @@ def train_rtdetr_p2(
                 },
                 str(best_p2_path),
             )
+        else:
+            patience_counter += 1
+            if not smoke and patience > 0 and patience_counter >= patience:
+                print(f"\n[Early Stopping] No improvement in loss for {patience} consecutive epochs (best loss: {best_loss:.4f}).")
+                print(f"[Early Stopping] Stopping training early at epoch {epoch + 1}/{actual_epochs}.")
+                break
 
         if syncer.enabled:
             syncer.sync_epoch(
@@ -536,6 +545,7 @@ def run_proposed_experiment(
         image_size=config.imgsz,
         batch=config.batch,
         accumulation=config.accumulation,
+        patience=config.patience,
         device=None,
         allow_full=True,
         experiment={"name": experiment_name, "id": exp_id},
