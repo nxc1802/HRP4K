@@ -32,14 +32,15 @@ EXPERIMENT_NAME = "rtdetr-l-proposed-p2-2k"
 BASE_WEIGHTS = "outputs/experiments/rtdetr-l-resolution-2k/weights/best.pt"
 
 # Có tiếp tục train P2 cũ hay train P2 mới từ đầu?
-#   - False (Khuyến nghị): Ghép P2 head MỚI vào base model fine-tune, freeze base và train P2 từ Epoch 1
-#   - True: Tiếp tục checkpoint P2 dang dở trước đó
-RESUME_P2 = False
+#   - False: Ghép P2 head MỚI vào base model fine-tune, freeze base và train P2 từ Epoch 1
+#   - True (Resume): Tiếp tục checkpoint P2 hiện tại (từ Epoch 18 trở đi)
+RESUME_P2 = True
+P2_CHECKPOINT = "outputs/experiments/rtdetr-l-proposed-p2-2k/weights/best_p2.pt"
 
 # Hyperparameters (dùng khi MODE = "train"):
 BATCH_SIZE = 16       # Full batch 16 cho GPU 80GB-95GB
-EPOCHS = 30           # Số epoch tối đa (30-50 là tối ưu cho frozen backbone)
-PATIENCE = 5          # Dừng sớm nếu 5 epoch không giảm loss
+EPOCHS = 35           # Huấn luyện tiếp đến epoch 35 (hoặc 50)
+PATIENCE = 7          # Dừng sớm nếu 7 epoch không giảm loss
 DEVICE = "0"          # CUDA device index ("0", "1", ...) hoặc "cpu"
 
 # Đường dẫn checkpoint khi MODE = "eval", "compare", hoặc "inspect":
@@ -70,6 +71,8 @@ def build_command() -> list[str]:
         ]
         if RESUME_P2:
             cmd.append("--resume")
+            if P2_CHECKPOINT and Path(P2_CHECKPOINT).is_file():
+                cmd.extend(["--p2-checkpoint", str(P2_CHECKPOINT)])
         if ENABLE_HF_SYNC and HF_TOKEN:
             cmd.extend(["--hf-token", HF_TOKEN, "--hf-repo", HF_REPO])
         else:

@@ -546,6 +546,7 @@ def run_proposed_experiment(
     hf_sync: bool = True,
     dry_run: bool = False,
     resume: bool = False,
+    p2_checkpoint: Path | str | None = None,
 ) -> dict[str, Any]:
     """Execute a full proposed method feasibility experiment."""
     experiment_name = config.name
@@ -592,25 +593,29 @@ def run_proposed_experiment(
                 print(f"[Base Model Download Warning] Falling back to 'rtdetr-l.pt'")
                 base_weights_path = Path("rtdetr-l.pt")
 
-    # 2. Check P2 Resume State (Only if resume=True requested)
-    p2_checkpoint = None
-    if resume:
+    # 2. Check P2 Resume State (Only if resume=True or p2_checkpoint requested)
+    resolved_p2_ckpt = None
+    if p2_checkpoint and Path(p2_checkpoint).is_file():
+        resume = True
+        resolved_p2_ckpt = str(p2_checkpoint)
+        print(f"[Resume P2] Explicitly resuming from specified checkpoint: {resolved_p2_ckpt}")
+    elif resume:
         storage = ExperimentStorage(exp_id, repo_id=hf_repo, token=hf_token)
         state = storage.check_experiment_exists()
         if state.exists and state.checkpoint_path:
             print(f"[Resume P2] Found existing P2 experiment on HF (epoch {state.latest_epoch}). Downloading checkpoint...")
             local_ckpt = storage.download_checkpoint(state.latest_epoch)
             if local_ckpt:
-                p2_checkpoint = str(local_ckpt)
-        if not p2_checkpoint:
+                resolved_p2_ckpt = str(local_ckpt)
+        if not resolved_p2_ckpt:
             for local_cand in [
                 run_dir / "weights" / "best_p2.pt",
                 run_dir / "weights" / "last.pt",
                 run_dir / "weights" / "best.pt",
             ]:
                 if local_cand.is_file():
-                    p2_checkpoint = str(local_cand)
-                    print(f"[Resume P2] Resuming from local checkpoint: {p2_checkpoint}")
+                    resolved_p2_ckpt = str(local_cand)
+                    print(f"[Resume P2] Resuming from local checkpoint: {resolved_p2_ckpt}")
                     break
     else:
         print(f"\n[Proposed Mode] Starting FRESH training of P2 Head on top of Frozen Fine-Tuned RT-DETR: {base_weights_path}")
@@ -644,7 +649,7 @@ def run_proposed_experiment(
         seed=config.seed,
         eval_confidence=config.confidence,
         resume=resume,
-        p2_checkpoint=p2_checkpoint,
+        p2_checkpoint=resolved_p2_ckpt,
         rect=config.rect,
         hf_repo=hf_repo,
         hf_token=hf_token,
