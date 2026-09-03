@@ -155,7 +155,9 @@ def run_comparison(
         lb_img = lb(image=image)
         h_lb, w_lb = lb_img.shape[:2]
 
-        t = torch.from_numpy(lb_img).permute(2, 0, 1).unsqueeze(0).float() / 255.0
+        # Convert BGR to RGB (matching Ultralytics YOLODataset Format transform)
+        rgb_img = lb_img[..., ::-1].copy()
+        t = torch.from_numpy(rgb_img).permute(2, 0, 1).unsqueeze(0).float() / 255.0
         t = t.to(target_device)
 
         t0 = time.perf_counter()

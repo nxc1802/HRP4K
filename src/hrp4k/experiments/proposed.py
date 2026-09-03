@@ -154,7 +154,9 @@ class RTDETRP2Adapter(DetectorAdapter):
         lb_img = letterbox(image=image)
         h_lb, w_lb = lb_img.shape[:2]
 
-        tensor = torch.from_numpy(lb_img).permute(2, 0, 1).unsqueeze(0).float() / 255.0
+        # Convert BGR to RGB (matching Ultralytics YOLODataset Format transform)
+        rgb_img = lb_img[..., ::-1].copy()
+        tensor = torch.from_numpy(rgb_img).permute(2, 0, 1).unsqueeze(0).float() / 255.0
         tensor = tensor.to(self.device)
         if self.precision == "fp16" and self.device != "cpu":
             tensor = tensor.half()
