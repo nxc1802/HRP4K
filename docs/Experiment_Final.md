@@ -75,9 +75,9 @@
 
 | Configuration | AP<sub>50</sub> | AP<sub>75</sub> | AP<sub>50:95</sub> | Overall Recall (Academic) | Recall @0.25 (Operational) | Prec @0.25 | F1 @0.25 | FPPI @0.25 | Hugging Face File |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| **P2-Only Head** ($stride=4$) | 10.23% | 3.46% | 4.60% | 59.72% | 8.36% | 36.15% | 13.58% | **0.1511** | [📄 Metrics](https://huggingface.co/datasets/Cuong2004/HRP4K/blob/main/experiments/9b68a1164e96/test/test_metrics_p2_only.json) |
-| **Native RT-DETR-L** (Frozen 2K) | 56.97% | **33.81%** | **33.08%** | 88.82% | 66.99% | 39.94% | 50.04% | 1.0311 | [📄 Metrics](https://huggingface.co/datasets/Cuong2004/HRP4K/blob/main/experiments/9b68a1164e96/test/test_metrics_native_only.json) |
-| **Fused (Proposed Method)** | **57.60%** | 33.17% | 32.71% | **89.36%** | **67.75%** | **41.68%** | **51.61%** | **0.9700** | [📄 Metrics](https://huggingface.co/datasets/Cuong2004/HRP4K/blob/main/experiments/9b68a1164e96/test/test_metrics_fused.json) |
+| **P2-Only Head** ($stride=4$) | 4.93% | 0.45% | 1.66% | 41.69% | 3.58% | 32.35% | 6.45% | **0.0767** | [📄 Metrics](https://huggingface.co/datasets/Cuong2004/HRP4K/blob/main/experiments/9b68a1164e96/test/test_metrics_p2_only.json) |
+| **Native RT-DETR-L** (Frozen 2K) | 62.49% | **39.33%** | **37.56%** | **91.10%** | **76.22%** | 34.16% | 47.18% | 1.5033 | [📄 Metrics](https://huggingface.co/datasets/Cuong2004/HRP4K/blob/main/experiments/9b68a1164e96/test/test_metrics_native_only.json) |
+| **Fused (Proposed Method)** | **62.51%** | 38.19% | 36.89% | 90.99% | 76.00% | **35.43%** | **48.33%** | **1.4178** | [📄 Metrics](https://huggingface.co/datasets/Cuong2004/HRP4K/blob/main/experiments/9b68a1164e96/test/test_metrics_fused.json) |
 
 ---
 
@@ -85,10 +85,10 @@
 
 | Pothole Scale Category | Ground Truth Count | P2-Only Recall | Native Recall | **Fused Recall (Proposed)** | P2-Only AP<sub>50</sub> | Native AP<sub>50</sub> | Fused AP<sub>50</sub> |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Ultra-fine ($S < 32^2$)** | **472** | 65.89% | 83.90% | **86.65%** *(+2.75%)* | 6.38% | 35.80% | 35.02% |
-| **Fine ($32^2 \le S < 96^2$)** | 169 | 48.52% | **86.98%** | 86.39% | 0.22% | **37.43%** | 34.85% |
-| **Medium ($96^2 \le S < 144^2$)** | 147 | 24.49% | **87.07%** | 85.71% | 0.02% | **32.81%** | 30.26% |
-| **Large ($S \ge 144^2$)** | 133 | 3.01% | **73.68%** | 68.42% | 0.00% | **22.05%** | 19.51% |
+| **Ultra-fine ($S < 32^2$)** | **472** | 70.34% | 91.10% | **92.80%** *(+1.70%)* | 8.52% | 50.36% | **50.72%** *(+0.36%)* |
+| **Fine ($32^2 \le S < 96^2$)** | 169 | 27.22% | **92.90%** | 91.72% | 0.07% | **56.14%** | 55.92% |
+| **Medium ($96^2 \le S < 144^2$)** | 147 | 4.08% | **95.24%** | 94.56% | 0.00% | **47.86%** | 47.47% |
+| **Large ($S \ge 144^2$)** | 133 | 0.00% | **84.21%** | 79.70% | 0.00% | **27.98%** | 27.38% |
 
 ---
 
