@@ -100,8 +100,8 @@ class DenseP2Loss(nn.Module):
                 gy2 = cy + bh / 2.0
 
                 # Nearest P2 grid cell center
-                cx_idx = int(torch.clamp(torch.round(torch.tensor(cx / stride - 0.5)), 0, w - 1).item())
-                cy_idx = int(torch.clamp(torch.round(torch.tensor(cy / stride - 0.5)), 0, h - 1).item())
+                cx_idx = min(max(0, int(cx // stride)), w - 1)
+                cy_idx = min(max(0, int(cy // stride)), h - 1)
 
                 c_idx = int(torch.clamp(b_gt_cls[idx], 0, self.nc - 1).item())
                 target_cls[b, c_idx, cy_idx, cx_idx] = 1.0
@@ -116,36 +116,39 @@ class DenseP2Loss(nn.Module):
                 target_boxes_ltrb[b, 2, cy_idx, cx_idx] = max(0.0, gx2 - grid_cx)
                 target_boxes_ltrb[b, 3, cy_idx, cx_idx] = max(0.0, gy2 - grid_cy)
 
-                # Reconstruct valid positive box for GIoU
-                px1_c = pred_x1[b, cy_idx, cx_idx]
-                py1_c = pred_y1[b, cy_idx, cx_idx]
-                px2_c = pred_x2[b, cy_idx, cx_idx]
-                py2_c = pred_y2[b, cy_idx, cx_idx]
-
-                p_box = torch.stack([
-                    torch.min(px1_c, px2_c),
-                    torch.min(py1_c, py2_c),
-                    torch.max(px1_c, px2_c),
-                    torch.max(py1_c, py2_c),
-                ], dim=-1)
-                t_box = torch.tensor([gx1, gy1, gx2, gy2], device=device, dtype=p_box.dtype)
-
-                pred_boxes_xyxy_list.append(p_box.unsqueeze(0))
-                target_boxes_xyxy_list.append(t_box.unsqueeze(0))
-
         num_pos = max(1.0, float(pos_mask.sum().item()))
 
         # 1. Classification Loss (BCE with Logits)
         loss_cls = F.binary_cross_entropy_with_logits(cls_logits, target_cls, reduction="sum") / num_pos
 
-        # 2. Box L1 and GIoU Loss
-        if pos_mask.any() and pred_boxes_xyxy_list:
+        # 2. Box L1 and GIoU Loss (vectorized directly over assigned positive cells)
+        if pos_mask.any():
             pred_ltrb_pos = box_offsets.permute(0, 2, 3, 1)[pos_mask]
             target_ltrb_pos = target_boxes_ltrb.permute(0, 2, 3, 1)[pos_mask]
             loss_box = F.l1_loss(pred_ltrb_pos, target_ltrb_pos, reduction="sum") / num_pos
 
-            p_xyxy = torch.cat(pred_boxes_xyxy_list, dim=0)
-            t_xyxy = torch.cat(target_boxes_xyxy_list, dim=0)
+            grid_x_pos = grid_x.unsqueeze(0).expand(bs, -1, -1)[pos_mask]
+            grid_y_pos = grid_y.unsqueeze(0).expand(bs, -1, -1)[pos_mask]
+
+            t_xyxy = torch.stack([
+                grid_x_pos - target_ltrb_pos[:, 0],
+                grid_y_pos - target_ltrb_pos[:, 1],
+                grid_x_pos + target_ltrb_pos[:, 2],
+                grid_y_pos + target_ltrb_pos[:, 3],
+            ], dim=-1)
+
+            px1_raw = grid_x_pos - pred_ltrb_pos[:, 0]
+            py1_raw = grid_y_pos - pred_ltrb_pos[:, 1]
+            px2_raw = grid_x_pos + pred_ltrb_pos[:, 2]
+            py2_raw = grid_y_pos + pred_ltrb_pos[:, 3]
+
+            p_xyxy = torch.stack([
+                torch.min(px1_raw, px2_raw),
+                torch.min(py1_raw, py2_raw),
+                torch.max(px1_raw, px2_raw),
+                torch.max(py1_raw, py2_raw),
+            ], dim=-1)
+
             giou = ops.generalized_box_iou(p_xyxy, t_xyxy)
             loss_giou = (1.0 - torch.diag(giou)).sum() / num_pos
         else:
@@ -410,8 +413,21 @@ class RTDETRP2Model(nn.Module):
         else:
             native_formatted = native_out
 
+        # Convert native predictions from normalized cxcywh to pixel xyxy in canvas coordinates [0, W] x [0, H]
+        h_canvas, w_canvas = float(x.shape[-2]), float(x.shape[-1])
+        ncx = native_formatted[..., 0]
+        ncy = native_formatted[..., 1]
+        nw = native_formatted[..., 2]
+        nh = native_formatted[..., 3]
+        x1 = torch.clamp((ncx - nw / 2.0) * w_canvas, min=0.0, max=w_canvas)
+        y1 = torch.clamp((ncy - nh / 2.0) * h_canvas, min=0.0, max=h_canvas)
+        x2 = torch.clamp((ncx + nw / 2.0) * w_canvas, min=0.0, max=w_canvas)
+        y2 = torch.clamp((ncy + nh / 2.0) * h_canvas, min=0.0, max=h_canvas)
+        native_boxes = torch.stack([x1, y1, x2, y2], dim=-1)
+        native_converted = torch.cat([native_boxes, native_formatted[..., 4:]], dim=-1)
+
         return {
-            "native_preds": native_formatted,
+            "native_preds": native_converted,
             "p2_preds": p2_formatted,
             "p2_raw": (cls_logits, box_offsets),
             "native_raw": native_out,
