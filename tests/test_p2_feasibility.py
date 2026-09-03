@@ -180,6 +180,43 @@ class TestP2Feasibility(unittest.TestCase):
         self.assertEqual(res["optimizer_step"], "passed")
         self.assertEqual(res["letterbox_unscaling"], "passed")
 
+    def test_one_batch_overfit(self):
+        """Verify 1-batch overfit: P2 loss strictly decreases, native frozen, P2 trainable."""
+        if self.native_rtdetr is None:
+            self.skipTest("rtdetr-l.pt not available locally")
+        model = RTDETRP2Model(native_model=self.native_rtdetr, nc=1, freeze_native=True)
+        model.p2_branch.train()
+        model.p2_head.train()
+
+        torch.manual_seed(42)
+        train_input = torch.randn(1, 3, 640, 640)
+        batch = {
+            "img": train_input,
+            "cls": torch.tensor([0, 0]),
+            "bboxes": torch.tensor([[0.5, 0.5, 0.05, 0.05], [0.25, 0.25, 0.03, 0.03]]),
+            "batch_idx": torch.tensor([0, 0]),
+        }
+
+        p2_params = list(model.p2_branch.parameters()) + list(model.p2_head.parameters())
+        optimizer = torch.optim.AdamW(p2_params, lr=0.005, weight_decay=0.0)
+
+        initial_loss = None
+        final_loss = None
+        for step in range(15):
+            optimizer.zero_grad()
+            loss, _ = model.loss(batch)
+            if step == 0:
+                initial_loss = loss.item()
+            loss.backward()
+            optimizer.step()
+            final_loss = loss.item()
+
+        self.assertLess(final_loss, initial_loss)
+        native_grads = [p.grad for p in model.native_model.parameters() if p.grad is not None]
+        self.assertEqual(len(native_grads), 0, "Native RT-DETR parameters must be strictly frozen")
+        self.assertIsNotNone(model.p2_branch.adapter.conv1x1.weight.grad)
+        self.assertIsNotNone(model.p2_head.cls_conv[-1].weight.grad)
+
 
 if __name__ == "__main__":
     unittest.main()
