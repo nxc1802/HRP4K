@@ -72,7 +72,13 @@ def run_comparison(
     if not ckpt_path.is_file():
         raise FileNotFoundError(f"Checkpoint not found: {ckpt_path}")
 
-    target_device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+    d_str = str(device).strip() if device is not None else ""
+    if d_str.isdigit():
+        target_device = f"cuda:{d_str}"
+    elif d_str:
+        target_device = d_str
+    else:
+        target_device = "cuda:0" if torch.cuda.is_available() else "cpu"
     out_dir = Path(output_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -181,19 +187,19 @@ def run_comparison(
         for d in p2_dets:
             p2_predictions.append({
                 "image_id": im_id, "category_id": 0,
-                "bbox": [d.bbox[0], d.bbox[1], d.bbox[2] - d.bbox[0], d.bbox[3] - d.bbox[1]],
+                "bbox": [d.xyxy[0], d.xyxy[1], d.xyxy[2] - d.xyxy[0], d.xyxy[3] - d.xyxy[1]],
                 "score": d.score,
             })
         for d in nat_dets:
             native_predictions.append({
                 "image_id": im_id, "category_id": 0,
-                "bbox": [d.bbox[0], d.bbox[1], d.bbox[2] - d.bbox[0], d.bbox[3] - d.bbox[1]],
+                "bbox": [d.xyxy[0], d.xyxy[1], d.xyxy[2] - d.xyxy[0], d.xyxy[3] - d.xyxy[1]],
                 "score": d.score,
             })
         for d in fused_dets:
             fused_predictions.append({
                 "image_id": im_id, "category_id": 0,
-                "bbox": [d.bbox[0], d.bbox[1], d.bbox[2] - d.bbox[0], d.bbox[3] - d.bbox[1]],
+                "bbox": [d.xyxy[0], d.xyxy[1], d.xyxy[2] - d.xyxy[0], d.xyxy[3] - d.xyxy[1]],
                 "score": d.score,
             })
 

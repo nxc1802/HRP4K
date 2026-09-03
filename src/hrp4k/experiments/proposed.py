@@ -98,7 +98,13 @@ class RTDETRP2Adapter(DetectorAdapter):
     ) -> None:
         self.weights = Path(weights) if isinstance(weights, str) else weights
         self.category_id = category_id
-        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        dev_str = str(device).strip() if device is not None else ""
+        if dev_str.isdigit():
+            self.device = f"cuda:{dev_str}"
+        elif dev_str:
+            self.device = dev_str
+        else:
+            self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
         self.name = name
         self.precision = precision
         self.fusion_iou_threshold = fusion_iou_threshold
