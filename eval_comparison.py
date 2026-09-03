@@ -58,12 +58,15 @@ def evaluate_coco_subset(gt_dict: dict, pred_list: list[dict], img_ids: list[int
 def run_comparison(
     checkpoint_path: str | Path,
     data_dir: str | Path = "HRP4K",
-    weights: str | Path = "rtdetr-l.pt",
+    weights: str | Path = "outputs/experiments/rtdetr-l-resolution-2k/weights/best.pt",
     image_size: int = 1920,
     confidence: float = 0.001,
     num_images: int = 0,  # 0 means all
     device: str | None = None,
     output_dir: str | Path = "outputs/evaluation_comparison",
+    hf_upload: bool = False,
+    hf_repo: str = "Cuong2004/HRP4K",
+    hf_token: str | None = None,
 ) -> dict:
     ckpt_path = Path(checkpoint_path).resolve()
     if not ckpt_path.is_file():
