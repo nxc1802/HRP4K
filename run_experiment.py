@@ -17,16 +17,24 @@ from pathlib import Path
 # CONFIGURATION — CHỈNH SỬA THÔNG SỐ TẠI ĐÂY
 # ==============================================================================
 # Chế độ chạy:
-#   - "train"       : Chạy trọn gói (Train + Val + Test Eval + Push HF)
+#   - "train"       : Chạy trọn gói (Train P2-only + Val + Test Eval + Push HF)
 #   - "eval"        : Chỉ đánh giá checkpoint đã train trên tập test
 #   - "compare"     : Đánh giá và so sánh song song P2-Only vs Native vs Fusion
 #   - "inspect"     : Chỉ đọc và in metadata của checkpoint
 #   - "calibration" : Chạy chẩn đoán score calibration [0.001, 0.01, 0.05, 0.10, 0.25]
-MODE = "compare"
+MODE = "train"
 
 # Tên thí nghiệm (dùng khi MODE = "train"):
 # Options: "rtdetr-l-proposed-p2-2k", "rtdetr-l-proposed-p2-640", "rtdetr-l-proposed-p2-4k"
 EXPERIMENT_NAME = "rtdetr-l-proposed-p2-2k"
+
+# Model Base RT-DETR đã fine-tune trên HRP4K (nếu chưa có trên máy, hệ thống tự động tải từ Hugging Face):
+BASE_WEIGHTS = "outputs/experiments/rtdetr-l-resolution-2k/weights/best.pt"
+
+# Có tiếp tục train P2 cũ hay train P2 mới từ đầu?
+#   - False (Khuyến nghị): Ghép P2 head MỚI vào base model fine-tune, freeze base và train P2 từ Epoch 1
+#   - True: Tiếp tục checkpoint P2 dang dở trước đó
+RESUME_P2 = False
 
 # Hyperparameters (dùng khi MODE = "train"):
 BATCH_SIZE = 16       # Full batch 16 cho GPU 80GB-95GB
@@ -34,9 +42,8 @@ EPOCHS = 30           # Số epoch tối đa (30-50 là tối ưu cho frozen bac
 PATIENCE = 5          # Dừng sớm nếu 5 epoch không giảm loss
 DEVICE = "0"          # CUDA device index ("0", "1", ...) hoặc "cpu"
 
-# Đường dẫn checkpoint:
+# Đường dẫn checkpoint khi MODE = "eval", "compare", hoặc "inspect":
 CHECKPOINT_PATH = "outputs/experiments/rtdetr-l-proposed-p2-2k/weights/best_p2.pt"
-BASE_WEIGHTS = "rtdetr-l.pt"  # Đổi sang đường dẫn fine-tune nếu có (ví dụ outputs/experiments/rtdetr-l-resolution-2k/weights/best.pt)
 
 # Hugging Face đồng bộ kết quả (lấy từ biến môi trường hoặc file .env):
 HF_TOKEN = os.environ.get("HF_TOKEN", "")
@@ -58,8 +65,11 @@ def build_command() -> list[str]:
             "--batch", str(BATCH_SIZE),
             "--epochs", str(EPOCHS),
             "--patience", str(PATIENCE),
+            "--weights", BASE_WEIGHTS,
             "--device", str(DEVICE),
         ]
+        if RESUME_P2:
+            cmd.append("--resume")
         if ENABLE_HF_SYNC and HF_TOKEN:
             cmd.extend(["--hf-token", HF_TOKEN, "--hf-repo", HF_REPO])
         else:

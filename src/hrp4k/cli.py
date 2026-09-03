@@ -59,6 +59,7 @@ def build_parser() -> argparse.ArgumentParser:
     exp.add_argument("--epochs", type=int, help="Override number of training epochs (e.g. --epochs 50)")
     exp.add_argument("--patience", type=int, help="Override early stopping patience (e.g. --patience 10)")
     exp.add_argument("--weights", type=_path, help="Path to base model weights (e.g. fine-tuned RT-DETR checkpoint)")
+    exp.add_argument("--resume", action="store_true", help="Resume training from previous P2 checkpoint")
     exp.add_argument("--dry-run", action="store_true", help="Show resolved config without executing")
     exp.add_argument("--frozen-checkpoint", type=_path, help="Frozen checkpoint for slicing experiments")
     exp.add_argument("--hf-repo", help="Target Hugging Face repository")
@@ -344,6 +345,7 @@ def main(argv: list[str] | None = None) -> int:
                 hf_token=args.hf_token,
                 hf_sync=not args.no_hf_sync,
                 dry_run=args.dry_run,
+                resume=getattr(args, "resume", False),
             )
             _print(result)
 

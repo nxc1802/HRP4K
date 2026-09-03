@@ -235,6 +235,7 @@ def train_rtdetr_p2(
     seed: int = 42,
     eval_confidence: float = 0.001,
     resume: bool = False,
+    p2_checkpoint: Path | str | None = None,
     rect: bool = True,
     hf_repo: str | None = None,
     hf_token: str | None = None,
@@ -286,13 +287,22 @@ def train_rtdetr_p2(
     )
     p2_model.to(target_device)
 
-    # 2. Setup Optimizer only for P2 parameters
+    # 2. Verify Parameter Freezing
+    frozen_params = sum(p.numel() for p in p2_model.native_model.parameters() if not p.requires_grad)
+    trainable_params = sum(p.numel() for p in p2_model.parameters() if p.requires_grad)
+    p2_params_count = sum(p.numel() for p in p2_model.p2_branch.parameters()) + sum(p.numel() for p in p2_model.p2_head.parameters())
+    print(f"[Architecture] Base RT-DETR Model:       {resolved_weights}")
+    print(f"[Architecture] Base Model Classes:       {getattr(native_model, 'nc', 1)} (Pothole)")
+    print(f"[Architecture] Frozen Base Parameters:   {frozen_params:,} (100% FROZEN)")
+    print(f"[Architecture] Trainable P2 Parameters: {trainable_params:,} (P2 ONLY: {p2_params_count:,})")
+
+    # 3. Setup Optimizer ONLY for P2 parameters
     p2_params = list(p2_model.p2_branch.parameters()) + list(p2_model.p2_head.parameters())
     optimizer = torch.optim.AdamW(p2_params, lr=0.0005, weight_decay=0.0001)
 
     print(f"\n[Proposed Engine] Launching Frozen RT-DETR-L + Dense P2 Head (Epochs: {actual_epochs}, Imgsz: {actual_imgsz}, Device: {target_device})")
 
-    # 3. Build Dataset & DataLoader using Ultralytics Data Loader or custom loader
+    # 4. Build Dataset & DataLoader using Ultralytics Data Loader or custom loader
     from ultralytics.data import build_dataloader, build_yolo_dataset
     from ultralytics.cfg import get_cfg
     from ultralytics.utils import DEFAULT_CFG
@@ -316,7 +326,6 @@ def train_rtdetr_p2(
     train_dataset = build_yolo_dataset(cfg, str(train_path), batch, data_info, mode="train", rect=rect, stride=32)
     train_loader = build_dataloader(train_dataset, batch, cfg.workers, shuffle=True, rank=-1)
 
-    # Training Loop
     # Training Loop & Resume State
     best_loss = float("inf")
     start_epoch = 0
@@ -326,13 +335,12 @@ def train_rtdetr_p2(
     last_p2_path = weights_dir / "last_p2.pt"
     patience_counter = 0
 
-    # Auto-resume if weights is a P2 checkpoint
-    resume_candidate = Path(weights) if isinstance(weights, (str, Path)) else None
-    if resume_candidate and resume_candidate.is_file():
+    # If resume is requested and P2 checkpoint provided, restore P2 weights
+    if resume and p2_checkpoint and Path(p2_checkpoint).is_file():
         try:
-            ckpt_data = torch.load(resume_candidate, map_location="cpu", weights_only=False)
+            ckpt_data = torch.load(p2_checkpoint, map_location="cpu", weights_only=False)
             if isinstance(ckpt_data, dict) and "p2_state_dict" in ckpt_data:
-                print(f"[Resume] Loading P2 checkpoint from {resume_candidate}...")
+                print(f"[Resume P2] Restoring P2 head checkpoint from {p2_checkpoint}...")
                 p2_model.p2_head.load_state_dict(ckpt_data["p2_state_dict"])
                 if "p2_adapter_state_dict" in ckpt_data:
                     p2_model.p2_branch.load_state_dict(ckpt_data["p2_adapter_state_dict"])
@@ -343,9 +351,11 @@ def train_rtdetr_p2(
                         print(f"[Resume Warning] Could not restore optimizer state: {exc}")
                 start_epoch = int(ckpt_data.get("epoch", 0))
                 best_loss = float(ckpt_data.get("mean_p2_loss", float("inf")))
-                print(f"[Resume] Resuming training from epoch {start_epoch + 1}/{actual_epochs} (current best loss: {best_loss:.4f})")
+                print(f"[Resume P2] Resuming training from epoch {start_epoch + 1}/{actual_epochs} (best loss: {best_loss:.4f})")
         except Exception as exc:
             print(f"[Resume Warning] Failed loading resume checkpoint: {exc}")
+    else:
+        print(f"[P2 Initialization] Initialized FRESH Lightweight P2 Head & Adapter (Training P2 from scratch)")
 
     for epoch in range(start_epoch, actual_epochs):
         p2_model.p2_branch.train()
@@ -540,6 +550,7 @@ def run_proposed_experiment(
     hf_token: str | None = None,
     hf_sync: bool = True,
     dry_run: bool = False,
+    resume: bool = False,
 ) -> dict[str, Any]:
     """Execute a full proposed method feasibility experiment."""
     experiment_name = config.name
@@ -561,28 +572,55 @@ def run_proposed_experiment(
     storage = ExperimentStorage(exp_id, repo_id=hf_repo, token=hf_token)
     state = storage.check_experiment_exists()
 
-    resume = False
-    weights = config.weights
-    if state.exists and state.checkpoint_path:
-        print(f"[Resume] Found existing experiment on HF (epoch {state.latest_epoch}). Downloading checkpoint...")
-        local_ckpt = storage.download_checkpoint(state.latest_epoch)
-        if local_ckpt:
-            weights = str(local_ckpt)
-            resume = True
+    # 1. Ensure Base Fine-Tuned RT-DETR Model is Available Locally
+    base_weights_path = Path(config.weights)
+    if not base_weights_path.is_file():
+        print(f"\n[Base Model Download] Fine-tuned model '{config.weights}' not found locally.")
+        print(f"[Base Model Download] Downloading from Hugging Face repository '{hf_repo or 'Cuong2004/HRP4K'}'...")
+        try:
+            from huggingface_hub import hf_hub_download
+            target_rel = str(config.weights).replace("\\", "/")
+            downloaded = hf_hub_download(
+                repo_id=hf_repo or "Cuong2004/HRP4K",
+                filename=target_rel,
+                repo_type="dataset",
+                token=hf_token or os.environ.get("HF_TOKEN"),
+            )
+            if downloaded and Path(downloaded).is_file():
+                base_weights_path.parent.mkdir(parents=True, exist_ok=True)
+                import shutil
+                shutil.copy2(downloaded, str(base_weights_path))
+                print(f"[Base Model Download] Successfully downloaded fine-tuned baseline to: {base_weights_path}")
+        except Exception as exc:
+            print(f"[Base Model Download Warning] Could not download from HF: {exc}")
+            if not base_weights_path.is_file():
+                print(f"[Base Model Download Warning] Falling back to 'rtdetr-l.pt'")
+                base_weights_path = Path("rtdetr-l.pt")
 
-    # Fallback: Check local disk if not downloaded from HF
-    if not resume:
-        for local_cand in [
-            run_dir / "weights" / "best_p2.pt",
-            run_dir / "weights" / "last.pt",
-            run_dir / "weights" / "best.pt",
-        ]:
-            if local_cand.is_file():
-                print(f"[Resume] Found existing local checkpoint on disk: {local_cand}. Resuming training...")
-                weights = str(local_cand)
-                resume = True
-                break
+    # 2. Check P2 Resume State (Only if resume=True requested)
+    p2_checkpoint = None
+    if resume:
+        storage = ExperimentStorage(exp_id, repo_id=hf_repo, token=hf_token)
+        state = storage.check_experiment_exists()
+        if state.exists and state.checkpoint_path:
+            print(f"[Resume P2] Found existing P2 experiment on HF (epoch {state.latest_epoch}). Downloading checkpoint...")
+            local_ckpt = storage.download_checkpoint(state.latest_epoch)
+            if local_ckpt:
+                p2_checkpoint = str(local_ckpt)
+        if not p2_checkpoint:
+            for local_cand in [
+                run_dir / "weights" / "best_p2.pt",
+                run_dir / "weights" / "last.pt",
+                run_dir / "weights" / "best.pt",
+            ]:
+                if local_cand.is_file():
+                    p2_checkpoint = str(local_cand)
+                    print(f"[Resume P2] Resuming from local checkpoint: {p2_checkpoint}")
+                    break
+    else:
+        print(f"\n[Proposed Mode] Starting FRESH training of P2 Head on top of Frozen Fine-Tuned RT-DETR: {base_weights_path}")
 
+    storage = ExperimentStorage(exp_id, repo_id=hf_repo, token=hf_token)
     storage.upload_config(config.to_dict())
     storage.upload_manifest({
         "experiment_id": exp_id,
@@ -591,12 +629,13 @@ def run_proposed_experiment(
         "phase": config.phase,
         "resolution": config.resolution,
         "status": "training",
+        "base_model": str(base_weights_path),
         "environment": environment_snapshot(),
     })
 
     train_result = train_rtdetr_p2(
         dataset_yaml=dataset_yaml,
-        weights=weights,
+        weights=base_weights_path,
         run_dir=run_dir,
         smoke=False,
         epochs=config.epochs,
@@ -610,6 +649,7 @@ def run_proposed_experiment(
         seed=config.seed,
         eval_confidence=config.confidence,
         resume=resume,
+        p2_checkpoint=p2_checkpoint,
         rect=config.rect,
         hf_repo=hf_repo,
         hf_token=hf_token,
