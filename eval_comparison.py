@@ -175,9 +175,12 @@ def run_comparison(
             dets = []
             for i in range(len(sc)):
                 x1, y1, x2, y2 = unscaled[i]
-                b = (float(np.clip(x1, 0, w_orig)), float(np.clip(y1, 0, h_orig)),
-                     float(np.clip(x2, 0, w_orig)), float(np.clip(y2, 0, h_orig)))
-                dets.append(Detection(b, float(sc[i]), 0))
+                c_x1 = float(np.clip(min(x1, x2), 0, w_orig))
+                c_y1 = float(np.clip(min(y1, y2), 0, h_orig))
+                c_x2 = float(np.clip(max(x1, x2), 0, w_orig))
+                c_y2 = float(np.clip(max(y1, y2), 0, h_orig))
+                if (c_x2 - c_x1) >= 1.0 and (c_y2 - c_y1) >= 1.0:
+                    dets.append(Detection((c_x1, c_y1, c_x2, c_y2), float(sc[i]), 0))
             return dets
 
         p2_dets = get_dets(p2_raw, is_native=False)
@@ -185,23 +188,32 @@ def run_comparison(
         fused_dets = fuse_native_and_p2_predictions(nat_dets, p2_dets, iou_threshold=0.5)
 
         for d in p2_dets:
-            p2_predictions.append({
-                "image_id": im_id, "category_id": 0,
-                "bbox": [d.xyxy[0], d.xyxy[1], d.xyxy[2] - d.xyxy[0], d.xyxy[3] - d.xyxy[1]],
-                "score": d.score,
-            })
+            w = float(d.xyxy[2] - d.xyxy[0])
+            h = float(d.xyxy[3] - d.xyxy[1])
+            if w >= 1.0 and h >= 1.0:
+                p2_predictions.append({
+                    "image_id": im_id, "category_id": 0,
+                    "bbox": [float(d.xyxy[0]), float(d.xyxy[1]), w, h],
+                    "score": float(d.score),
+                })
         for d in nat_dets:
-            native_predictions.append({
-                "image_id": im_id, "category_id": 0,
-                "bbox": [d.xyxy[0], d.xyxy[1], d.xyxy[2] - d.xyxy[0], d.xyxy[3] - d.xyxy[1]],
-                "score": d.score,
-            })
+            w = float(d.xyxy[2] - d.xyxy[0])
+            h = float(d.xyxy[3] - d.xyxy[1])
+            if w >= 1.0 and h >= 1.0:
+                native_predictions.append({
+                    "image_id": im_id, "category_id": 0,
+                    "bbox": [float(d.xyxy[0]), float(d.xyxy[1]), w, h],
+                    "score": float(d.score),
+                })
         for d in fused_dets:
-            fused_predictions.append({
-                "image_id": im_id, "category_id": 0,
-                "bbox": [d.xyxy[0], d.xyxy[1], d.xyxy[2] - d.xyxy[0], d.xyxy[3] - d.xyxy[1]],
-                "score": d.score,
-            })
+            w = float(d.xyxy[2] - d.xyxy[0])
+            h = float(d.xyxy[3] - d.xyxy[1])
+            if w >= 1.0 and h >= 1.0:
+                fused_predictions.append({
+                    "image_id": im_id, "category_id": 0,
+                    "bbox": [float(d.xyxy[0]), float(d.xyxy[1]), w, h],
+                    "score": float(d.score),
+                })
 
         if (idx + 1) % 50 == 0 or idx == len(selected_images) - 1:
             print(f"  Processed {idx + 1}/{len(selected_images)} images...")
