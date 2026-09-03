@@ -17,10 +17,11 @@ from pathlib import Path
 # CONFIGURATION — CHỈNH SỬA THÔNG SỐ TẠI ĐÂY
 # ==============================================================================
 # Chế độ chạy:
-#   - "train"   : Chạy trọn gói (Train + Val + Test Eval + Push HF)
-#   - "eval"    : Chỉ đánh giá checkpoint đã train trên tập test
-#   - "inspect" : Chỉ đọc và in metadata của checkpoint
-MODE = "train"
+#   - "train"       : Chạy trọn gói (Train + Val + Test Eval + Push HF)
+#   - "eval"        : Chỉ đánh giá checkpoint đã train trên tập test
+#   - "inspect"     : Chỉ đọc và in metadata của checkpoint
+#   - "calibration" : Chạy chẩn đoán score calibration [0.001, 0.01, 0.05, 0.10, 0.25]
+MODE = "calibration"
 
 # Tên thí nghiệm (dùng khi MODE = "train"):
 # Options: "rtdetr-l-proposed-p2-2k", "rtdetr-l-proposed-p2-640", "rtdetr-l-proposed-p2-4k"
@@ -76,8 +77,16 @@ def build_command() -> list[str]:
     elif MODE == "inspect":
         return [python_bin, "-m", "hrp4k.cli", "inspect-checkpoint", CHECKPOINT_PATH]
 
+    elif MODE == "calibration":
+        return [
+            python_bin, "check_calibration.py",
+            "--checkpoint", CHECKPOINT_PATH,
+            "--device", str(DEVICE),
+            "--num-images", "20",
+        ]
+
     else:
-        raise ValueError(f"Unknown MODE: {MODE}. Choose 'train', 'eval', or 'inspect'.")
+        raise ValueError(f"Unknown MODE: {MODE}. Choose 'train', 'eval', 'inspect', or 'calibration'.")
 
 
 def main() -> int:
