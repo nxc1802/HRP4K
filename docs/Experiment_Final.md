@@ -9,27 +9,31 @@
 
 ---
 
-## 📊 Phase 1 — Resolution Benchmark
+## 📊 Phase 1 — Resolution Benchmark (Dual-Mode Evaluation)
+
+> Tất cả các mô hình được đo lường đồng thời theo 2 chuẩn mực:
+> 1. **Academic Protocol (`conf = 0.001`)**: $AP_{50}, AP_{75}, AP_{50:95}$ (quét toàn bộ đường cong P-R).
+> 2. **Operational Protocol (`conf = 0.25`)**: Recall, Precision, F1, FPPI, Latency, FPS (ngưỡng triển khai thực tế).
 
 ### Table 1 — YOLO11m Resolution (CNN Baseline)
 
-| Resolution | AP<sub>50</sub> | AP<sub>75</sub> | AP<sub>50:95</sub> | Precision | Recall | F1 | FPPI | Latency | Hugging Face Link |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| **4K ($3840\times 2160$)** | **55.05%** | **34.80%** | **33.27%** | **66.93%** | **49.19%** | **56.71%** | **0.047** | 27.3 ms | [📦 Checkpoint](https://huggingface.co/datasets/Cuong2004/HRP4K/tree/main/checkpoints/yolo11m_4k) |
-| **2K ($1920\times 1080$)** | **53.67%** | 31.20% | **33.01%** | 64.09% | 47.77% | 54.74% | **0.047** | 14.8 ms | [📦 Checkpoint](https://huggingface.co/datasets/Cuong2004/HRP4K/tree/main/outputs/experiments/yolo11m-resolution-2k) |
-| **1K ($960\times 540$)** | 22.73% | 9.80% | 9.00% | 34.36% | 28.99% | 31.45% | 0.065 | 10.2 ms | [📦 Checkpoint](https://huggingface.co/datasets/Cuong2004/HRP4K/tree/main/outputs/experiments/yolo11m-resolution-1k) |
-| **640 ($640\times 640$)** | **37.27%** | 19.20% | **18.32%** | 58.94% | 35.06% | 43.97% | **0.047** | **8.2 ms** | [📦 Checkpoint](https://huggingface.co/datasets/Cuong2004/HRP4K/tree/main/yolo11m_640) |
+| Resolution | AP<sub>50</sub> | AP<sub>75</sub> | AP<sub>50:95</sub> | Recall @0.25 | Prec @0.25 | F1 @0.25 | FPPI | Latency | FPS | Hugging Face Dual Metrics |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
+| **4K ($3840\times 2160$)** | **54.79%** | **35.80%** | **33.67%** | **46.15%** | 72.65% | **56.44%** | 0.1778 | 70.1 ms | 14.3 | [📊 Metrics](https://huggingface.co/datasets/Cuong2004/HRP4K/blob/main/benchmark_results/yolo11m-4k/test_metrics_dual.json) |
+| **2K ($1920\times 1080$)** | 53.42% | 35.23% | 33.15% | 42.56% | **73.00%** | 53.77% | **0.1611** | 14.4 ms | 69.3 | [📊 Metrics](https://huggingface.co/datasets/Cuong2004/HRP4K/blob/main/benchmark_results/yolo11m-2k/test_metrics_dual.json) |
+| **1K ($960\times 540$)** | 22.82% | 4.58% | 9.10% | 30.08% | 32.17% | 31.09% | 0.6489 | **7.0 ms** | **143.8** | [📊 Metrics](https://huggingface.co/datasets/Cuong2004/HRP4K/blob/main/benchmark_results/yolo11m-1k/test_metrics_dual.json) |
+| **640 ($640\times 640$)** | 37.11% | 14.60% | 18.41% | 31.70% | 66.06% | 42.85% | 0.1667 | 8.3 ms | 120.2 | [📊 Metrics](https://huggingface.co/datasets/Cuong2004/HRP4K/blob/main/benchmark_results/yolo11m-640/test_metrics_dual.json) |
 
 ---
 
 ### Table 1b — RT-DETR-L Resolution (32.8M Transformer Baseline)
 
-| Resolution | AP<sub>50</sub> | AP<sub>75</sub> | AP<sub>50:95</sub> | Precision | Recall | F1 | FPPI | Latency | Hugging Face Link |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| **4K ($3840\times 2160$)** | 55.28% | 33.95% | 33.20% | 13.18% | **77.85%** | 22.55% | 2.483 | 32.5 ms | [📦 Checkpoint](https://huggingface.co/datasets/Cuong2004/HRP4K/tree/main/checkpoints/dfine_4k) |
-| **2K ($1920\times 1080$)** | **62.65%** | **41.10%** | **37.51%** | **66.19%** | 57.11% | **61.32%** | **0.052** | 24.1 ms | [📦 Checkpoint](https://huggingface.co/datasets/Cuong2004/HRP4K/tree/main/outputs/experiments/rtdetr-l-resolution-2k) |
-| **1K ($960\times 540$)** | 58.34% | 37.80% | 33.92% | 64.70% | 53.09% | 58.32% | 0.061 | 22.4 ms | [📦 Checkpoint](https://huggingface.co/datasets/Cuong2004/HRP4K/tree/main/outputs/experiments/rtdetr-l-resolution-1k) |
-| **640 ($640\times 640$)** | 37.37% | 14.41% | 18.18% | 33.26% | 47.56% | 39.14% | 0.130 | **21.5 ms** | [📦 Checkpoint](https://huggingface.co/datasets/Cuong2004/HRP4K/tree/main/checkpoints/dfine_640) |
+| Resolution | AP<sub>50</sub> | AP<sub>75</sub> | AP<sub>50:95</sub> | Recall @0.25 | Prec @0.25 | F1 @0.25 | FPPI | Latency | FPS | Hugging Face Dual Metrics |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
+| **4K ($3840\times 2160$)** | 58.07% | 38.42% | 35.83% | 58.41% | **52.18%** | **55.12%** | **0.5478** | 220.4 ms | 4.5 | [📊 Metrics](https://huggingface.co/datasets/Cuong2004/HRP4K/blob/main/benchmark_results/rtdetr-l-4k/test_metrics_dual.json) |
+| **2K ($1920\times 1080$)** | **62.48%** | **39.45%** | **37.58%** | **76.33%** | 34.26% | 47.29% | 1.4989 | 43.2 ms | 23.1 | [📊 Metrics](https://huggingface.co/datasets/Cuong2004/HRP4K/blob/main/benchmark_results/rtdetr-l-2k/test_metrics_dual.json) |
+| **1K ($960\times 540$)** | 58.14% | 34.82% | 33.97% | 71.34% | 33.42% | 45.51% | 1.4544 | 22.1 ms | 45.3 | [📊 Metrics](https://huggingface.co/datasets/Cuong2004/HRP4K/blob/main/benchmark_results/rtdetr-l-1k/test_metrics_dual.json) |
+| **640 ($640\times 640$)** | 33.49% | 14.81% | 17.16% | 47.77% | 25.19% | 32.98% | 1.4522 | **19.5 ms** | **51.3** | [📊 Metrics](https://huggingface.co/datasets/Cuong2004/HRP4K/blob/main/benchmark_results/rtdetr-l-640/test_metrics_dual.json) |
 
 ---
 
@@ -67,13 +71,13 @@
 >
 > **Hugging Face Checkpoint**: [📦 best_p2.pt (Epoch 32, Loss 95.84)](https://huggingface.co/datasets/Cuong2004/HRP4K/blob/main/experiments/9b68a1164e96/weights/best_p2.pt) | [📊 Comparison JSON](https://huggingface.co/datasets/Cuong2004/HRP4K/blob/main/experiments/9b68a1164e96/test/test_metrics_comparison.json)
 
-### Table 3 — Overall Ablation: P2-Only vs Native vs Fused
+### Table 3 — Overall Ablation: P2-Only vs Native vs Fused (Dual-Mode Evaluation)
 
-| Configuration | AP<sub>50</sub> | AP<sub>75</sub> | AP<sub>50:95</sub> | Overall Recall | True Positives (TP) | False Positives (FP) | Avg Dets/img | Hugging Face File |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| **P2-Only Head** ($stride=4$) | 3.96% | 1.05% | 1.64% | 47.01% | 433 / 921 | 83,335 | 93.1 | [📄 Metrics](https://huggingface.co/datasets/Cuong2004/HRP4K/blob/main/experiments/9b68a1164e96/test/test_metrics_p2_only.json) |
-| **Native RT-DETR-L** (Frozen 2K) | **47.05%** | **27.03%** | **27.19%** | 83.50% | 769 / 921 | 230,890 | 257.4 | [📄 Metrics](https://huggingface.co/datasets/Cuong2004/HRP4K/blob/main/experiments/9b68a1164e96/test/test_metrics_native_only.json) |
-| **Fused (Proposed Method)** | 46.57% | 25.76% | 26.42% | **83.82%** | **772 / 921** | **171,163** | **191.0** | [📄 Metrics](https://huggingface.co/datasets/Cuong2004/HRP4K/blob/main/experiments/9b68a1164e96/test/test_metrics_fused.json) |
+| Configuration | AP<sub>50</sub> | AP<sub>75</sub> | AP<sub>50:95</sub> | Overall Recall (Academic) | Recall @0.25 (Operational) | Prec @0.25 | F1 @0.25 | FPPI @0.25 | Hugging Face File |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
+| **P2-Only Head** ($stride=4$) | 3.96% | 1.05% | 1.64% | 47.01% | 3.91% | 26.67% | 6.82% | **0.1100** | [📄 Metrics](https://huggingface.co/datasets/Cuong2004/HRP4K/blob/main/experiments/9b68a1164e96/test/test_metrics_p2_only.json) |
+| **Native RT-DETR-L** (Frozen 2K) | **47.05%** | **27.03%** | **27.19%** | 83.50% | **57.65%** | 35.59% | 44.01% | 1.0678 | [📄 Metrics](https://huggingface.co/datasets/Cuong2004/HRP4K/blob/main/experiments/9b68a1164e96/test/test_metrics_native_only.json) |
+| **Fused (Proposed Method)** | 46.57% | 25.76% | 26.42% | **83.82%** | 57.44% | **36.41%** | **44.57%** | 1.0267 | [📄 Metrics](https://huggingface.co/datasets/Cuong2004/HRP4K/blob/main/experiments/9b68a1164e96/test/test_metrics_fused.json) |
 
 ---
 
