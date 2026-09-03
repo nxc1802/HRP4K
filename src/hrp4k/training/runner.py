@@ -142,22 +142,9 @@ def train_yolo(
         except Exception as exc:
             print(f"[Resume Warning] Could not inspect checkpoint metadata: {exc}")
     def on_fit_epoch_end_callback(trainer: Any) -> None:
-        if not syncer.enabled:
-            return
-        try:
-            current_epoch = getattr(trainer, "epoch", 0) + 1
-            save_dir = Path(getattr(trainer, "save_dir", run_dir))
-            weights_dir = save_dir / "weights"
-            results_csv = save_dir / "results.csv"
-            args_yaml = save_dir / "args.yaml"
-            syncer.sync_epoch(
-                epoch=current_epoch,
-                weights_dir=weights_dir,
-                extra_files=[results_csv, args_yaml],
-                path_in_repo=target_repo_path,
-            )
-        except Exception as cb_exc:
-            print(f"[Cloud Sync Warning] Failed to trigger epoch sync: {cb_exc}")
+        # Per-epoch cloud sync disabled to maximize training throughput.
+        # Full sync will be executed once training and evaluation are complete.
+        pass
 
     weights_str = str(resolved_weights).lower()
     is_transformer = "rtdetr" in weights_str

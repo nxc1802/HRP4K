@@ -432,14 +432,6 @@ def train_rtdetr_p2(
                 print(f"[Early Stopping] Stopping training early at epoch {epoch + 1}/{actual_epochs}.")
                 break
 
-        if syncer.enabled:
-            syncer.sync_epoch(
-                epoch=epoch + 1,
-                weights_dir=weights_dir,
-                extra_files=[],
-                path_in_repo=target_repo_path,
-            )
-
     val_metrics = {"p2_loss": best_loss, "epochs": actual_epochs}
     (run_dir / "val_metrics.json").write_text(json.dumps(val_metrics, indent=2), encoding="utf-8")
 
@@ -513,21 +505,24 @@ def train_rtdetr_p2(
     (run_dir / "environment.json").write_text(json.dumps(environment_snapshot(), indent=2), encoding="utf-8")
 
     if syncer.enabled:
+        print(f"\n[Cloud Sync] Training and test evaluation complete. Syncing all final artifacts to Hugging Face ({hf_repo})...")
         final_files = [
             run_dir / "val_metrics.json",
             run_dir / "test_metrics.json",
             run_dir / "test_predictions.json",
             run_dir / "predictions.json",
             run_dir / "resolved_config.json",
+            run_dir / "environment.json",
         ]
         syncer.sync_epoch(
             epoch=actual_epochs,
             weights_dir=weights_dir,
-            extra_files=final_files,
+            extra_files=[f for f in final_files if f.is_file()],
             path_in_repo=target_repo_path,
         )
-        syncer.wait_until_done(timeout=60.0)
+        syncer.wait_until_done(timeout=120.0)
         syncer.shutdown(wait=True)
+        print(f"[Cloud Sync] All checkpoints and evaluation outputs successfully uploaded to Hugging Face!")
 
     return {
         "run_dir": str(run_dir),
