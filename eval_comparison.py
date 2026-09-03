@@ -197,32 +197,59 @@ def run_comparison(
         if (idx + 1) % 50 == 0 or idx == len(selected_images) - 1:
             print(f"  Processed {idx + 1}/{len(selected_images)} images...")
 
-    # 3. Compute Metrics
-    print("\n[Metrics] Computing COCO evaluation for each mode...")
-    p2_eval = evaluate_coco_subset(sub_gt, p2_predictions, selected_img_ids)
-    nat_eval = evaluate_coco_subset(sub_gt, native_predictions, selected_img_ids)
-    fused_eval = evaluate_coco_subset(sub_gt, fused_predictions, selected_img_ids)
+    # 3. Compute Metrics with Official Protocol & Scale Decomposition
+    print("\n[Metrics] Computing full COCO evaluation with scale decomposition...")
+    from hrp4k.evaluation.coco import evaluate
+
+    p2_eval = evaluate(sub_gt, p2_predictions, confidence=confidence)
+    nat_eval = evaluate(sub_gt, native_predictions, confidence=confidence)
+    fused_eval = evaluate(sub_gt, fused_predictions, confidence=confidence)
 
     n_imgs = max(1, len(selected_images))
     p2_avg_dets = len(p2_predictions) / n_imgs
     nat_avg_dets = len(native_predictions) / n_imgs
     fused_avg_dets = len(fused_predictions) / n_imgs
 
-    # 4. Print Comparison Table
-    print("\n" + "=" * 80)
-    print("EVALUATION COMPARISON: P2-ONLY vs NATIVE vs FUSED")
-    print("=" * 80)
+    # 4. Print Comparison Tables
+    print("\n" + "=" * 85)
+    print("TABLE 1: OVERALL BENCHMARK COMPARISON (P2-ONLY vs NATIVE vs FUSED)")
+    print("=" * 85)
     print(f"{'Metric':<25} | {'P2-Only Head':<16} | {'Native RT-DETR':<16} | {'Fused (Native+P2)':<18}")
-    print("-" * 80)
-    print(f"{'AP50':<25} | {p2_eval['AP50']*100:<15.2f}% | {nat_eval['AP50']*100:<15.2f}% | {fused_eval['AP50']*100:<17.2f}%")
-    print(f"{'AP50-95':<25} | {p2_eval['AP50_95']*100:<15.2f}% | {nat_eval['AP50_95']*100:<15.2f}% | {fused_eval['AP50_95']*100:<17.2f}%")
-    print(f"{'AP75':<25} | {p2_eval['AP75']*100:<15.2f}% | {nat_eval['AP75']*100:<15.2f}% | {fused_eval['AP75']*100:<17.2f}%")
-    print(f"{'AR100 (Recall)':<25} | {p2_eval['AR100']*100:<15.2f}% | {nat_eval['AR100']*100:<15.2f}% | {fused_eval['AR100']*100:<17.2f}%")
+    print("-" * 85)
+    print(f"{'AP50':<25} | {p2_eval.get('AP50', 0)*100:<15.2f}% | {nat_eval.get('AP50', 0)*100:<15.2f}% | {fused_eval.get('AP50', 0)*100:<17.2f}%")
+    print(f"{'AP50-95':<25} | {p2_eval.get('AP50_95', 0)*100:<15.2f}% | {nat_eval.get('AP50_95', 0)*100:<15.2f}% | {fused_eval.get('AP50_95', 0)*100:<17.2f}%")
+    print(f"{'AP75':<25} | {p2_eval.get('AP75', 0)*100:<15.2f}% | {nat_eval.get('AP75', 0)*100:<15.2f}% | {fused_eval.get('AP75', 0)*100:<17.2f}%")
+    print(f"{'Overall Recall':<25} | {p2_eval.get('recall', 0)*100:<15.2f}% | {nat_eval.get('recall', 0)*100:<15.2f}% | {fused_eval.get('recall', 0)*100:<17.2f}%")
+    print(f"{'True Positives (TP)':<25} | {p2_eval.get('tp', 0):<16} | {nat_eval.get('tp', 0):<16} | {fused_eval.get('tp', 0):<18}")
     print(f"{'Avg Predictions / img':<25} | {p2_avg_dets:<16.2f} | {nat_avg_dets:<16.2f} | {fused_avg_dets:<18.2f}")
     print(f"{'Total Predictions':<25} | {len(p2_predictions):<16} | {len(native_predictions):<16} | {len(fused_predictions):<18}")
-    print("=" * 80)
+    print("=" * 85)
 
-    # 5. Save results
+    print("\n" + "=" * 85)
+    print("TABLE 2: SCALE BREAKDOWN COMPARISON (RECALL & AP50 BY POTHOLE SIZE)")
+    print("=" * 85)
+    print(f"{'Scale Category':<25} | {'P2-Only Recall':<16} | {'Native Recall':<16} | {'Fused Recall':<18}")
+    print("-" * 85)
+    for sc in ["ultra_fine", "fine", "medium", "large"]:
+        p2_rec = p2_eval.get("scale", {}).get(sc, {}).get("recall50", 0.0) * 100
+        nat_rec = nat_eval.get("scale", {}).get(sc, {}).get("recall50", 0.0) * 100
+        fused_rec = fused_eval.get("scale", {}).get(sc, {}).get("recall50", 0.0) * 100
+        num_pos = p2_eval.get("scale", {}).get(sc, {}).get("positives", 0)
+        label = f"{sc.capitalize()} ({num_pos})"
+        print(f"{label:<25} | {p2_rec:<15.2f}% | {nat_rec:<15.2f}% | {fused_rec:<17.2f}%")
+    print("-" * 85)
+    print(f"{'Scale Category':<25} | {'P2-Only AP50':<16} | {'Native AP50':<16} | {'Fused AP50':<18}")
+    print("-" * 85)
+    for sc in ["ultra_fine", "fine", "medium", "large"]:
+        p2_ap = p2_eval.get("scale", {}).get(sc, {}).get("AP50", 0.0) * 100
+        nat_ap = nat_eval.get("scale", {}).get(sc, {}).get("AP50", 0.0) * 100
+        fused_ap = fused_eval.get("scale", {}).get(sc, {}).get("AP50", 0.0) * 100
+        num_pos = p2_eval.get("scale", {}).get(sc, {}).get("positives", 0)
+        label = f"{sc.capitalize()} ({num_pos})"
+        print(f"{label:<25} | {p2_ap:<15.2f}% | {nat_ap:<15.2f}% | {fused_ap:<17.2f}%")
+    print("=" * 85)
+
+    # 5. Save results locally
     results = {
         "p2_only": {**p2_eval, "avg_predictions_per_image": p2_avg_dets, "total_predictions": len(p2_predictions)},
         "native_only": {**nat_eval, "avg_predictions_per_image": nat_avg_dets, "total_predictions": len(native_predictions)},
@@ -237,7 +264,38 @@ def run_comparison(
     }
     comp_path = out_dir / "test_metrics_comparison.json"
     comp_path.write_text(json.dumps(results, indent=2), encoding="utf-8")
-    print(f"\nSaved comparison results to: {comp_path}\n")
+    (out_dir / "test_metrics_p2_only.json").write_text(json.dumps(p2_eval, indent=2), encoding="utf-8")
+    (out_dir / "test_metrics_native_only.json").write_text(json.dumps(nat_eval, indent=2), encoding="utf-8")
+    (out_dir / "test_metrics_fused.json").write_text(json.dumps(fused_eval, indent=2), encoding="utf-8")
+    print(f"\nSaved comparison results to: {comp_path}")
+
+    # 6. Upload to Hugging Face if requested
+    if hf_upload:
+        try:
+            from huggingface_hub import HfApi
+            token = hf_token or os.environ.get("HF_TOKEN")
+            repo = hf_repo or "Cuong2004/HRP4K"
+            print(f"\n[HF Upload] Uploading comparison metrics to Hugging Face repo: {repo}...")
+            api = HfApi(token=token)
+            files_to_upload = [
+                (comp_path, "experiments/9b68a1164e96/test/test_metrics_comparison.json"),
+                (out_dir / "test_metrics_p2_only.json", "experiments/9b68a1164e96/test/test_metrics_p2_only.json"),
+                (out_dir / "test_metrics_native_only.json", "experiments/9b68a1164e96/test/test_metrics_native_only.json"),
+                (out_dir / "test_metrics_fused.json", "experiments/9b68a1164e96/test/test_metrics_fused.json"),
+            ]
+            for local_p, remote_p in files_to_upload:
+                if local_p.is_file():
+                    api.upload_file(
+                        path_or_fileobj=str(local_p),
+                        path_in_repo=remote_p,
+                        repo_id=repo,
+                        repo_type="dataset",
+                        commit_message=f"Add {local_p.name} comparative evaluation",
+                    )
+                    print(f"  [OK] Uploaded {local_p.name} -> {remote_p}")
+            print("[HF Upload] All comparison metrics successfully synced to Hugging Face!")
+        except Exception as upload_exc:
+            print(f"[HF Upload Warning] Could not upload to HF: {upload_exc}")
 
     return results
 
@@ -246,13 +304,17 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="HRP4K Evaluation Comparison: P2-Only vs Native vs Fused")
     parser.add_argument("--checkpoint", default="outputs/experiments/rtdetr-l-proposed-p2-2k/weights/best_p2.pt",
                         help="Path to best_p2.pt checkpoint")
-    parser.add_argument("--weights", default="rtdetr-l.pt", help="Path to base RT-DETR weights (e.g. fine-tuned checkpoint)")
+    parser.add_argument("--weights", default="outputs/experiments/rtdetr-l-resolution-2k/weights/best.pt",
+                        help="Path to base RT-DETR weights (e.g. fine-tuned checkpoint)")
     parser.add_argument("--data", default="HRP4K", help="Path to HRP4K dataset")
     parser.add_argument("--imgsz", type=int, default=1920, help="Image size (default: 1920)")
     parser.add_argument("--confidence", type=float, default=0.001, help="Confidence threshold")
     parser.add_argument("--num-images", type=int, default=0, help="Number of test images (0 = all 900 images)")
     parser.add_argument("--device", help="CUDA device index or 'cpu'")
     parser.add_argument("--output", default="outputs/evaluation_comparison", help="Output directory")
+    parser.add_argument("--hf-upload", action="store_true", help="Upload comparison metrics to Hugging Face")
+    parser.add_argument("--hf-repo", default="Cuong2004/HRP4K", help="Target HF repo")
+    parser.add_argument("--hf-token", help="Hugging Face write access token")
     args = parser.parse_args()
 
     run_comparison(
@@ -264,6 +326,9 @@ def main() -> int:
         num_images=args.num_images,
         device=args.device,
         output_dir=args.output,
+        hf_upload=args.hf_upload,
+        hf_repo=args.hf_repo,
+        hf_token=args.hf_token,
     )
     return 0
 

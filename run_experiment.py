@@ -90,12 +90,15 @@ def build_command() -> list[str]:
         return cmd
 
     elif MODE == "compare":
-        return [
+        cmd = [
             python_bin, "eval_comparison.py",
             "--checkpoint", CHECKPOINT_PATH,
             "--weights", BASE_WEIGHTS,
             "--device", str(DEVICE),
         ]
+        if ENABLE_HF_SYNC and HF_TOKEN:
+            cmd.extend(["--hf-upload", "--hf-token", HF_TOKEN, "--hf-repo", HF_REPO])
+        return cmd
 
     elif MODE == "inspect":
         return [python_bin, "-m", "hrp4k.cli", "inspect-checkpoint", CHECKPOINT_PATH]
