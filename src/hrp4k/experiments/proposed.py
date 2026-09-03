@@ -94,6 +94,7 @@ class RTDETRP2Adapter(DetectorAdapter):
         precision: str = "fp32",
         fusion_iou_threshold: float = 0.5,
         p2_checkpoint: Path | str | None = None,
+        mode: str = "fused",
     ) -> None:
         self.weights = Path(weights) if isinstance(weights, str) else weights
         self.category_id = category_id
@@ -102,12 +103,20 @@ class RTDETRP2Adapter(DetectorAdapter):
         self.precision = precision
         self.fusion_iou_threshold = fusion_iou_threshold
         self.p2_checkpoint = p2_checkpoint
+        self.mode = mode
+        self.is_coco_base = False
 
         self._init_model()
 
     def _init_model(self) -> None:
         weights_str = str(self.weights)
         native = RTDETR(weights_str).model if Path(weights_str).is_file() else RTDETR("rtdetr-l.pt").model
+        native_nc = getattr(native, "yaml", {}).get("nc", 80)
+        self.is_coco_base = (native_nc is not None and native_nc > 1)
+        if self.is_coco_base:
+            print(f"[RTDETRP2Adapter Notice] Native checkpoint is COCO ({native_nc} classes).")
+            print(f"[RTDETRP2Adapter Notice] Mode: {self.mode}. Native queries will be filtered to class {self.category_id}.")
+
         self.model = RTDETRP2Model(native_model=native, nc=1, freeze_native=True)
 
         # Load P2 head weights if provided
@@ -150,9 +159,11 @@ class RTDETRP2Adapter(DetectorAdapter):
         native_preds = out["native_preds"][0]  # (300, 6) [x1, y1, x2, y2, score, cls]
         p2_preds = out["p2_preds"][0]          # (300, 6) [x1, y1, x2, y2, score, cls]
 
-        def to_detections(tensor_preds: torch.Tensor) -> list[Detection]:
+        def to_detections(tensor_preds: torch.Tensor, is_native: bool = False) -> list[Detection]:
             dets: list[Detection] = []
             mask = tensor_preds[:, 4] >= confidence
+            if is_native and self.is_coco_base:
+                mask = mask & (tensor_preds[:, 5].long() == self.category_id)
             if not mask.any():
                 return dets
 
@@ -173,8 +184,13 @@ class RTDETRP2Adapter(DetectorAdapter):
                 dets.append(Detection(scaled_xyxy, float(scores[i]), self.category_id))
             return dets
 
-        native_dets = to_detections(native_preds)
-        p2_dets = to_detections(p2_preds)
+        p2_dets = to_detections(p2_preds, is_native=False)
+        if self.mode == "p2_only":
+            return p2_dets
+
+        native_dets = to_detections(native_preds, is_native=True)
+        if self.mode == "native_only":
+            return native_dets
 
         # Pure Concatenation + NMS Fusion
         fused = fuse_native_and_p2_predictions(

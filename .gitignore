@@ -35,5 +35,6 @@ commands.md
 .vscode/
 .idea/
 __marimo__/
+marimo_output/
 
 uv.lock

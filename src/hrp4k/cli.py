@@ -58,6 +58,7 @@ def build_parser() -> argparse.ArgumentParser:
     exp.add_argument("--accumulation", type=int, help="Override gradient accumulation steps (default: auto)")
     exp.add_argument("--epochs", type=int, help="Override number of training epochs (e.g. --epochs 50)")
     exp.add_argument("--patience", type=int, help="Override early stopping patience (e.g. --patience 10)")
+    exp.add_argument("--weights", type=_path, help="Path to base model weights (e.g. fine-tuned RT-DETR checkpoint)")
     exp.add_argument("--dry-run", action="store_true", help="Show resolved config without executing")
     exp.add_argument("--frozen-checkpoint", type=_path, help="Frozen checkpoint for slicing experiments")
     exp.add_argument("--hf-repo", help="Target Hugging Face repository")
@@ -202,6 +203,7 @@ def build_parser() -> argparse.ArgumentParser:
     eval_p2.add_argument("--confidence", type=float, default=0.001, help="Evaluation confidence threshold")
     eval_p2.add_argument("--output", type=_path, help="Directory to save test_metrics.json")
     eval_p2.add_argument("--device", help="CUDA device index or 'cpu'")
+    eval_p2.add_argument("--mode", choices=["all", "fused", "p2_only", "native_only"], default="all", help="Evaluation mode (default: 'all' compares both P2-only and Fusion)")
     eval_p2.add_argument("--hf-repo", default="Cuong2004/HRP4K", help="Hugging Face repository")
     eval_p2.add_argument("--hf-token", help="Hugging Face write token")
 
@@ -293,6 +295,8 @@ def main(argv: list[str] | None = None) -> int:
             config.epochs = args.epochs
         if getattr(args, "patience", None) is not None:
             config.patience = args.patience
+        if getattr(args, "weights", None) is not None:
+            config.weights = str(args.weights)
 
         # Ensure dataset is ready
         dataset_yaml = args.dataset
@@ -535,15 +539,31 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Error: test.json ground truth not found in {data_dir}")
             return 1
 
+        eval_mode = getattr(args, "mode", "all")
+        if eval_mode == "all":
+            from eval_comparison import run_comparison
+            results = run_comparison(
+                checkpoint_path=ckpt_path,
+                data_dir=data_dir,
+                weights=base_weights,
+                image_size=args.imgsz if isinstance(args.imgsz, int) else args.imgsz[0],
+                confidence=args.confidence,
+                num_images=0,
+                device=args.device,
+                output_dir=out_dir,
+            )
+            return 0
+
         target_device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
         adapter = RTDETRP2Adapter(
             weights=base_weights,
             category_id=0,
             device=target_device,
             p2_checkpoint=ckpt_path,
+            mode=eval_mode,
         )
 
-        print(f"\n[Inference] Running test set prediction at {args.imgsz}px on {target_device}...")
+        print(f"\n[Inference] Running test set prediction (mode: {eval_mode}) at {args.imgsz}px on {target_device}...")
         pred_summary = predict_detector(
             data_dir=data_dir,
             split="test",
@@ -563,10 +583,11 @@ def main(argv: list[str] | None = None) -> int:
         )
         metrics["mean_latency_ms"] = pred_summary.get("mean_end_to_end_latency_ms", 0.0)
         metrics["eval_confidence"] = args.confidence
+        metrics["eval_mode"] = eval_mode
         metrics_path.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
 
         print("\n" + "=" * 60)
-        print("OFFICIAL TEST EVALUATION RESULTS:")
+        print(f"OFFICIAL TEST EVALUATION RESULTS (Mode: {eval_mode}):")
         print(f"  AP50:          {metrics.get('AP50', 0.0)*100:.2f}%")
         print(f"  AP50-95:       {metrics.get('AP50_95', 0.0)*100:.2f}%")
         print(f"  FPPI Official: {metrics.get('FPPI_official', 0.0):.4f}")

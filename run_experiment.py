@@ -19,9 +19,10 @@ from pathlib import Path
 # Chế độ chạy:
 #   - "train"       : Chạy trọn gói (Train + Val + Test Eval + Push HF)
 #   - "eval"        : Chỉ đánh giá checkpoint đã train trên tập test
+#   - "compare"     : Đánh giá và so sánh song song P2-Only vs Native vs Fusion
 #   - "inspect"     : Chỉ đọc và in metadata của checkpoint
 #   - "calibration" : Chạy chẩn đoán score calibration [0.001, 0.01, 0.05, 0.10, 0.25]
-MODE = "calibration"
+MODE = "compare"
 
 # Tên thí nghiệm (dùng khi MODE = "train"):
 # Options: "rtdetr-l-proposed-p2-2k", "rtdetr-l-proposed-p2-640", "rtdetr-l-proposed-p2-4k"
@@ -33,8 +34,9 @@ EPOCHS = 30           # Số epoch tối đa (30-50 là tối ưu cho frozen bac
 PATIENCE = 5          # Dừng sớm nếu 5 epoch không giảm loss
 DEVICE = "0"          # CUDA device index ("0", "1", ...) hoặc "cpu"
 
-# Đường dẫn checkpoint (dùng khi MODE = "eval" hoặc "inspect"):
+# Đường dẫn checkpoint:
 CHECKPOINT_PATH = "outputs/experiments/rtdetr-l-proposed-p2-2k/weights/best_p2.pt"
+BASE_WEIGHTS = "rtdetr-l.pt"  # Đổi sang đường dẫn fine-tune nếu có (ví dụ outputs/experiments/rtdetr-l-resolution-2k/weights/best.pt)
 
 # Hugging Face đồng bộ kết quả (lấy từ biến môi trường hoặc file .env):
 HF_TOKEN = os.environ.get("HF_TOKEN", "")
@@ -74,6 +76,14 @@ def build_command() -> list[str]:
             cmd.extend(["--hf-token", HF_TOKEN, "--hf-repo", HF_REPO])
         return cmd
 
+    elif MODE == "compare":
+        return [
+            python_bin, "eval_comparison.py",
+            "--checkpoint", CHECKPOINT_PATH,
+            "--weights", BASE_WEIGHTS,
+            "--device", str(DEVICE),
+        ]
+
     elif MODE == "inspect":
         return [python_bin, "-m", "hrp4k.cli", "inspect-checkpoint", CHECKPOINT_PATH]
 
@@ -86,7 +96,7 @@ def build_command() -> list[str]:
         ]
 
     else:
-        raise ValueError(f"Unknown MODE: {MODE}. Choose 'train', 'eval', 'inspect', or 'calibration'.")
+        raise ValueError(f"Unknown MODE: {MODE}. Choose 'train', 'eval', 'compare', 'inspect', or 'calibration'.")
 
 
 def main() -> int:
