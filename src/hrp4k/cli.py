@@ -185,6 +185,26 @@ def build_parser() -> argparse.ArgumentParser:
     # -----------------------------------------------------------------------
     commands.add_parser("smoke-proposed", help="Run local RT-DETR-L + P2 Feasibility smoke test (shape check, loss, fusion)")
 
+    # -----------------------------------------------------------------------
+    # inspect-checkpoint — View metadata and summary of any checkpoint
+    # -----------------------------------------------------------------------
+    insp = commands.add_parser("inspect-checkpoint", help="Inspect checkpoint contents and metadata")
+    insp.add_argument("path", type=_path, help="Path to checkpoint file (.pt)")
+
+    # -----------------------------------------------------------------------
+    # eval-proposed — Evaluate a trained P2 checkpoint
+    # -----------------------------------------------------------------------
+    eval_p2 = commands.add_parser("eval-proposed", help="Evaluate trained Frozen RT-DETR-L + P2 checkpoint on test set")
+    eval_p2.add_argument("--checkpoint", type=_path, required=True, help="Path to best_p2.pt checkpoint")
+    eval_p2.add_argument("--weights", type=_path, default=Path("rtdetr-l.pt"), help="Base RT-DETR-L weights")
+    eval_p2.add_argument("--data", type=_path, default=Path("HRP4K"), help="Raw dataset directory")
+    eval_p2.add_argument("--imgsz", type=parse_imgsz, default=1920, help="Evaluation image size")
+    eval_p2.add_argument("--confidence", type=float, default=0.001, help="Evaluation confidence threshold")
+    eval_p2.add_argument("--output", type=_path, help="Directory to save test_metrics.json")
+    eval_p2.add_argument("--device", help="CUDA device index or 'cpu'")
+    eval_p2.add_argument("--hf-repo", default="Cuong2004/HRP4K", help="Hugging Face repository")
+    eval_p2.add_argument("--hf-token", help="Hugging Face write token")
+
     return parser
 
 
@@ -441,6 +461,130 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "smoke-proposed":
         from .experiments.proposed import run_proposed_smoke
         _print(run_proposed_smoke())
+
+    # ===================================================================
+    # inspect-checkpoint
+    # ===================================================================
+    elif args.command == "inspect-checkpoint":
+        import torch
+        ckpt_path = args.path.resolve()
+        if not ckpt_path.is_file():
+            print(f"Error: file not found: {ckpt_path}")
+            return 1
+        data = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+        print("=" * 60)
+        print(f"Checkpoint Inspection: {ckpt_path}")
+        print("=" * 60)
+        if isinstance(data, dict):
+            for k, v in data.items():
+                if isinstance(v, dict):
+                    print(f"  {k:<25}: dict with {len(v)} keys")
+                elif hasattr(v, "shape"):
+                    print(f"  {k:<25}: tensor of shape {v.shape}")
+                else:
+                    print(f"  {k:<25}: {v}")
+        else:
+            print(f"Type: {type(data)}")
+        print("=" * 60)
+        return 0
+
+    # ===================================================================
+    # eval-proposed
+    # ===================================================================
+    elif args.command == "eval-proposed":
+        import os
+        import torch
+        from .data.paths import resolve_data_dir
+        from .experiments.proposed import RTDETRP2Adapter
+        from .inference.runner import predict_detector
+        from .evaluation.coco import evaluate_files
+
+        ckpt_path = args.checkpoint.resolve()
+        if not ckpt_path.is_file():
+            print(f"Error: checkpoint file not found at {ckpt_path}")
+            return 1
+
+        print("=" * 60)
+        print(f"[Proposed Evaluation] Evaluating Checkpoint: {ckpt_path}")
+
+        ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+        epoch = ckpt.get("epoch", "unknown")
+        mean_loss = ckpt.get("mean_p2_loss", "unknown")
+        base_weights = ckpt.get("base_checkpoint", str(args.weights))
+        print(f"  Epoch Reached:   {epoch}")
+        print(f"  Best Mean Loss:  {mean_loss}")
+        print(f"  Base Weights:    {base_weights}")
+        print(f"  Image Size:      {args.imgsz}")
+        print("=" * 60)
+
+        out_dir = args.output.resolve() if args.output else ckpt_path.parent.parent
+        out_dir.mkdir(parents=True, exist_ok=True)
+        pred_path = out_dir / "test_predictions.json"
+        metrics_path = out_dir / "test_metrics.json"
+
+        data_dir = resolve_data_dir(args.data)
+        test_gt = data_dir / "test.json"
+        if not test_gt.is_file():
+            for c in (Path("HRP4K/test.json"), Path("test.json"), Path("../HRP4K/test.json")):
+                if c.is_file():
+                    test_gt = c
+                    data_dir = c.parent
+                    break
+
+        if not test_gt.is_file():
+            print(f"Error: test.json ground truth not found in {data_dir}")
+            return 1
+
+        target_device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
+        adapter = RTDETRP2Adapter(
+            weights=base_weights,
+            category_id=0,
+            device=target_device,
+            p2_checkpoint=ckpt_path,
+        )
+
+        print(f"\n[Inference] Running test set prediction at {args.imgsz}px on {target_device}...")
+        pred_summary = predict_detector(
+            data_dir=data_dir,
+            split="test",
+            detector=adapter,
+            output_path=pred_path,
+            method="resize",
+            image_size=args.imgsz if isinstance(args.imgsz, int) else args.imgsz[0],
+            confidence=args.confidence,
+        )
+
+        print(f"\n[Evaluation] Evaluating against {test_gt}...")
+        metrics = evaluate_files(
+            gt_path=test_gt,
+            prediction_path=pred_path,
+            output_path=metrics_path,
+            confidence=args.confidence,
+        )
+        metrics["mean_latency_ms"] = pred_summary.get("mean_end_to_end_latency_ms", 0.0)
+        metrics["eval_confidence"] = args.confidence
+        metrics_path.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+
+        print("\n" + "=" * 60)
+        print("OFFICIAL TEST EVALUATION RESULTS:")
+        print(f"  AP50:          {metrics.get('AP50', 0.0)*100:.2f}%")
+        print(f"  AP50-95:       {metrics.get('AP50_95', 0.0)*100:.2f}%")
+        print(f"  FPPI Official: {metrics.get('FPPI_official', 0.0):.4f}")
+        print(f"  Mean Latency:  {metrics.get('mean_latency_ms', 0.0):.2f} ms")
+        print("=" * 60)
+        print(f"Metrics saved:     {metrics_path}")
+        print(f"Predictions saved: {pred_path}")
+
+        token = args.hf_token or os.environ.get("HF_TOKEN")
+        if token:
+            from .infra.upload import upload_to_hf
+            print(f"\n[Upload] Syncing to Hugging Face repo {args.hf_repo}...")
+            upload_to_hf(repo_id=args.hf_repo, local_path=metrics_path, token=token, path_in_repo="experiments/rtdetr-l-proposed-p2-2k/test_metrics.json")
+            upload_to_hf(repo_id=args.hf_repo, local_path=pred_path, token=token, path_in_repo="experiments/rtdetr-l-proposed-p2-2k/test_predictions.json")
+            upload_to_hf(repo_id=args.hf_repo, local_path=ckpt_path, token=token, path_in_repo="experiments/rtdetr-l-proposed-p2-2k/weights/best_p2.pt")
+            print("Sync complete!")
+
+        return 0
 
     return 0
 
