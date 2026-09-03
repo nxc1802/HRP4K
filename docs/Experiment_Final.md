@@ -75,9 +75,9 @@
 
 | Configuration | AP<sub>50</sub> | AP<sub>75</sub> | AP<sub>50:95</sub> | Overall Recall (Academic) | Recall @0.25 (Operational) | Prec @0.25 | F1 @0.25 | FPPI @0.25 | Hugging Face File |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| **P2-Only Head** ($stride=4$) | 3.96% | 1.05% | 1.64% | 47.01% | 3.91% | 26.67% | 6.82% | **0.1100** | [📄 Metrics](https://huggingface.co/datasets/Cuong2004/HRP4K/blob/main/experiments/9b68a1164e96/test/test_metrics_p2_only.json) |
-| **Native RT-DETR-L** (Frozen 2K) | **47.05%** | **27.03%** | **27.19%** | 83.50% | **57.65%** | 35.59% | 44.01% | 1.0678 | [📄 Metrics](https://huggingface.co/datasets/Cuong2004/HRP4K/blob/main/experiments/9b68a1164e96/test/test_metrics_native_only.json) |
-| **Fused (Proposed Method)** | 46.57% | 25.76% | 26.42% | **83.82%** | 57.44% | **36.41%** | **44.57%** | 1.0267 | [📄 Metrics](https://huggingface.co/datasets/Cuong2004/HRP4K/blob/main/experiments/9b68a1164e96/test/test_metrics_fused.json) |
+| **P2-Only Head** ($stride=4$) | 10.23% | 3.46% | 4.60% | 59.72% | 8.36% | 36.15% | 13.58% | **0.1511** | [📄 Metrics](https://huggingface.co/datasets/Cuong2004/HRP4K/blob/main/experiments/9b68a1164e96/test/test_metrics_p2_only.json) |
+| **Native RT-DETR-L** (Frozen 2K) | 56.97% | **33.81%** | **33.08%** | 88.82% | 66.99% | 39.94% | 50.04% | 1.0311 | [📄 Metrics](https://huggingface.co/datasets/Cuong2004/HRP4K/blob/main/experiments/9b68a1164e96/test/test_metrics_native_only.json) |
+| **Fused (Proposed Method)** | **57.60%** | 33.17% | 32.71% | **89.36%** | **67.75%** | **41.68%** | **51.61%** | **0.9700** | [📄 Metrics](https://huggingface.co/datasets/Cuong2004/HRP4K/blob/main/experiments/9b68a1164e96/test/test_metrics_fused.json) |
 
 ---
 
