@@ -317,13 +317,37 @@ def train_rtdetr_p2(
     train_loader = build_dataloader(train_dataset, batch, cfg.workers, shuffle=True, rank=-1)
 
     # Training Loop
+    # Training Loop & Resume State
     best_loss = float("inf")
+    start_epoch = 0
     weights_dir = run_dir / "weights"
     weights_dir.mkdir(parents=True, exist_ok=True)
     best_p2_path = weights_dir / "best_p2.pt"
+    last_p2_path = weights_dir / "last_p2.pt"
     patience_counter = 0
 
-    for epoch in range(actual_epochs):
+    # Auto-resume if weights is a P2 checkpoint
+    resume_candidate = Path(weights) if isinstance(weights, (str, Path)) else None
+    if resume_candidate and resume_candidate.is_file():
+        try:
+            ckpt_data = torch.load(resume_candidate, map_location="cpu", weights_only=False)
+            if isinstance(ckpt_data, dict) and "p2_state_dict" in ckpt_data:
+                print(f"[Resume] Loading P2 checkpoint from {resume_candidate}...")
+                p2_model.p2_head.load_state_dict(ckpt_data["p2_state_dict"])
+                if "p2_adapter_state_dict" in ckpt_data:
+                    p2_model.p2_branch.load_state_dict(ckpt_data["p2_adapter_state_dict"])
+                if "optimizer_state_dict" in ckpt_data:
+                    try:
+                        optimizer.load_state_dict(ckpt_data["optimizer_state_dict"])
+                    except Exception as exc:
+                        print(f"[Resume Warning] Could not restore optimizer state: {exc}")
+                start_epoch = int(ckpt_data.get("epoch", 0))
+                best_loss = float(ckpt_data.get("mean_p2_loss", float("inf")))
+                print(f"[Resume] Resuming training from epoch {start_epoch + 1}/{actual_epochs} (current best loss: {best_loss:.4f})")
+        except Exception as exc:
+            print(f"[Resume Warning] Failed loading resume checkpoint: {exc}")
+
+    for epoch in range(start_epoch, actual_epochs):
         p2_model.p2_branch.train()
         p2_model.p2_head.train()
         epoch_losses: list[float] = []
@@ -369,23 +393,28 @@ def train_rtdetr_p2(
         mean_loss = float(np.mean(epoch_losses)) if epoch_losses else 0.0
         print(f"Epoch {epoch + 1}/{actual_epochs} - Mean P2 Loss: {mean_loss:.4f}")
 
-        # Save checkpoint & track early stopping patience
+        # Construct checkpoint payload
+        payload = {
+            "p2_state_dict": p2_model.p2_head.state_dict(),
+            "p2_adapter_state_dict": p2_model.p2_branch.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "epoch": epoch + 1,
+            "mean_p2_loss": mean_loss,
+            "base_checkpoint": str(resolved_weights),
+            "image_size": actual_imgsz,
+            "architecture": "frozen_rtdetr_l_p2",
+        }
+
+        # Save last checkpoint (both last_p2.pt and last.pt for HF syncer)
+        torch.save(payload, str(last_p2_path))
+        torch.save(payload, str(weights_dir / "last.pt"))
+
+        # Save best checkpoint & track early stopping patience
         if mean_loss < best_loss - 1e-4:
             best_loss = mean_loss
             patience_counter = 0
-            torch.save(
-                {
-                    "p2_state_dict": p2_model.p2_head.state_dict(),
-                    "p2_adapter_state_dict": p2_model.p2_branch.state_dict(),
-                    "optimizer_state_dict": optimizer.state_dict(),
-                    "epoch": epoch + 1,
-                    "mean_p2_loss": mean_loss,
-                    "base_checkpoint": str(resolved_weights),
-                    "image_size": actual_imgsz,
-                    "architecture": "frozen_rtdetr_l_p2",
-                },
-                str(best_p2_path),
-            )
+            torch.save(payload, str(best_p2_path))
+            torch.save(payload, str(weights_dir / "best.pt"))
         else:
             patience_counter += 1
             if not smoke and patience > 0 and patience_counter >= patience:
@@ -541,6 +570,19 @@ def run_proposed_experiment(
             weights = str(local_ckpt)
             resume = True
 
+    # Fallback: Check local disk if not downloaded from HF
+    if not resume:
+        for local_cand in [
+            run_dir / "weights" / "best_p2.pt",
+            run_dir / "weights" / "last.pt",
+            run_dir / "weights" / "best.pt",
+        ]:
+            if local_cand.is_file():
+                print(f"[Resume] Found existing local checkpoint on disk: {local_cand}. Resuming training...")
+                weights = str(local_cand)
+                resume = True
+                break
+
     storage.upload_config(config.to_dict())
     storage.upload_manifest({
         "experiment_id": exp_id,
@@ -577,6 +619,10 @@ def run_proposed_experiment(
 
     val_path = run_dir / "val_metrics.json"
     test_path = run_dir / "test_metrics.json"
+    best_p2_file = run_dir / "weights" / "best_p2.pt"
+    if best_p2_file.is_file():
+        storage.upload_file(best_p2_file, "weights/best_p2.pt", "Upload final best_p2.pt weights")
+        storage.upload_file(best_p2_file, "checkpoints/best.pt", "Upload final best.pt checkpoint")
     storage.upload_final_results(
         val_metrics_path=val_path if val_path.exists() else None,
         test_metrics_path=test_path if test_path.exists() else None,

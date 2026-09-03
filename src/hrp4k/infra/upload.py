@@ -242,8 +242,8 @@ class BackgroundHFSyncer:
         files_to_upload: list[tuple[Path, str]] = []
 
         if w_dir.is_dir():
-            # Only upload active checkpoints: last.pt (for resume) and best.pt (for evaluation)
-            for target_name in ("last.pt", "best.pt"):
+            # Upload active checkpoints: last.pt/best.pt as well as P2 checkpoints
+            for target_name in ("last.pt", "best.pt", "best_p2.pt", "last_p2.pt"):
                 pt_file = w_dir / target_name
                 if pt_file.is_file():
                     files_to_upload.append((pt_file, target_name))

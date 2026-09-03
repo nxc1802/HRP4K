@@ -108,6 +108,10 @@ class ExperimentStorage:
             checkpoint_path = None
             for candidate in [
                 f"{self._base_path}/checkpoints/last.pt",
+                f"{self._base_path}/checkpoints/best.pt",
+                f"{self._base_path}/checkpoints/best_p2.pt",
+                f"{self._base_path}/weights/best_p2.pt",
+                f"{self._base_path}/best_p2.pt",
                 f"{self._base_path}/training/epochs/epoch-{latest_epoch:03d}/last.pt",
             ]:
                 if candidate in experiment_files:
@@ -134,13 +138,16 @@ class ExperimentStorage:
         try:
             from huggingface_hub import hf_hub_download
 
-            # Try specific epoch first, then last.pt
+            # Try specific epoch first, then last.pt / best.pt / best_p2.pt
             candidates = []
             if epoch is not None:
                 candidates.append(f"{self._base_path}/training/epochs/epoch-{epoch:03d}/last.pt")
             candidates.extend([
                 f"{self._base_path}/checkpoints/last.pt",
                 f"{self._base_path}/checkpoints/best.pt",
+                f"{self._base_path}/checkpoints/best_p2.pt",
+                f"{self._base_path}/weights/best_p2.pt",
+                f"{self._base_path}/best_p2.pt",
             ])
 
             for candidate in candidates:
