@@ -1,167 +1,552 @@
-Nếu mục tiêu của bài nghiên cứu HRP4K của bạn là **đánh giá scientific/fairness giữa Proposed Method và Baseline**, tôi khuyên:
+Đồng ý. Với mục tiêu hiện tại, tôi sẽ **đóng băng architecture P2 hiện tại** và xây plan theo đúng nguyên tắc:
 
-> **Dùng `conf=0.001` cho COCO Academic Benchmark là metric chính. Dùng `conf=0.25` cho Operational Deployment Benchmark là metric phụ.**
+> **Không training → training với compute ~1× → chỉ giữ thay đổi nếu có evidence → nếu toàn bộ không cải thiện đáng kể thì kết luận P2 đã gần đạt ceiling và chuyển sang public paper.**
 
-Hai benchmark này thực ra đang trả lời **hai câu hỏi khác nhau**.
+## Proposed Method Optimization Plan
 
-### 1. COCO Academic Benchmark → `conf=0.001` **bắt buộc nên là chính**
+### Phase 0 — Baseline cố định
 
-Đây là setting phù hợp để báo cáo:
+Giữ nguyên baseline hiện tại:
 
-* mAP@50
-* mAP@50:95
-* AP từng class
-* AR
-* Precision–Recall curve
-* small/medium/large object performance
-* so sánh Baseline vs Proposed
+* Frozen RT-DETR-L
+* P2 Adapter + Lightweight P2 Head
+* 1920×1920 canonical evaluation
+* Seed = 42
+* Dataset/split cố định
+* Training config hiện tại
+* Fusion = concat + class-aware NMS
 
-Lý do là `conf=0.001` giữ lại gần như toàn bộ prediction có khả năng đúng, để quá trình đánh giá xây dựng **toàn bộ Precision–Recall curve**, thay vì cắt prediction sớm ở 0.25. Ultralytics hiện cũng dùng `0.001` làm default cho validation và PR curves. ([Ultralytics][1])
+Baseline cần ghi nhận:
 
-Quan trọng hơn, bản thân COCO evaluation tính AP qua nhiều recall thresholds và IoU thresholds từ 0.50 đến 0.95. ([GitHub][2])
+* Overall AP50 / AP75 / AP50:95
+* Precision / Recall / F1 / FPPI
+* **Ultra-fine Recall / AP50**
+* Fine / Medium / Large metrics
 
-Nói đơn giản:
-
-**`conf=0.001` → đánh giá "model thực sự học được gì?"**
-
-chứ không phải:
-
-**`conf=0.25` → model chạy production như thế nào?**
+Đặc biệt lấy **Native + P2-only + Fused** làm baseline.
 
 ---
 
-### 2. Operational Deployment Benchmark → `conf=0.25`
+# Phase 1 — Optimization **không cần training**
 
-Setting này rất hợp với phần **deployment/real-world practicality** của HRP4K.
+Mục tiêu: tìm improvement "free" trước khi tiêu thêm GPU.
 
-Bạn có thể hỏi:
+### 1.1 Top-K sweep
 
-> Nếu đem model chạy trực tiếp trên ảnh 4K thực tế với threshold thông dụng `0.25`, nó hoạt động thế nào?
+Hiện tại:
 
-Khi đó report:
+```text
+P2 predictions
+      ↓
+Top-K = 300
+      ↓
+NMS
+```
 
-| Metric        |  Academic | Operational |
-| ------------- | --------: | ----------: |
-| Confidence    | **0.001** |    **0.25** |
-| mAP@50        |         ✓ |           ✓ |
-| mAP@50:95     |         ✓ |           ✓ |
-| Precision     |         ✓ |           ✓ |
-| Recall        |         ✓ |           ✓ |
-| F1            |         ✓ |           ✓ |
-| FP/image      |  optional |       **✓** |
-| FN/image      |  optional |       **✓** |
-| Inference FPS |  optional |       **✓** |
-| Latency       |  optional |       **✓** |
+Test:
 
-`0.25` là default prediction confidence của Ultralytics và có ý nghĩa như một **operational filtering threshold**: prediction dưới threshold bị loại. ([Ultralytics][1])
+```text
+K = 300
+K = 500
+K = 1000
+K = 2000
+```
+
+### 1.2 P2 confidence threshold sweep
+
+Test:
+
+```text
+0.001
+0.003
+0.005
+0.01
+0.02
+```
+
+Có thể chạy grid:
+
+```text
+Top-K × P2 threshold
+```
+
+vì hai yếu tố này tương tác với nhau.
+
+### 1.3 NMS IoU sweep
+
+Nếu compute inference cho phép, test thêm:
+
+```text
+IoU = 0.4
+0.5   ← current
+0.6
+0.7
+```
+
+### Output Phase 1
+
+Chọn:
+
+> **Best inference configuration**
+
+theo mục tiêu:
+
+1. Ultra-fine Recall ↑
+2. Ultra-fine AP50 ↑
+3. F1 ↑
+4. FPPI ↓
+5. Overall AP không giảm đáng kể
+
+**Không retrain.**
+
+Nếu Phase 1 đã tạo improvement đáng kể → giữ configuration này làm baseline cho Phase 2.
 
 ---
 
-## Điểm rất quan trọng cho paper của bạn
+# Phase 2 — Multi-positive Target Assignment
 
-**Đừng dùng `conf=0.25` làm benchmark duy nhất rồi kết luận Proposed tốt hơn Baseline dựa trên mAP.**
+Đây là **training experiment đầu tiên**.
 
-Vì threshold 0.25 có thể làm thay đổi trực tiếp số prediction được đưa vào đánh giá. Model A có thể có nhiều prediction confidence thấp nhưng đúng; model B có confidence calibration khác. Khi cắt ở 0.25, bạn đang đánh giá cả **model + threshold**, chứ không thuần túy đánh giá detector.
+Current:
 
-Ngược lại, `conf=0.001` cho phép metric AP/PR phản ánh khả năng ranking prediction của detector gần đầy đủ hơn.
+```text
+GT
+ ↓
+nearest center cell
+ ↓
+1 positive
+```
+
+Upgrade:
+
+```text
+GT
+ ↓
+center region
+ ↓
+multiple positive cells
+```
+
+Bắt đầu đơn giản nhất:
+
+### Variant A
+
+```text
+1 × 1
+```
+
+baseline.
+
+### Variant B
+
+```text
+3 × 3 center region
+```
+
+Không cần thử quá nhiều biến thể ngay.
+
+Nếu 3×3 tốt rõ ràng mới cân nhắc 5×5.
+
+### Giữ nguyên
+
+* model
+* optimizer
+* LR
+* batch
+* epochs
+* seed
+* resolution
+* loss
+
+Chỉ thay **target assignment**.
+
+→ Compute khoảng **1× baseline**.
+
+### Điều cần quan sát
+
+Không chỉ nhìn overall AP.
+
+Đặc biệt:
+
+```text
+Ultra-fine Recall
+Ultra-fine AP50
+P2-only AP50
+P2-only Recall
+Fused AP50
+Fused F1
+```
+
+Nếu multi-positive làm P2 mạnh lên nhưng fused không tăng → vấn đề có thể nằm ở fusion/calibration, không phải P2 capacity.
 
 ---
 
-# Với HRP4K của bạn, tôi sẽ thiết kế như này
+# Phase 3 — Focal Loss / Quality Focal Loss
 
-### **Benchmark A — Academic / Scientific**
+Sau khi xác định target assignment tốt nhất.
 
-```text
-conf = 0.001
-IoU = 0.50:0.05:0.95
-imgsz = 1920
-same test set
-same preprocessing
-same NMS setting
-```
+### 3.1 Focal Loss
 
-Report:
+Baseline:
 
 ```text
-mAP@50
-mAP@50:95
-AP50
-AP75
-Precision
-Recall
-AP per class
-AP_small / medium / large
+BCE
 ```
 
-Đây là **main table của paper**.
+thử:
+
+```text
+Focal Loss
+γ = 2
+```
+
+Giữ target assignment tốt nhất từ Phase 2.
+
+→ Compute ≈ **1×**.
+
+### 3.2 Quality Focal Loss
+
+Nếu Focal Loss có improvement:
+
+```text
+Focal
+   ↓
+Quality Focal Loss
+```
+
+QFL đặc biệt đáng thử vì bài toán của bạn không chỉ cần:
+
+> object / background
+
+mà còn cần score phản ánh:
+
+> localization quality.
+
+Điều này có thể giúp:
+
+* AP50
+* AP75
+* AP50:95
+* score calibration
+* fusion với Native
+
+### Decision
+
+Nếu:
+
+```text
+BCE → Focal
+```
+
+không cải thiện → **không cần QFL**.
+
+Nếu Focal có gain → mới chạy QFL.
+
+Như vậy không lãng phí GPU.
 
 ---
 
-### **Benchmark B — Operational / Deployment**
+# Phase 4 — Scale-aware Loss
+
+Đây là optimization cuối cùng trong nhóm **rẻ nhưng rất đúng research hypothesis**.
+
+Current dataset cho thấy P2 thực sự hữu ích nhất ở:
+
+> **Ultra-fine**
+
+Vì vậy loss nên ưu tiên object nhỏ.
+
+Ví dụ:
 
 ```text
-conf = 0.25
-imgsz = 1920
-same test set
+Ultra-fine → weight 3.0
+Fine       → weight 2.0
+Medium     → weight 1.0
+Large      → weight 0.5
 ```
 
-Report thêm:
+Nhưng tôi sẽ không hard-code các con số này ngay.
+
+Chạy một sweep nhỏ:
 
 ```text
-Precision
-Recall
-F1
-FP/image
-FN/image
-detections/image
-Latency
-FPS
-GPU memory
+Baseline:
+1 / 1 / 1 / 1
+
+Scale-aware A:
+2 / 1.5 / 1 / 0.5
+
+Scale-aware B:
+3 / 2 / 1 / 0.5
 ```
 
-Đây là **deployment table**.
+Trong đó thứ tự là:
+
+```text
+Ultra-fine / Fine / Medium / Large
+```
+
+Không cần thay architecture.
+
+→ Compute khoảng **1× cho mỗi candidate**.
 
 ---
 
-## Và tôi còn khuyên thêm một thứ
+# Phase 5 — Build Best P2
 
-Với proposed method của bạn đang tập trung vào **multi-scale detection / P2-P3-P4 / small object**, tôi sẽ đặc biệt report:
+Sau 4 phase trên, lấy **winner của từng component**.
 
-```text
-                 Baseline    Proposed    Δ
-mAP50:95
-AP50
-AP75
-AP_small
-AP_medium
-AP_large
-Recall
-```
-
-Sau đó operational:
+Ví dụ nếu kết quả là:
 
 ```text
-                 Baseline    Proposed    Δ
-Precision @0.25
-Recall @0.25
-F1 @0.25
-FP/image
-FN/image
-Latency
-FPS
+Target assignment → 3×3
+Loss               → QFL
+Scale-aware        → B
+Inference          → TopK=1000, threshold=0.005
 ```
 
-Như vậy reviewer sẽ thấy rất rõ:
+thì tạo:
 
-> **Proposed Method có thực sự cải thiện detector về mặt scientific không?**
+```text
+Best P2
+```
 
-và:
+và train/evaluate **một final run**.
 
-> **Cải thiện đó có còn tồn tại khi đưa model vào operating condition thực tế không?**
+Quan trọng:
 
-Đây là cách chia benchmark **rất hợp với câu chuyện nghiên cứu HRP4K hiện tại của bạn**.
+> Không tiếp tục stack thêm 10 ý tưởng.
 
-**Một lưu ý nhỏ:** đừng gọi `conf=0.001` là "COCO benchmark" nếu dataset của bạn không phải COCO; chính xác hơn nên gọi là **COCO-style Academic Evaluation Protocol** hoặc **Academic Detection Benchmark**. COCO ở đây nên chỉ cách đánh giá AP/AR, không phải tên dataset.
+Đây là lúc xác định **ceiling thực tế của architecture hiện tại**.
 
-[1]: https://docs.ultralytics.com/usage/cfg?h=settings&utm_source=chatgpt.com "YOLO Configuration | Ultralytics"
-[2]: https://github.com/cocodataset/cocoapi/blob/master/PythonAPI/pycocotools/cocoeval.py?utm_source=chatgpt.com "cocoapi/PythonAPI/pycocotools/cocoeval.py at master · cocodataset/cocoapi · GitHub"
+---
+
+# Phase 6 — Final Evaluation
+
+So sánh chính thức:
+
+```text
+Native RT-DETR-L
+        vs
+Original P2
+        vs
+Optimized P2
+        vs
+Fused Proposed
+```
+
+Các metric bắt buộc:
+
+### Overall
+
+* AP50
+* AP75
+* AP50:95
+* Precision
+* Recall
+* F1
+* FPPI
+
+### Scale-wise
+
+* Ultra-fine Recall
+* Ultra-fine AP50
+* Fine
+* Medium
+* Large
+
+### Quan trọng nhất
+
+Tính:
+
+```text
+Δ Native → Fused
+Δ Original P2 → Optimized P2
+```
+
+---
+
+# Decision Gate — điểm kết thúc nghiên cứu
+
+Đây là phần tôi nghĩ nên **đặt thành nguyên tắc cứng**.
+
+## Case A — Có improvement rõ
+
+Ví dụ:
+
+```text
+Ultra-fine Recall
+91.10 → 94–96%
+
+Ultra-fine AP50
+50.36 → 52–55%
+
+Overall F1
+48.33 → 50%+
+
+FPPI
+↓
+```
+
+→ **Tiếp tục research.**
+
+Lúc này mới đáng đầu tư:
+
+* Native-failure-aware training
+* C2+C3 fusion
+* hard-negative mining
+* multi-scale/crop training
+
+---
+
+## Case B — P2 tốt hơn nhưng Fused gần như không đổi
+
+Ví dụ:
+
+```text
+P2 AP50
+4.9 → 8.0%
+
+nhưng
+
+Fused AP50
+62.51 → 62.6%
+```
+
+→ Đây là dấu hiệu **P2 đang bị giới hạn bởi fusion/complementarity**, chứ chưa chắc architecture ceiling.
+
+Khi đó chỉ cần thử **một** hướng:
+
+> Native-aware/failure-aware training.
+
+Nếu vẫn không cải thiện → stop.
+
+---
+
+## Case C — Tất cả optimization đều không cải thiện
+
+Ví dụ:
+
+```text
+Original:
+Ultra-fine Recall = 92.80%
+
+Optimized:
+92.5–93.0%
+
+Overall AP:
+~62.5%
+
+F1:
+~48%
+```
+
+và các variant:
+
+* Multi-positive ❌
+* Focal/QFL ❌
+* Scale-aware ❌
+* Top-K/threshold ❌
+
+đều không tạo gain đáng kể.
+
+### → Kết luận:
+
+> **P2 auxiliary branch đã đạt practical ceiling trong architecture/training budget hiện tại.**
+
+**Không tiếp tục thêm module.**
+
+Không:
+
+* Transformer attention
+* BiFPN
+* Deformable Conv
+* Stride-2
+* DFL
+* learned fusion
+* WBF
+* dynamic head
+* thêm 5 loại augmentation
+
+Chỉ để cố lấy thêm 0.x%.
+
+Khi đó:
+
+> **Chấp nhận kết quả và public paper ở mức thấp hơn.**
+
+---
+
+# Compute Budget tổng thể
+
+Tôi sẽ thiết kế budget như sau:
+
+```text
+                    CURRENT P2
+                       │
+                       ▼
+              ┌────────────────┐
+              │ Phase 1         │
+              │ Top-K/Threshold │
+              │ NO TRAINING     │
+              └───────┬────────┘
+                      │
+                      ▼
+              ┌────────────────┐
+              │ Phase 2         │
+              │ Multi-positive  │
+              │ ~1×             │
+              └───────┬────────┘
+                      │
+                      ▼
+              ┌────────────────┐
+              │ Phase 3         │
+              │ Focal / QFL     │
+              │ ~1×             │
+              └───────┬────────┘
+                      │
+                      ▼
+              ┌────────────────┐
+              │ Phase 4         │
+              │ Scale-aware     │
+              │ ~1×             │
+              └───────┬────────┘
+                      │
+                      ▼
+              ┌────────────────┐
+              │ Best combination│
+              │ ~1×             │
+              └───────┬────────┘
+                      │
+                      ▼
+                 FINAL RESULT
+```
+
+**GPU budget thực tế có thể giữ quanh 4× baseline** bằng cách không chạy toàn bộ grid một cách mù quáng:
+
+* Phase 1: free
+* Phase 2: 1 run
+* Phase 3: 1 run
+* Phase 4: 1 run
+* Final: 1 run
+
+Nếu cần tiết kiệm hơn nữa, **chỉ chạy Final khi intermediate experiments thực sự có gain**.
+
+---
+
+## Research strategy tôi khuyên chốt
+
+Từ giờ proposed method không nên phát triển theo kiểu:
+
+> "Có idea nào hay thì thêm vào."
+
+Mà theo kiểu:
+
+> **POC → cheap optimization → controlled training ablation → best configuration → final evaluation → stop/go decision.**
+
+Và **Phase 1–4 chính là toàn bộ “low-compute optimization budget”**.
+
+Nếu sau chúng mà kết quả vẫn chỉ quanh:
+
+> **62.5% AP50 overall + ~93% ultra-fine recall**
+
+thì tôi hoàn toàn đồng ý với bạn: **đừng đốt thêm GPU để cứu architecture**. Khi đó hãy đóng contribution ở mức *lightweight auxiliary high-resolution P2 branch for ultra-fine pothole detection*, làm experimental analysis thật sạch và public một paper tầm thấp.

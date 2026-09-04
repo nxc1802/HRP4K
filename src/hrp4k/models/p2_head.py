@@ -12,14 +12,18 @@ from .p2_branch import find_c2_backbone_stage, extract_c2_backbone, P2Branch, _u
 
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 # Dense Loss for Lightweight P2 Auxiliary Head
 # ---------------------------------------------------------------------------
 
 class DenseP2Loss(nn.Module):
     """Anchor-free dense loss for Lightweight P2 detector head.
 
-    Computes:
-    L_P2 = L_cls (BCE/Focal) + lambda_box * L_box (L1) + lambda_giou * L_giou (GIoU)
+    Supports:
+    - Target Assignment: "1x1" (nearest center cell) vs "3x3" (center 3x3 region positive cells)
+    - Classification Loss: "bce" (Binary Cross Entropy), "focal" (Sigmoid Focal Loss), "qfl" (Quality Focal Loss)
+    - Scale-aware Loss Weighting: assigns instance weight based on bounding box pixel area
+      (Ultra-fine: <32^2, Fine: 32^2-96^2, Medium: 96^2-144^2, Large: >=144^2)
     """
 
     def __init__(
@@ -27,11 +31,45 @@ class DenseP2Loss(nn.Module):
         nc: int = 1,
         stride: int = 4,
         loss_gain: dict[str, float] | None = None,
+        target_assignment: str = "1x1",
+        cls_loss_type: str = "bce",
+        scale_weights: dict[str, float] | tuple[float, float, float, float] | list[float] | None = None,
     ) -> None:
         super().__init__()
         self.nc = nc
         self.stride = stride
         self.loss_gain = loss_gain or {"cls": 1.0, "box": 2.0, "giou": 2.0}
+        self.target_assignment = str(target_assignment).lower()
+        self.cls_loss_type = str(cls_loss_type).lower()
+
+        if scale_weights is None:
+            self.scale_weights = {"ultra_fine": 1.0, "fine": 1.0, "medium": 1.0, "large": 1.0}
+        elif isinstance(scale_weights, (list, tuple)):
+            self.scale_weights = {
+                "ultra_fine": float(scale_weights[0]),
+                "fine": float(scale_weights[1]),
+                "medium": float(scale_weights[2]),
+                "large": float(scale_weights[3]),
+            }
+        elif isinstance(scale_weights, dict):
+            self.scale_weights = {
+                "ultra_fine": float(scale_weights.get("ultra_fine", 1.0)),
+                "fine": float(scale_weights.get("fine", 1.0)),
+                "medium": float(scale_weights.get("medium", 1.0)),
+                "large": float(scale_weights.get("large", 1.0)),
+            }
+        else:
+            self.scale_weights = {"ultra_fine": 1.0, "fine": 1.0, "medium": 1.0, "large": 1.0}
+
+    def _get_scale_weight(self, area_px: float) -> float:
+        if area_px < 32.0 * 32.0:
+            return self.scale_weights["ultra_fine"]
+        elif area_px < 96.0 * 96.0:
+            return self.scale_weights["fine"]
+        elif area_px < 144.0 * 144.0:
+            return self.scale_weights["medium"]
+        else:
+            return self.scale_weights["large"]
 
     def forward(
         self,
@@ -56,20 +94,7 @@ class DenseP2Loss(nn.Module):
         target_cls = torch.zeros_like(cls_logits)
         pos_mask = torch.zeros((bs, h, w), dtype=torch.bool, device=device)
         target_boxes_ltrb = torch.zeros((bs, 4, h, w), device=device)
-
-        pred_boxes_xyxy_list: list[torch.Tensor] = []
-        target_boxes_xyxy_list: list[torch.Tensor] = []
-
-        # Reconstruct predicted bounding boxes in xyxy
-        pred_l = box_offsets[:, 0]
-        pred_t = box_offsets[:, 1]
-        pred_r = box_offsets[:, 2]
-        pred_b = box_offsets[:, 3]
-
-        pred_x1 = grid_x.unsqueeze(0) - pred_l
-        pred_y1 = grid_y.unsqueeze(0) - pred_t
-        pred_x2 = grid_x.unsqueeze(0) + pred_r
-        pred_y2 = grid_y.unsqueeze(0) + pred_b
+        pos_weights = torch.ones((bs, h, w), device=device, dtype=torch.float32)
 
         img_h, img_w = float(img_size[0]), float(img_size[1])
         gt_start = 0
@@ -93,39 +118,60 @@ class DenseP2Loss(nn.Module):
                 bh = float(b_gt_bboxes[idx, 3] * img_h)
                 cx = float(b_gt_bboxes[idx, 0] * img_w)
                 cy = float(b_gt_bboxes[idx, 1] * img_h)
+                area_px = bw * bh
+                scale_w = self._get_scale_weight(area_px)
 
                 gx1 = cx - bw / 2.0
                 gy1 = cy - bh / 2.0
                 gx2 = cx + bw / 2.0
                 gy2 = cy + bh / 2.0
 
-                # Nearest P2 grid cell center
                 cx_idx = min(max(0, int(cx // stride)), w - 1)
                 cy_idx = min(max(0, int(cy // stride)), h - 1)
-
                 c_idx = int(torch.clamp(b_gt_cls[idx], 0, self.nc - 1).item())
-                target_cls[b, c_idx, cy_idx, cx_idx] = 1.0
-                pos_mask[b, cy_idx, cx_idx] = True
 
-                grid_cx = (cx_idx + 0.5) * stride
-                grid_cy = (cy_idx + 0.5) * stride
-
-                # Target ltrb distance offsets (non-negative)
-                target_boxes_ltrb[b, 0, cy_idx, cx_idx] = max(0.0, grid_cx - gx1)
-                target_boxes_ltrb[b, 1, cy_idx, cx_idx] = max(0.0, grid_cy - gy1)
-                target_boxes_ltrb[b, 2, cy_idx, cx_idx] = max(0.0, gx2 - grid_cx)
-                target_boxes_ltrb[b, 3, cy_idx, cx_idx] = max(0.0, gy2 - grid_cy)
+                if self.target_assignment == "3x3":
+                    # Multi-positive assignment: 3x3 window around center
+                    for dy in (-1, 0, 1):
+                        for dx in (-1, 0, 1):
+                            ny = cy_idx + dy
+                            nx = cx_idx + dx
+                            if 0 <= ny < h and 0 <= nx < w:
+                                cell_cx = (nx + 0.5) * stride
+                                cell_cy = (ny + 0.5) * stride
+                                # Include center cell always, and neighbor cells if inside GT box
+                                if (dx == 0 and dy == 0) or (gx1 <= cell_cx <= gx2 and gy1 <= cell_cy <= gy2):
+                                    target_cls[b, c_idx, ny, nx] = 1.0
+                                    pos_mask[b, ny, nx] = True
+                                    target_boxes_ltrb[b, 0, ny, nx] = max(0.0, cell_cx - gx1)
+                                    target_boxes_ltrb[b, 1, ny, nx] = max(0.0, cell_cy - gy1)
+                                    target_boxes_ltrb[b, 2, ny, nx] = max(0.0, gx2 - cell_cx)
+                                    target_boxes_ltrb[b, 3, ny, nx] = max(0.0, gy2 - cell_cy)
+                                    pos_weights[b, ny, nx] = scale_w
+                else:
+                    # 1x1 center assignment (baseline)
+                    target_cls[b, c_idx, cy_idx, cx_idx] = 1.0
+                    pos_mask[b, cy_idx, cx_idx] = True
+                    grid_cx = (cx_idx + 0.5) * stride
+                    grid_cy = (cy_idx + 0.5) * stride
+                    target_boxes_ltrb[b, 0, cy_idx, cx_idx] = max(0.0, grid_cx - gx1)
+                    target_boxes_ltrb[b, 1, cy_idx, cx_idx] = max(0.0, grid_cy - gy1)
+                    target_boxes_ltrb[b, 2, cy_idx, cx_idx] = max(0.0, gx2 - grid_cx)
+                    target_boxes_ltrb[b, 3, cy_idx, cx_idx] = max(0.0, gy2 - grid_cy)
+                    pos_weights[b, cy_idx, cx_idx] = scale_w
 
         num_pos = max(1.0, float(pos_mask.sum().item()))
 
-        # 1. Classification Loss (BCE with Logits)
-        loss_cls = F.binary_cross_entropy_with_logits(cls_logits, target_cls, reduction="sum") / num_pos
-
-        # 2. Box L1 and GIoU Loss (vectorized directly over assigned positive cells)
+        # Box L1 and GIoU Loss (vectorized directly over assigned positive cells)
         if pos_mask.any():
             pred_ltrb_pos = box_offsets.permute(0, 2, 3, 1)[pos_mask]
             target_ltrb_pos = target_boxes_ltrb.permute(0, 2, 3, 1)[pos_mask]
-            loss_box = F.l1_loss(pred_ltrb_pos, target_ltrb_pos, reduction="sum") / num_pos
+            sample_w = pos_weights[pos_mask]  # (N_pos,)
+            w_sum = max(1.0, float(sample_w.sum().item()))
+
+            # L1 box regression loss with scale weights
+            l1_raw = F.l1_loss(pred_ltrb_pos, target_ltrb_pos, reduction="none").sum(dim=-1)  # (N_pos,)
+            loss_box = (l1_raw * sample_w).sum() / w_sum
 
             grid_x_pos = grid_x.unsqueeze(0).expand(bs, -1, -1)[pos_mask]
             grid_y_pos = grid_y.unsqueeze(0).expand(bs, -1, -1)[pos_mask]
@@ -150,10 +196,57 @@ class DenseP2Loss(nn.Module):
             ], dim=-1)
 
             giou = ops.generalized_box_iou(p_xyxy, t_xyxy)
-            loss_giou = (1.0 - torch.diag(giou)).sum() / num_pos
+            diag_giou = torch.diag(giou)
+            loss_giou = ((1.0 - diag_giou) * sample_w).sum() / w_sum
+
+            # Compute IoU for Quality Focal Loss if needed
+            if self.cls_loss_type == "qfl":
+                iou = ops.box_iou(p_xyxy, t_xyxy)
+                diag_iou = torch.diag(iou).detach().clamp(min=0.0, max=1.0)
+            else:
+                diag_iou = None
         else:
             loss_box = torch.tensor(0.0, device=device, requires_grad=True)
             loss_giou = torch.tensor(0.0, device=device, requires_grad=True)
+            diag_iou = None
+
+        # Classification Loss (BCE / Focal / QFL with scale weighting)
+        cls_sample_weights = torch.ones_like(cls_logits)
+        if pos_mask.any():
+            for c in range(self.nc):
+                c_mask = (target_cls[:, c] > 0)
+                if c_mask.any():
+                    cls_sample_weights[:, c][c_mask] = pos_weights[c_mask]
+
+        if self.cls_loss_type == "focal":
+            # Sigmoid Focal Loss: FL(p_t) = -alpha_t * (1 - p_t)^gamma * log(p_t)
+            prob = cls_logits.sigmoid()
+            p_t = prob * target_cls + (1.0 - prob) * (1.0 - target_cls)
+            alpha_factor = 0.25 * target_cls + 0.75 * (1.0 - target_cls)
+            modulating_factor = (1.0 - p_t) ** 2.0
+            fl = -alpha_factor * modulating_factor * torch.log(p_t.clamp(min=1e-6, max=1.0))
+            loss_cls = (fl * cls_sample_weights).sum() / num_pos
+
+        elif self.cls_loss_type == "qfl":
+            # Quality Focal Loss: QFL(sigma, y) = -|y - sigma|^beta * ((1 - y)*log(1 - sigma) + y*log(sigma))
+            target_quality = torch.zeros_like(cls_logits)
+            if pos_mask.any() and diag_iou is not None:
+                for c in range(self.nc):
+                    target_quality[:, c][pos_mask] = diag_iou
+
+            prob = cls_logits.sigmoid()
+            modulating_factor = torch.abs(target_quality - prob) ** 2.0
+            bce_continuous = -(
+                target_quality * torch.log(prob.clamp(min=1e-6, max=1.0))
+                + (1.0 - target_quality) * torch.log((1.0 - prob).clamp(min=1e-6, max=1.0))
+            )
+            qfl = modulating_factor * bce_continuous
+            loss_cls = (qfl * cls_sample_weights).sum() / num_pos
+
+        else:
+            # Baseline BCE with Logits
+            bce_loss = F.binary_cross_entropy_with_logits(cls_logits, target_cls, reduction="none")
+            loss_cls = (bce_loss * cls_sample_weights).sum() / num_pos
 
         total_loss = (
             self.loss_gain["cls"] * loss_cls
@@ -259,11 +352,17 @@ class LightweightP2Head(nn.Module):
         num_classes: int = 1,
         stride: int = 4,
         num_convs: int = 2,
+        target_assignment: str = "1x1",
+        cls_loss_type: str = "bce",
+        scale_weights: dict[str, float] | tuple[float, float, float, float] | list[float] | None = None,
     ) -> None:
         super().__init__()
         self.in_channels = in_channels
         self.nc = num_classes
         self.stride = stride
+        self.target_assignment = target_assignment
+        self.cls_loss_type = cls_loss_type
+        self.scale_weights = scale_weights
 
         # Classification convolutional branch
         cls_layers: list[nn.Module] = []
@@ -290,7 +389,13 @@ class LightweightP2Head(nn.Module):
         ])
         self.box_conv = nn.Sequential(*box_layers)
 
-        self.criterion = DenseP2Loss(nc=num_classes, stride=stride)
+        self.criterion = DenseP2Loss(
+            nc=num_classes,
+            stride=stride,
+            target_assignment=target_assignment,
+            cls_loss_type=cls_loss_type,
+            scale_weights=scale_weights,
+        )
         self._init_weights()
 
     def _init_weights(self) -> None:
@@ -346,10 +451,17 @@ class RTDETRP2Model(nn.Module):
         nc: int = 1,
         input_size: tuple[int, int] = (640, 640),
         freeze_native: bool = True,
+        target_assignment: str = "1x1",
+        cls_loss_type: str = "bce",
+        scale_weights: dict[str, float] | tuple[float, float, float, float] | list[float] | None = None,
+        topk: int = 300,
+        conf_threshold: float = 0.001,
     ) -> None:
         super().__init__()
         self.nc = nc
         self.freeze_native = freeze_native
+        self.topk = topk
+        self.conf_threshold = conf_threshold
 
         det_model, sub_modules, _ = _unwrap_sequential(native_model)
         self.native_model = det_model
@@ -367,7 +479,14 @@ class RTDETRP2Model(nn.Module):
 
         # Attach Lightweight P2 Branch & Dense Head
         self.p2_branch = P2Branch(c2_layer_idx=c2_layer_idx, in_channels=c2_channels, out_channels=p2_channels)
-        self.p2_head = LightweightP2Head(in_channels=p2_channels, num_classes=nc, stride=4)
+        self.p2_head = LightweightP2Head(
+            in_channels=p2_channels,
+            num_classes=nc,
+            stride=4,
+            target_assignment=target_assignment,
+            cls_loss_type=cls_loss_type,
+            scale_weights=scale_weights,
+        )
 
     @property
     def names(self) -> dict[int, str]:
@@ -405,7 +524,8 @@ class RTDETRP2Model(nn.Module):
             cls_logits=cls_logits,
             box_offsets=box_offsets,
             stride=self.p2_head.stride,
-            topk=300,
+            topk=self.topk,
+            conf_threshold=self.conf_threshold,
         )
 
         if isinstance(native_out, (list, tuple)):
@@ -465,3 +585,4 @@ class RTDETRP2Model(nn.Module):
         total_p2_loss = loss_dict["loss_p2_total"]
 
         return total_p2_loss, loss_dict
+

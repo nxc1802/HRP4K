@@ -95,6 +95,11 @@ class RTDETRP2Adapter(DetectorAdapter):
         fusion_iou_threshold: float = 0.5,
         p2_checkpoint: Path | str | None = None,
         mode: str = "fused",
+        topk: int = 300,
+        p2_conf_threshold: float = 0.001,
+        target_assignment: str = "1x1",
+        cls_loss_type: str = "bce",
+        scale_weights: dict[str, float] | tuple[float, float, float, float] | list[float] | None = None,
     ) -> None:
         self.weights = Path(weights) if isinstance(weights, str) else weights
         self.category_id = category_id
@@ -110,6 +115,11 @@ class RTDETRP2Adapter(DetectorAdapter):
         self.fusion_iou_threshold = fusion_iou_threshold
         self.p2_checkpoint = p2_checkpoint
         self.mode = mode
+        self.topk = topk
+        self.p2_conf_threshold = p2_conf_threshold
+        self.target_assignment = target_assignment
+        self.cls_loss_type = cls_loss_type
+        self.scale_weights = scale_weights
         self.is_coco_base = False
 
         self._init_model()
@@ -123,7 +133,16 @@ class RTDETRP2Adapter(DetectorAdapter):
             print(f"[RTDETRP2Adapter Notice] Native checkpoint is COCO ({native_nc} classes).")
             print(f"[RTDETRP2Adapter Notice] Mode: {self.mode}. Native queries will be filtered to class {self.category_id}.")
 
-        self.model = RTDETRP2Model(native_model=native, nc=1, freeze_native=True)
+        self.model = RTDETRP2Model(
+            native_model=native,
+            nc=1,
+            freeze_native=True,
+            target_assignment=self.target_assignment,
+            cls_loss_type=self.cls_loss_type,
+            scale_weights=self.scale_weights,
+            topk=self.topk,
+            conf_threshold=self.p2_conf_threshold,
+        )
 
         # Load P2 head weights if provided
         ckpt_path = self.p2_checkpoint or (self.weights if str(self.weights).endswith("best_p2.pt") else None)
@@ -175,7 +194,8 @@ class RTDETRP2Adapter(DetectorAdapter):
 
         def to_detections(tensor_preds: torch.Tensor, is_native: bool = False) -> list[Detection]:
             dets: list[Detection] = []
-            mask = tensor_preds[:, 4] >= confidence
+            min_score = confidence if is_native else max(confidence, self.p2_conf_threshold)
+            mask = tensor_preds[:, 4] >= min_score
             if is_native and self.is_coco_base:
                 mask = mask & (tensor_preds[:, 5].long() == self.category_id)
             if not mask.any():
@@ -231,6 +251,10 @@ class RTDETRP2Adapter(DetectorAdapter):
             "device": self.device,
             "precision": self.precision,
             "fusion_iou_threshold": self.fusion_iou_threshold,
+            "topk": self.topk,
+            "p2_conf_threshold": self.p2_conf_threshold,
+            "target_assignment": self.target_assignment,
+            "cls_loss_type": self.cls_loss_type,
         }
 
 
@@ -260,6 +284,12 @@ def train_rtdetr_p2(
     hf_token: str | None = None,
     hf_sync: bool = True,
     path_in_repo: str | None = None,
+    target_assignment: str = "1x1",
+    cls_loss_type: str = "bce",
+    scale_weights: dict[str, float] | tuple[float, float, float, float] | list[float] | None = None,
+    topk: int = 300,
+    p2_conf_threshold: float = 0.001,
+    fusion_iou_threshold: float = 0.5,
 ) -> dict[str, Any]:
     """Execute dedicated training for Frozen RT-DETR-L + Lightweight Dense P2 Head."""
     if not smoke and not allow_full and not resume:
@@ -303,6 +333,11 @@ def train_rtdetr_p2(
         nc=1,
         input_size=(actual_imgsz, actual_imgsz) if isinstance(actual_imgsz, int) else actual_imgsz,
         freeze_native=True,
+        target_assignment=target_assignment,
+        cls_loss_type=cls_loss_type,
+        scale_weights=scale_weights,
+        topk=topk,
+        conf_threshold=p2_conf_threshold,
     )
     p2_model.to(target_device)
 
@@ -432,6 +467,12 @@ def train_rtdetr_p2(
             "base_checkpoint": str(resolved_weights),
             "image_size": actual_imgsz,
             "architecture": "frozen_rtdetr_l_p2",
+            "target_assignment": target_assignment,
+            "cls_loss_type": cls_loss_type,
+            "scale_weights": scale_weights,
+            "topk": topk,
+            "p2_conf_threshold": p2_conf_threshold,
+            "fusion_iou_threshold": fusion_iou_threshold,
         }
 
         # Save last checkpoint (both last_p2.pt and last.pt for HF syncer)
@@ -476,6 +517,12 @@ def train_rtdetr_p2(
             category_id=0,
             device=target_device,
             p2_checkpoint=best_p2_path,
+            topk=topk,
+            p2_conf_threshold=p2_conf_threshold,
+            fusion_iou_threshold=fusion_iou_threshold,
+            target_assignment=target_assignment,
+            cls_loss_type=cls_loss_type,
+            scale_weights=scale_weights,
         )
 
         if test_gt.is_file():
@@ -518,6 +565,12 @@ def train_rtdetr_p2(
         "optimizer": "AdamW",
         "lr": 0.0005,
         "architecture": "frozen_rtdetr_l_p2",
+        "target_assignment": target_assignment,
+        "cls_loss_type": cls_loss_type,
+        "scale_weights": scale_weights,
+        "topk": topk,
+        "p2_conf_threshold": p2_conf_threshold,
+        "fusion_iou_threshold": fusion_iou_threshold,
         "experiment": experiment,
     }
     (run_dir / "resolved_config.json").write_text(json.dumps(config_dict, indent=2), encoding="utf-8")

@@ -22,6 +22,8 @@ from pycocotools.cocoeval import COCOeval
 import contextlib, io
 import time
 
+sys.path.insert(0, str(Path(__file__).parent / "src"))
+
 from hrp4k.data.paths import resolve_data_dir
 from hrp4k.experiments.proposed import RTDETRP2Adapter
 from hrp4k.detectors.base import Detection
@@ -69,6 +71,9 @@ def run_comparison(
     hf_repo: str = "Cuong2004/HRP4K",
     hf_token: str | None = None,
     rect: bool = False,
+    topk: int = 300,
+    p2_conf: float = 0.001,
+    fusion_iou: float = 0.5,
 ) -> dict[str, Any]:
     ckpt_path = Path(checkpoint_path).resolve()
     if not ckpt_path.is_file():
@@ -90,7 +95,8 @@ def run_comparison(
     print(f"  P2 Checkpoint:  {ckpt_path}")
     print(f"  Base Weights:   {weights}")
     print(f"  Image Size:     {image_size}px")
-    print(f"  Confidence:     {confidence}")
+    print(f"  Confidence:     {confidence} (P2 Cutoff: {p2_conf})")
+    print(f"  Top-K:          {topk} (Fusion NMS IoU: {fusion_iou})")
     print(f"  Device:         {target_device}")
     print("=" * 80)
 
@@ -127,6 +133,9 @@ def run_comparison(
         device=target_device,
         p2_checkpoint=ckpt_path,
         mode="fused",
+        topk=topk,
+        p2_conf_threshold=p2_conf,
+        fusion_iou_threshold=fusion_iou,
     )
     adapter.model.eval()
 
@@ -172,7 +181,8 @@ def run_comparison(
 
         # Convert to detections
         def get_dets(preds: torch.Tensor, is_native: bool = False) -> list[Detection]:
-            m = preds[:, 4] >= min(confidence, 0.001)
+            m_conf = confidence if is_native else max(confidence, p2_conf)
+            m = preds[:, 4] >= m_conf
             if is_native and adapter.is_coco_base:
                 m = m & (preds[:, 5].long() == adapter.category_id)
             if not m.any():
@@ -198,7 +208,7 @@ def run_comparison(
 
         p2_dets = get_dets(p2_raw, is_native=False)
         nat_dets = get_dets(native_raw, is_native=True)
-        fused_dets = fuse_native_and_p2_predictions(nat_dets, p2_dets, iou_threshold=0.5)
+        fused_dets = fuse_native_and_p2_predictions(nat_dets, p2_dets, iou_threshold=fusion_iou)
 
         for d in p2_dets:
             w = float(d.xyxy[2] - d.xyxy[0])
@@ -334,7 +344,46 @@ def run_comparison(
     print(f"{'Inference FPS':<28} | {fps:<18.2f} | {fps:<18.2f} | {'=':<12} | {fps:<10.2f}")
     print("=" * 95)
 
-    # 7. Save results locally
+    # 7. Decision Gate Analysis (Big Plan.md Guidelines)
+    uf_rec_nat = nat_acad.get("scale", {}).get("ultra_fine", {}).get("recall50", 0.0)
+    uf_rec_fused = fused_acad.get("scale", {}).get("ultra_fine", {}).get("recall50", 0.0)
+    uf_ap_nat = nat_acad.get("scale", {}).get("ultra_fine", {}).get("AP50", 0.0)
+    uf_ap_fused = fused_acad.get("scale", {}).get("ultra_fine", {}).get("AP50", 0.0)
+    f1_nat = nat_oper.get("f1", 0.0)
+    f1_fused = fused_oper.get("f1", 0.0)
+    p2_ap50 = p2_acad.get("AP50", 0.0)
+    fused_ap50 = fused_acad.get("AP50", 0.0)
+    nat_ap50 = nat_acad.get("AP50", 0.0)
+
+    print("\n" + "=" * 95)
+    print("DECISION GATE ANALYSIS (Big Plan.md Protocol)")
+    print("=" * 95)
+    if uf_rec_fused >= 0.94 or uf_ap_fused >= 0.52 or f1_fused >= 0.50:
+        gate_status = "Case A: Significant Improvement"
+        gate_desc = (
+            "Clear performance gain detected! P2 auxiliary branch substantially enhances ultra-fine detection.\n"
+            "Recommendation: Continue research with Native-failure-aware training and multi-scale fine-tuning."
+        )
+    elif p2_ap50 >= 0.07 and (fused_ap50 - nat_ap50) < 0.002:
+        gate_status = "Case B: Fusion / Calibration Bottleneck"
+        gate_desc = (
+            "P2 capacity improved individually, but fused results show marginal gain (<0.2% AP50).\n"
+            "Recommendation: P2 is limited by fusion/complementarity. Run 1 Native-failure-aware trial. If no gain, stop."
+        )
+    else:
+        gate_status = "Case C: Practical Ceiling Reached"
+        gate_desc = (
+            "Optimizations show marginal or plateaued gain around ~62.5% AP50 and ~93% Ultra-fine recall.\n"
+            "Recommendation: P2 auxiliary branch has achieved its practical ceiling under current budget.\n"
+            "DO NOT add Transformer attention, BiFPN, or heavy modules. Conclude contribution as lightweight\n"
+            "auxiliary P2 branch for ultra-fine pothole detection and prepare publication."
+        )
+
+    print(f"Status: {gate_status}")
+    print(gate_desc)
+    print("=" * 95)
+
+    # 8. Save results locally
     results = {
         "benchmark_academic_conf_0_001": {
             "baseline_native": nat_acad,
@@ -346,11 +395,18 @@ def run_comparison(
             "proposed_fused": {**fused_oper, "fppi": fppi_f, "fn_per_img": fn_f},
             "p2_only": {**p2_oper, "fppi": fppi_p, "fn_per_img": fn_p},
         },
+        "decision_gate": {
+            "status": gate_status,
+            "description": gate_desc,
+        },
         "settings": {
             "checkpoint": str(ckpt_path),
             "weights": str(weights),
             "image_size": image_size,
             "num_images": len(selected_images),
+            "topk": topk,
+            "p2_conf": p2_conf,
+            "fusion_iou": fusion_iou,
             "mean_latency_ms": mean_lat,
             "fps": fps,
         },
@@ -361,7 +417,7 @@ def run_comparison(
     (out_dir / "test_metrics_operational.json").write_text(json.dumps(results["benchmark_operational_conf_0_25"], indent=2), encoding="utf-8")
     print(f"\nSaved comparison results to: {comp_path}")
 
-    # 8. Upload to Hugging Face if requested
+    # 9. Upload to Hugging Face if requested
     if hf_upload:
         try:
             from huggingface_hub import HfApi
@@ -406,6 +462,9 @@ def main() -> int:
     parser.add_argument("--num-images", type=int, default=0, help="Number of test images (0 = all 900 images)")
     parser.add_argument("--device", help="CUDA device index or 'cpu'")
     parser.add_argument("--output", default="outputs/evaluation_comparison", help="Output directory")
+    parser.add_argument("--topk", type=int, default=300, help="Inference Top-K predictions")
+    parser.add_argument("--p2-conf", type=float, default=0.001, help="P2 confidence score threshold")
+    parser.add_argument("--fusion-iou", type=float, default=0.5, help="NMS IoU threshold for fusion")
     parser.add_argument("--hf-upload", action="store_true", help="Upload comparison metrics to Hugging Face")
     parser.add_argument("--hf-repo", default="Cuong2004/HRP4K", help="Target HF repo")
     parser.add_argument("--hf-token", help="Hugging Face write access token")
@@ -425,6 +484,9 @@ def main() -> int:
         hf_repo=args.hf_repo,
         hf_token=args.hf_token,
         rect=args.rect,
+        topk=args.topk,
+        p2_conf=args.p2_conf,
+        fusion_iou=args.fusion_iou,
     )
     return 0
 
