@@ -118,6 +118,7 @@ def main() -> int:
             "--cls-loss", "focal",
             "--epochs", "30",
             "--patience", "5",
+            "--batch", "16",
             "--weights", str(base_weights),
             "--data", str(data_yaml),
             "--device", device,
