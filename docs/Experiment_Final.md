@@ -137,14 +137,15 @@
 
 ---
 
-### Table 6 — Phase 3: Classification Loss Function Upgrade (QFL vs BCE)
+### Table 6 — Phase 3: Classification Loss Function Upgrade (BCE vs QFL vs Focal Loss Only)
 
-> **Mục tiêu**: Nâng cấp hàm mất mát phân loại từ chuẩn BCE sang Quality Focal Loss (QFL) phản ánh trực tiếp chất lượng bounding box IoU vào confidence score.
+> **Mục tiêu**: Đánh giá tác động độc lập của các hàm mất mát phân loại (Standard BCE, Quality Focal Loss kết hợp, và Pure Sigmoid Focal Loss $\alpha=0.25, \gamma=2.0$ với $1\times 1$ target assignment) trên bài toán mất cân bằng foreground/background của ổ gà siêu nhỏ.
 
-| Loss Formulation | Hyperparameters | AP<sub>50</sub> | AP<sub>75</sub> | AP<sub>50:95</sub> | Overall Recall | UF Recall | F1 @0.25 | FPPI | Ghi Chú |
+| Loss Formulation | Hyperparameters | AP<sub>50</sub> | AP<sub>75</sub> | AP<sub>50:95</sub> | Overall Recall | UF Recall | F1 @0.25 | FPPI | Artifacts & Ghi Chú |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| **Baseline BCE Loss** | Standard BCEWithLogits | **62.58%** | **38.36%** | **36.99%** | **92.40%** | **94.07%** | **47.71%** | **1.4667** | Winner Phase 1 (Ít nhiễu FP) |
-| **Quality Focal Loss (QFL)** | $\beta=2.0$ (IoU-guided) | 57.55% | 37.01% | 34.89% | 91.97% | 93.01% | 21.46% | 5.4933 | Tăng score các box nhỏ, đẩy FPPI lên |
+| **Baseline BCE Loss** | Standard BCEWithLogits | **62.58%** | 38.36% | 36.99% | **92.40%** | **94.07%** | **47.71%** | **1.4667** | [📦 Phase 1 Winner](https://huggingface.co/datasets/Cuong2004/HRP4K/blob/main/outputs/experiments/rtdetr-l-proposed-p2-2k/weights/best_p2.pt) (Ít FP nhất) |
+| **Quality Focal Loss (QFL)** | $\beta=2.0$ (IoU-guided trong All-in-One) | 57.55% | 37.01% | 34.89% | 91.97% | 93.01% | 21.46% | 5.4933 | [📦 Phase 5](https://huggingface.co/datasets/Cuong2004/HRP4K/blob/main/outputs/optimization_pipeline/phase5_best_p2_combination/weights/best_p2.pt) (Bị tăng báo động giả do $3\times3$) |
+| **🌟 Pure Focal Loss Only** | $\alpha=0.25, \gamma=2.0$ ($1\times1$, 30 Ep) | 62.13% | **38.98%** | **37.23%** | 91.97% | 93.22% | 46.78% | 1.5278 | [📦 Phase 3 Focal Loss](https://huggingface.co/datasets/Cuong2004/HRP4K/tree/main/phase3_focal_loss_only) (Hội tụ loss tốt nhất 87.10, khắc phục sụp F1) |
 
 ---
 
@@ -167,23 +168,25 @@
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | **Phase 0 Baseline (Un-optimized)** | $1 \times 1$ | BCE | Uniform | Default (IoU 0.5) | 46.57% | 26.41% | 86.65% | 0.85% | 200.43 |
 | **+ Phase 1 (Sweep Winner)** | $1 \times 1$ | BCE | Uniform | TopK 300, IoU 0.6 | **62.58%** | **36.99%** | **94.07%** | **47.71%** | **1.4667** |
+| **+ Phase 3 (Focal Loss Only Retrained)** | $1 \times 1$ | Focal | Uniform | TopK 300, IoU 0.6 | 62.13% | 37.23% | 93.22% | 46.78% | 1.5278 |
 | **🌟 All-in-One Best P2 Combination** | **$3 \times 3$** | **QFL** | **(3.0, 2.0, 1.0, 0.5)** | **TopK 300, IoU 0.6** | 57.55% | 34.89% | 93.01% | 21.46% | 5.4933 |
 
 ---
 
 ### Table 9 — Phase 6: Final Head-to-Head Paper Benchmark & Decision Gate
 
-> **Mục tiêu**: Bảng so sánh trực diện toàn diện đưa vào bài báo khoa học giữa Native Baseline, Original P2, Sweep P2, và All-in-One Optimized P2.
+> **Mục tiêu**: Bảng so sánh trực diện toàn diện đưa vào bài báo khoa học giữa Native Baseline, Original P2, Sweep P2, Focal Loss Only và All-in-One Optimized P2.
 >
-> **Hugging Face Hub Artifacts**: [📦 Phase 5 Best P2 Weights](https://huggingface.co/datasets/Cuong2004/HRP4K/blob/main/outputs/optimization_pipeline/phase5_best_p2_combination/weights/best_p2.pt) | [📄 Comparison JSON](https://huggingface.co/datasets/Cuong2004/HRP4K/blob/main/outputs/optimization_pipeline/phase6_final_evaluation/test_metrics_comparison.json) | [📦 Fused Predictions](https://huggingface.co/datasets/Cuong2004/HRP4K/blob/main/outputs/optimization_pipeline/phase6_final_evaluation/test_predictions_fused.json)
+> **Hugging Face Hub Artifacts**: [📦 Phase 3 Focal Loss Only](https://huggingface.co/datasets/Cuong2004/HRP4K/tree/main/phase3_focal_loss_only) | [📦 Phase 5 Best P2 Weights](https://huggingface.co/datasets/Cuong2004/HRP4K/blob/main/outputs/optimization_pipeline/phase5_best_p2_combination/weights/best_p2.pt) | [📄 Comparison JSON](https://huggingface.co/datasets/Cuong2004/HRP4K/blob/main/phase3_focal_loss_only/evaluation/test_metrics_comparison.json)
 
 | Architecture / Model | AP<sub>50</sub> | AP<sub>75</sub> | AP<sub>50:95</sub> | Overall Recall | UF Recall | Fine Recall | F1 @0.25 | FPPI | Latency | FPS |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Native RT-DETR-L 2K** | 62.48% | 39.45% | 37.58% | 91.21% | 91.31% | 92.90% | 47.29% | 1.4989 | 43.2 ms | 23.1 |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Native RT-DETR-L 2K** | 62.49% | 39.33% | 37.56% | 91.10% | 91.10% | 92.90% | 47.18% | 1.5033 | 43.2 ms | 23.1 |
 | **Original P2 Fused (Pre-Phase 1)** | 46.57% | 25.74% | 26.41% | 83.82% | 86.65% | 86.39% | 0.85% | 200.43 | 48.5 ms | 20.6 |
-| **🏆 Proposed P2 Fused (Phase 1 Winner)** | **62.58%** | **38.36%** | **36.99%** | **92.40%** | **94.07%** | 92.90% | **47.71%** | **1.4667** | 48.5 ms | 20.6 |
+| **🏆 Proposed P2 Fused (Phase 1 Winner - BCE)** | **62.58%** | 38.36% | 36.99% | **92.40%** | **94.07%** | 92.90% | **47.71%** | **1.4667** | 48.5 ms | 20.6 |
+| **⚡ Proposed P2 Fused (Phase 3 - Focal Loss)** | 62.13% | **38.98%** | **37.23%** | 91.97% | 93.22% | 92.31% | 46.78% | 1.5278 | 61.1 ms | 16.4 |
 | **All-in-One Best P2 Combination (Retrained)** | 57.55% | 37.01% | 34.89% | 91.97% | 93.01% | **93.49%** | 21.46% | 5.4933 | 61.7 ms | 16.2 |
-| **P2-Only Standalone (Epoch 24 Best)** | 2.50% | 0.90% | 1.10% | 42.78% | **70.34%** | 29.59% | 3.55% | 9.9333 | 28.3 ms | 35.3 |
+| **P2-Only Standalone (Focal Loss Best)** | 1.87% | 0.55% | 0.75% | 38.00% | 61.44% | 25.44% | 2.85% | 0.1300 | 28.3 ms | 35.3 |
 
 ---
 
