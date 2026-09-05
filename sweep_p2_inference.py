@@ -84,6 +84,16 @@ def main() -> int:
         default="0.4,0.5,0.6,0.7",
         help="Comma-separated NMS IoU thresholds to sweep",
     )
+    parser.add_argument(
+        "--hf-upload",
+        action="store_true",
+        help="Upload sweep results to Hugging Face Hub",
+    )
+    parser.add_argument(
+        "--hf-repo",
+        default="Cuong2004/HRP4K",
+        help="Hugging Face repo ID",
+    )
 
     args = parser.parse_args()
 
@@ -91,7 +101,7 @@ def main() -> int:
     conf_list = [float(x.strip()) for x in args.conf.split(",") if x.strip()]
     iou_list = [float(x.strip()) for x in args.iou.split(",") if x.strip()]
 
-    run_inference_sweep(
+    res = run_inference_sweep(
         checkpoint_path=args.checkpoint,
         data_dir=args.data,
         weights=args.weights,
@@ -104,6 +114,27 @@ def main() -> int:
         conf_candidates=conf_list,
         iou_candidates=iou_list,
     )
+
+    if args.hf_upload:
+        try:
+            from hrp4k.infra.upload import get_hf_credentials
+            from huggingface_hub import HfApi
+            token, repo_id, repo_type = get_hf_credentials(repo_id=args.hf_repo)
+            if token and repo_id:
+                api = HfApi(token=token)
+                api.upload_folder(
+                    folder_path=str(args.output),
+                    path_in_repo=str(args.output),
+                    repo_id=repo_id,
+                    repo_type=repo_type,
+                    commit_message=f"Sync Phase 1 sweep results from {args.output}",
+                )
+                print(f"[HF Sync] Successfully uploaded {args.output} to {repo_id} on Hugging Face Hub")
+            else:
+                print("[HF Sync] Warning: HF credentials not configured, skipping upload.")
+        except Exception as exc:
+            print(f"[HF Sync] Warning: Could not upload to HF: {exc}")
+
     return 0
 
 

@@ -233,6 +233,8 @@ def main() -> int:
             ]
             if args.smoke:
                 cmd_p1.extend(["--num-images", "10", "--topk", "300,500", "--conf", "0.001,0.01", "--iou", "0.5"])
+            if args.hf_upload:
+                cmd_p1.extend(["--hf-upload", "--hf-repo", HF_REPO])
             ret_p1 = run_cmd_logged(cmd_p1, "Phase 1: Inference Sweep")
             if ret_p1 == 0:
                 completed.append("Phase 1: Inference Sweep")
