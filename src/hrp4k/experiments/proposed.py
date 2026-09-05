@@ -494,6 +494,10 @@ def train_rtdetr_p2(
             print(f"[Resume Warning] Failed loading resume checkpoint: {exc}")
     else:
         print(f"[P2 Initialization] Initialized FRESH Lightweight P2 Head & Adapter (Training P2 from scratch)")
+    
+    device_type = "cuda" if "cuda" in str(target_device) else "cpu"
+    amp_enabled = (device_type == "cuda")
+    scaler = torch.amp.GradScaler(device=device_type, enabled=amp_enabled)
 
     for epoch in range(start_epoch, actual_epochs):
         p2_model.p2_branch.train()
@@ -512,25 +516,28 @@ def train_rtdetr_p2(
                 "gt_groups": gt_groups,
             }
 
-            # Forward P2 with Frozen Backbone
-            with torch.no_grad():
-                c2_feat = extract_c2_backbone(p2_model.native_model, img, c2_layer_idx=p2_model.c2_layer_idx)
+            # Forward P2 with Frozen Backbone and AMP
+            with torch.amp.autocast(device_type=device_type, enabled=amp_enabled):
+                with torch.no_grad():
+                    c2_feat = extract_c2_backbone(p2_model.native_model, img, c2_layer_idx=p2_model.c2_layer_idx)
 
-            p2_feat = p2_model.p2_branch(c2_feat)
-            cls_logits, box_offsets = p2_model.p2_head(p2_feat)
+                p2_feat = p2_model.p2_branch(c2_feat)
+                cls_logits, box_offsets = p2_model.p2_head(p2_feat)
 
-            loss_dict = p2_model.p2_head.compute_loss(
-                cls_logits=cls_logits,
-                box_offsets=box_offsets,
-                targets=targets,
-                img_size=(img.shape[-2], img.shape[-1]),
-            )
-            loss = loss_dict["loss_p2_total"]
-            scaled_loss = loss / max(1, accumulation)
-            scaled_loss.backward()
+                loss_dict = p2_model.p2_head.compute_loss(
+                    cls_logits=cls_logits,
+                    box_offsets=box_offsets,
+                    targets=targets,
+                    img_size=(img.shape[-2], img.shape[-1]),
+                )
+                loss = loss_dict["loss_p2_total"]
+                scaled_loss = loss / max(1, accumulation)
+
+            scaler.scale(scaled_loss).backward()
 
             if (batch_idx + 1) % max(1, accumulation) == 0 or (batch_idx + 1) == len(train_loader):
-                optimizer.step()
+                scaler.step(optimizer)
+                scaler.update()
                 optimizer.zero_grad()
 
             epoch_losses.append(loss.item())
@@ -541,7 +548,6 @@ def train_rtdetr_p2(
         mean_loss = float(np.mean(epoch_losses)) if epoch_losses else 0.0
         print(f"Epoch {epoch + 1}/{actual_epochs} - Mean P2 Loss: {mean_loss:.4f}")
 
-        # Construct checkpoint payload
         payload = {
             "p2_state_dict": p2_model.p2_head.state_dict(),
             "p2_adapter_state_dict": p2_model.p2_branch.state_dict(),
@@ -569,6 +575,12 @@ def train_rtdetr_p2(
             patience_counter = 0
             torch.save(payload, str(best_p2_path))
             torch.save(payload, str(weights_dir / "best.pt"))
+            if syncer.enabled:
+                syncer.sync_epoch(
+                    epoch=epoch + 1,
+                    weights_dir=weights_dir,
+                    metrics_files=[run_dir / "val_metrics.json"] if (run_dir / "val_metrics.json").exists() else None,
+                )
         else:
             patience_counter += 1
             if not smoke and patience > 0 and patience_counter >= patience:
