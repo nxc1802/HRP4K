@@ -340,47 +340,38 @@ def ensure_weights(
     try:
         from huggingface_hub import list_repo_files, hf_hub_download
         
-        # Query existing files in remote repo for fast exact matching
-        try:
-            repo_files = list_repo_files(repo_id=resolved_repo, repo_type=resolved_type, token=resolved_token)
-            # Find any repo file ending with this filename where parent directory matches any part of path_obj
+        repo_files = list_repo_files(repo_id=resolved_repo, repo_type=resolved_type, token=resolved_token)
+        repo_files_set = set(repo_files)
+        path_str = str(path_obj).replace("\\", "/")
+
+        # 1. Exact match (top priority)
+        if path_str in repo_files_set:
+            filename_candidates.append(path_str)
+
+        # 2. Match with relative parent sub-paths (e.g. "rtdetr-l-resolution-2k/weights/best.pt")
+        for num_parents in range(len(path_obj.parts) - 1, 1, -1):
+            sub_path = "/".join(path_obj.parts[-num_parents:])
             for rf in repo_files:
-                rf_parts = rf.split("/")
-                if filename in rf_parts:
-                    for part in path_obj.parts[:-1]:
-                        if part not in {"outputs", "runs", "weights"} and part in rf_parts:
-                            if rf not in filename_candidates:
-                                filename_candidates.append(rf)
-            # Also add any direct match ending with filename
-            for rf in repo_files:
-                if rf.endswith(f"/{filename}") and rf not in filename_candidates:
+                if rf.endswith(sub_path) and rf not in filename_candidates:
                     filename_candidates.append(rf)
-        except Exception:
-            pass
 
-        # Add structured rule-based candidates
-        for part in path_obj.parts[:-1]:
-            if part not in {"outputs", "runs", "weights"}:
-                for pattern in [
-                    f"checkpoints/{part}/{filename}",
-                    f"{part}/weights/{filename}",
-                    f"{part}/{filename}",
-                ]:
-                    if pattern not in filename_candidates:
-                        filename_candidates.append(pattern)
+        # 3. Match by specific experiment folder name (exclude generic folders like outputs, experiments, runs, weights)
+        generic_names = {"outputs", "runs", "weights", "experiments", "checkpoints", "models", "."}
+        specific_parts = [p for p in path_obj.parts[:-1] if p not in generic_names]
+        for rf in repo_files:
+            if rf.endswith(f"/{filename}"):
+                rf_parts = set(rf.split("/"))
+                if any(sp in rf_parts for sp in specific_parts) and rf not in filename_candidates:
+                    filename_candidates.append(rf)
 
-        if len(path_obj.parts) >= 3:
-            cand = f"checkpoints/{path_obj.parent.parent.name}/{filename}"
-            if cand not in filename_candidates:
-                filename_candidates.append(cand)
-
+        # 4. Fallback candidates
         for fallback in [
             f"checkpoints/{path_obj.parent.name}/{filename}",
             f"checkpoints/{filename}",
-            str(path_obj).replace("\\", "/"),
+            path_str,
             filename,
         ]:
-            if fallback not in filename_candidates:
+            if fallback in repo_files_set and fallback not in filename_candidates:
                 filename_candidates.append(fallback)
 
         for candidate_filename in filename_candidates:
@@ -393,13 +384,11 @@ def ensure_weights(
                 )
                 if downloaded_file and Path(downloaded_file).is_file():
                     print(f"Successfully downloaded '{candidate_filename}' from Hugging Face -> {downloaded_file}")
-                    target_dest = path_obj
-                    if not target_dest.is_absolute():
-                        target_dest.parent.mkdir(parents=True, exist_ok=True)
-                        import shutil
-                        shutil.copy2(downloaded_file, target_dest)
-                        return target_dest
-                    return Path(downloaded_file)
+                    target_dest = path_obj.resolve() if path_obj.is_absolute() else path_obj
+                    target_dest.parent.mkdir(parents=True, exist_ok=True)
+                    import shutil
+                    shutil.copy2(downloaded_file, target_dest)
+                    return target_dest
             except Exception:
                 continue
     except Exception as exc:

@@ -156,6 +156,13 @@ class RTDETRP2Adapter(DetectorAdapter):
                 "RTDETRDecoder" in str(type(m)) for m in native.modules()
             )
             if not is_rtdetr:
+                print(f"[RTDETRP2Adapter Warning] Fetching explicit remote path 'outputs/experiments/rtdetr-l-resolution-2k/weights/best.pt'...")
+                weights_file = ensure_weights("outputs/experiments/rtdetr-l-resolution-2k/weights/best.pt", force_redownload=True)
+                native = RTDETR(str(weights_file)).model
+                is_rtdetr = (type(native).__name__ == "RTDETRDetectionModel") or any(
+                    "RTDETRDecoder" in str(type(m)) for m in native.modules()
+                )
+            if not is_rtdetr:
                 raise ValueError(
                     f"Base detector weights '{weights_file}' is not an RT-DETR model! "
                     f"Expected RTDETRDetectionModel, got {type(native).__name__}."
