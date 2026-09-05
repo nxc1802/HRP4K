@@ -166,6 +166,25 @@ def main() -> int:
         help="Print planned commands and execution schedule without running",
     )
     parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=8,
+        help="Inference batch size for Phase 1 sweep (default: 8)",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=4,
+        help="DataLoader CPU workers for parallel image prefetching (default: 4)",
+    )
+    parser.add_argument(
+        "--no-fp16",
+        dest="fp16",
+        action="store_false",
+        help="Disable FP16 Tensor Core acceleration in Phase 1",
+    )
+    parser.set_defaults(fp16=True)
+    parser.add_argument(
         "--hf-upload",
         action="store_true",
         help="Upload checkpoints and metrics to Hugging Face",
@@ -184,6 +203,9 @@ def main() -> int:
     log(f"Base Weights:    {args.weights}")
     log(f"P2 Base Weights: {args.p2_base}")
     log(f"Device:          {args.device}")
+    log(f"Batch Size (P1): {args.batch_size}")
+    log(f"Workers (P1):    {args.workers}")
+    log(f"FP16 (P1):       {args.fp16}")
     log(f"Smoke Mode:      {args.smoke}")
     log(f"Allow Full:      {args.allow_full}")
     log("=" * 80)
@@ -230,7 +252,11 @@ def main() -> int:
                 "--data", str(args.data),
                 "--device", str(args.device),
                 "--output", str(OUTPUTS_DIR / "phase1_inference_sweep"),
+                "--batch-size", str(args.batch_size),
+                "--workers", str(args.workers),
             ]
+            if not args.fp16:
+                cmd_p1.append("--no-fp16")
             if args.smoke:
                 cmd_p1.extend(["--num-images", "10", "--topk", "300,500", "--conf", "0.001,0.01", "--iou", "0.5"])
             if args.hf_upload:

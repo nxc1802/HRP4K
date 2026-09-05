@@ -29,9 +29,11 @@ from typing import Any
 import cv2
 import numpy as np
 import torch
+import torch.nn.functional as F
 import torchvision
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
+from torch.utils.data import DataLoader, Dataset
 from ultralytics.data.augment import LetterBox
 from ultralytics.utils.ops import scale_boxes
 
@@ -40,6 +42,104 @@ from ..data.paths import resolve_data_dir
 from ..detectors.base import Detection
 from ..evaluation.coco import evaluate
 from ..experiments.proposed import RTDETRP2Adapter
+from ..models.p2_head import decode_dense_p2_predictions
+
+
+class TestImageDataset(Dataset):
+    """Prefetches and letterboxes test images asynchronously across CPU workers."""
+
+    def __init__(
+        self,
+        images: list[dict[str, Any]],
+        resolved_data: Path,
+        image_size: int = 1920,
+        rect: bool = False,
+    ):
+        self.images = images
+        self.resolved_data = resolved_data
+        self.image_size = image_size
+        self.rect = rect
+        self.lb = LetterBox(image_size, auto=True, stride=32) if rect else LetterBox(image_size, auto=False, scale_fill=True)
+
+    def __len__(self) -> int:
+        return len(self.images)
+
+    def __getitem__(self, idx: int) -> dict[str, Any]:
+        im = self.images[idx]
+        im_id = int(im["id"])
+        file_name = im["file_name"]
+
+        img_path = self.resolved_data / "test" / "images" / file_name
+        if not img_path.is_file():
+            img_path = self.resolved_data / "test" / file_name
+        if not img_path.is_file():
+            img_path = self.resolved_data / file_name
+
+        if not img_path.is_file():
+            return {
+                "valid": False,
+                "im_id": im_id,
+                "tensor": torch.empty((0,)),
+                "orig_shape": (0.0, 0.0),
+                "lb_shape": (0.0, 0.0),
+            }
+
+        image = cv2.imread(str(img_path))
+        if image is None:
+            return {
+                "valid": False,
+                "im_id": im_id,
+                "tensor": torch.empty((0,)),
+                "orig_shape": (0.0, 0.0),
+                "lb_shape": (0.0, 0.0),
+            }
+
+        h_orig, w_orig = float(image.shape[0]), float(image.shape[1])
+        lb_img = self.lb(image=image)
+        h_lb, w_lb = float(lb_img.shape[0]), float(lb_img.shape[1])
+
+        # Convert BGR to RGB, HWC to CHW, normalize to [0, 1]
+        rgb_img = lb_img[..., ::-1].copy()
+        tensor = torch.from_numpy(rgb_img).permute(2, 0, 1).float() / 255.0
+
+        return {
+            "valid": True,
+            "im_id": im_id,
+            "tensor": tensor,
+            "orig_shape": (h_orig, w_orig),
+            "lb_shape": (h_lb, w_lb),
+        }
+
+
+def collate_test_batch(batch: list[dict[str, Any]]) -> dict[str, Any]:
+    """Collates variable images into a batched tensor, padding when rect=True."""
+    valid_items = [item for item in batch if item.get("valid", False)]
+    if not valid_items:
+        return {"valid": False, "count": 0}
+
+    shapes = [item["tensor"].shape for item in valid_items]
+    max_h = max(s[1] for s in shapes)
+    max_w = max(s[2] for s in shapes)
+
+    tensors = []
+    for item in valid_items:
+        t = item["tensor"]
+        pad_h = max_h - t.shape[1]
+        pad_w = max_w - t.shape[2]
+        if pad_h > 0 or pad_w > 0:
+            t = F.pad(t, (0, pad_w, 0, pad_h), value=114.0 / 255.0)
+        tensors.append(t)
+
+    stacked_tensors = torch.stack(tensors, dim=0)
+
+    return {
+        "valid": True,
+        "tensors": stacked_tensors,
+        "im_ids": [item["im_id"] for item in valid_items],
+        "orig_shapes": [item["orig_shape"] for item in valid_items],
+        "lb_shapes": [item["lb_shape"] for item in valid_items],
+        "count": len(valid_items),
+    }
 
 
 def extract_and_cache_raw_predictions(
@@ -51,83 +151,104 @@ def extract_and_cache_raw_predictions(
     device: str = "cuda:0",
     max_topk: int = 2000,
     base_conf: float = 0.001,
+    batch_size: int = 8,
+    num_workers: int = 4,
+    fp16: bool = True,
 ) -> tuple[dict[int, tuple[torch.Tensor, torch.Tensor]], dict[int, tuple[torch.Tensor, torch.Tensor]]]:
-    """Runs a single forward pass and returns unscaled (boxes, scores) tensors per image ID on CPU."""
-    lb = LetterBox(image_size, auto=True, stride=32) if rect else LetterBox(image_size, auto=False, scale_fill=True)
-
+    """Runs batched forward passes with async DataLoader prefetching & FP16 Tensor Cores."""
     native_cache: dict[int, tuple[torch.Tensor, torch.Tensor]] = {}
     p2_cache: dict[int, tuple[torch.Tensor, torch.Tensor]] = {}
 
-    print(f"\n[Sweep Cache] Running single forward pass over {len(images)} test images (max Top-K={max_topk})...")
+    target_device = torch.device(device) if isinstance(device, str) else (device or torch.device("cpu"))
+    is_cuda = target_device.type == "cuda"
+    use_amp = fp16 and is_cuda
+
+    dataset = TestImageDataset(images=images, resolved_data=resolved_data, image_size=image_size, rect=rect)
+    actual_workers = max(0, min(num_workers, os.cpu_count() or 1)) if num_workers > 0 else 0
+
+    loader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=actual_workers,
+        pin_memory=is_cuda,
+        collate_fn=collate_test_batch,
+        persistent_workers=(actual_workers > 0),
+    )
+
+    print(f"\n[Sweep Cache] Running batched forward pass over {len(images)} test images...")
+    print(f"  Batch Size:         {batch_size}")
+    print(f"  DataLoader Workers: {actual_workers} (Parallel CPU Prefetching)")
+    print(f"  Precision:          {'FP16 (Tensor Cores Accelerated)' if use_amp else 'FP32'}")
     t0 = time.time()
+    processed_images = 0
 
-    for idx, im in enumerate(images):
-        im_id = int(im["id"])
-        file_name = im["file_name"]
-        img_path = resolved_data / "test" / "images" / file_name
-        if not img_path.is_file():
-            img_path = resolved_data / "test" / file_name
-        if not img_path.is_file():
-            img_path = resolved_data / file_name
-        if not img_path.is_file():
+    def unscale_tensor(
+        raw_preds: torch.Tensor,
+        h_lb: float,
+        w_lb: float,
+        h_orig: float,
+        w_orig: float,
+        is_native: bool = False,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        m = raw_preds[:, 4] >= base_conf
+        if is_native and adapter.is_coco_base:
+            m = m & (raw_preds[:, 5].long() == adapter.category_id)
+        filt = raw_preds[m]
+        if filt.shape[0] == 0:
+            return torch.empty((0, 4), dtype=torch.float32), torch.empty((0,), dtype=torch.float32)
+
+        boxes = filt[:, :4].clone().float()
+        if not rect:
+            boxes[:, [0, 2]] = boxes[:, [0, 2]] / w_lb * w_orig
+            boxes[:, [1, 3]] = boxes[:, [1, 3]] / h_lb * h_orig
+        else:
+            boxes = scale_boxes((int(h_lb), int(w_lb)), boxes, (int(h_orig), int(w_orig)))
+
+        boxes[:, [0, 2]] = torch.clamp(boxes[:, [0, 2]], min=0.0, max=w_orig)
+        boxes[:, [1, 3]] = torch.clamp(boxes[:, [1, 3]], min=0.0, max=h_orig)
+        scores = filt[:, 4].clone().float()
+        return boxes.cpu(), scores.cpu()
+
+    for batch_data in loader:
+        if not batch_data.get("valid", False) or batch_data["count"] == 0:
             continue
 
-        image = cv2.imread(str(img_path))
-        if image is None:
-            continue
-        h_orig, w_orig = float(image.shape[0]), float(image.shape[1])
-
-        lb_img = lb(image=image)
-        h_lb, w_lb = float(lb_img.shape[0]), float(lb_img.shape[1])
-
-        # Convert BGR to RGB
-        rgb_img = lb_img[..., ::-1].copy()
-        t = torch.from_numpy(rgb_img).permute(2, 0, 1).unsqueeze(0).float() / 255.0
-        t = t.to(device)
+        t_batch = batch_data["tensors"].to(target_device, non_blocking=is_cuda)
+        count = batch_data["count"]
 
         with torch.no_grad():
-            out = adapter.model(t)
+            if use_amp:
+                with torch.autocast(device_type="cuda", dtype=torch.float16):
+                    out = adapter.model(t_batch)
+            else:
+                out = adapter.model(t_batch)
 
-        native_raw = out["native_preds"][0]  # (300, 6) [x1, y1, x2, y2, score, cls]
+        native_converted_batch = out["native_preds"]  # (B, 300, 6)
         cls_logits, box_offsets = out["p2_raw"]
 
-        # Decode P2 with max_topk to allow slicing downstream
-        from ..models.p2_head import decode_dense_p2_predictions
-        p2_dense = decode_dense_p2_predictions(
-            cls_logits=cls_logits,
-            box_offsets=box_offsets,
+        # Decode P2 with max_topk in FP32
+        p2_dense_batch = decode_dense_p2_predictions(
+            cls_logits=cls_logits.float(),
+            box_offsets=box_offsets.float(),
             stride=adapter.model.p2_head.stride,
             topk=max_topk,
             conf_threshold=base_conf,
-        )[0]  # (max_topk, 6)
+        )  # (B, max_topk, 6)
 
-        def unscale_tensor(raw_preds: torch.Tensor, is_native: bool = False) -> tuple[torch.Tensor, torch.Tensor]:
-            m = raw_preds[:, 4] >= base_conf
-            if is_native and adapter.is_coco_base:
-                m = m & (raw_preds[:, 5].long() == adapter.category_id)
-            filt = raw_preds[m]
-            if filt.shape[0] == 0:
-                return torch.empty((0, 4), dtype=torch.float32), torch.empty((0,), dtype=torch.float32)
+        for b in range(count):
+            im_id = batch_data["im_ids"][b]
+            h_orig, w_orig = batch_data["orig_shapes"][b]
+            h_lb, w_lb = batch_data["lb_shapes"][b]
 
-            boxes = filt[:, :4].clone()
-            if not rect:
-                boxes[:, [0, 2]] = boxes[:, [0, 2]] / w_lb * w_orig
-                boxes[:, [1, 3]] = boxes[:, [1, 3]] / h_lb * h_orig
-            else:
-                boxes = scale_boxes((int(h_lb), int(w_lb)), boxes, (int(h_orig), int(w_orig)))
+            native_cache[im_id] = unscale_tensor(native_converted_batch[b], h_lb, w_lb, h_orig, w_orig, is_native=True)
+            p2_cache[im_id] = unscale_tensor(p2_dense_batch[b], h_lb, w_lb, h_orig, w_orig, is_native=False)
 
-            boxes[:, [0, 2]] = torch.clamp(boxes[:, [0, 2]], min=0.0, max=w_orig)
-            boxes[:, [1, 3]] = torch.clamp(boxes[:, [1, 3]], min=0.0, max=h_orig)
-            scores = filt[:, 4].clone()
-            return boxes.cpu(), scores.cpu()
-
-        native_cache[im_id] = unscale_tensor(native_raw, is_native=True)
-        p2_cache[im_id] = unscale_tensor(p2_dense, is_native=False)
-
-        if (idx + 1) % 100 == 0 or idx == len(images) - 1:
+        processed_images += count
+        if processed_images % (batch_size * 5) < batch_size or processed_images == len(images):
             elapsed = time.time() - t0
-            fps = (idx + 1) / max(elapsed, 1e-4)
-            print(f"  Cached {idx + 1}/{len(images)} images ({elapsed:.1f}s, {fps:.1f} img/s)...")
+            fps = processed_images / max(elapsed, 1e-4)
+            print(f"  Cached {processed_images}/{len(images)} images ({elapsed:.1f}s, {fps:.1f} img/s)...")
 
     return native_cache, p2_cache
 
@@ -196,6 +317,9 @@ def run_inference_sweep(
     topk_candidates: list[int] | None = None,
     conf_candidates: list[float] | None = None,
     iou_candidates: list[float] | None = None,
+    batch_size: int = 8,
+    num_workers: int = 4,
+    fp16: bool = True,
 ) -> dict[str, Any]:
     """Execute grid search across Top-K, P2 confidence threshold, and NMS IoU in under 2 minutes."""
     out_dir = Path(output_dir).resolve()
@@ -216,13 +340,16 @@ def run_inference_sweep(
     print("=" * 80)
     print("PHASE 1: INFERENCE-TIME ZERO-COMPUTE OPTIMIZATION SWEEP")
     print("=" * 80)
-    print(f"  P2 Checkpoint:     {checkpoint_path}")
-    print(f"  Base RT-DETR:      {weights}")
-    print(f"  Image Size:        {image_size}px (Canonical Square: {not rect})")
-    print(f"  Top-K Grid:        {topk_list}")
-    print(f"  P2 Conf Grid:      {conf_list}")
-    print(f"  NMS IoU Grid:      {iou_list}")
-    print(f"  Total Combos:      {len(topk_list) * len(conf_list) * len(iou_list)}")
+    print(f"  P2 Checkpoint:      {checkpoint_path}")
+    print(f"  Base RT-DETR:       {weights}")
+    print(f"  Image Size:         {image_size}px (Canonical Square: {not rect})")
+    print(f"  Batch Size:         {batch_size}")
+    print(f"  DataLoader Workers: {num_workers} (Parallel CPU Prefetching)")
+    print(f"  Precision:          {'FP16 (Tensor Cores Accelerated)' if fp16 else 'FP32'}")
+    print(f"  Top-K Grid:         {topk_list}")
+    print(f"  P2 Conf Grid:       {conf_list}")
+    print(f"  NMS IoU Grid:       {iou_list}")
+    print(f"  Total Combos:       {len(topk_list) * len(conf_list) * len(iou_list)}")
     print("=" * 80)
 
     # 1. Load Dataset GT & Pre-index COCO ground truth
@@ -301,6 +428,9 @@ def run_inference_sweep(
         device=target_device,
         max_topk=max_k,
         base_conf=min_c,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        fp16=fp16,
     )
 
     # 3. Fast Vectorized Grid Search Sweep

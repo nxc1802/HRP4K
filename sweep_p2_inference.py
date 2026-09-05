@@ -85,6 +85,25 @@ def main() -> int:
         help="Comma-separated NMS IoU thresholds to sweep",
     )
     parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=8,
+        help="Batch size for parallel GPU inference (default: 8, optimal for 80/96GB GPU)",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=4,
+        help="Number of DataLoader workers for parallel image prefetching (default: 4)",
+    )
+    parser.add_argument(
+        "--no-fp16",
+        dest="fp16",
+        action="store_false",
+        help="Disable FP16 Tensor Core acceleration and force FP32",
+    )
+    parser.set_defaults(fp16=True)
+    parser.add_argument(
         "--hf-upload",
         action="store_true",
         help="Upload sweep results to Hugging Face Hub",
@@ -113,6 +132,9 @@ def main() -> int:
         topk_candidates=topk_list,
         conf_candidates=conf_list,
         iou_candidates=iou_list,
+        batch_size=args.batch_size,
+        num_workers=args.workers,
+        fp16=args.fp16,
     )
 
     if args.hf_upload:
