@@ -78,6 +78,8 @@ class DenseP2Loss(nn.Module):
         targets: dict[str, Any],     # dict with cls, bboxes (normalized cxcywh), gt_groups
         img_size: tuple[int, int] = (640, 640),
     ) -> dict[str, torch.Tensor]:
+        cls_logits = cls_logits.float()
+        box_offsets = box_offsets.float()
         bs, _, h, w = cls_logits.shape
         device = cls_logits.device
         stride = self.stride
