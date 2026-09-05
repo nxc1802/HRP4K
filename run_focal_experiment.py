@@ -130,6 +130,10 @@ def main() -> int:
             "--hf-upload",
         ]
 
+        last_p2_path = OUTPUT_DIR / "weights" / "last_p2.pt"
+        if last_p2_path.is_file():
+            train_cmd.extend(["--resume", "--p2-checkpoint", str(last_p2_path)])
+
         ret_train = run_cmd_logged(train_cmd, "Step 1: Train Focal Loss Only")
         if ret_train != 0:
             log(f"[Error] Training failed with exit code {ret_train}")

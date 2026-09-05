@@ -576,11 +576,13 @@ def train_rtdetr_p2(
             torch.save(payload, str(best_p2_path))
             torch.save(payload, str(weights_dir / "best.pt"))
             if syncer.enabled:
-                syncer.sync_epoch(
-                    epoch=epoch + 1,
-                    weights_dir=weights_dir,
-                    metrics_files=[run_dir / "val_metrics.json"] if (run_dir / "val_metrics.json").exists() else None,
-                )
+                try:
+                    syncer.sync_epoch(
+                        epoch=epoch + 1,
+                        weights_dir=weights_dir,
+                    )
+                except Exception as sync_exc:
+                    print(f"[Sync Warning] Checkpoint sync warning: {sync_exc}")
         else:
             patience_counter += 1
             if not smoke and patience > 0 and patience_counter >= patience:
