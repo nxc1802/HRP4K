@@ -378,7 +378,13 @@ def train_rtdetr_p2(
     manifest_path = dataset_yaml.parent / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else None
 
-    target_device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+    dev_str = str(device).strip() if device is not None else ""
+    if dev_str.isdigit():
+        target_device = f"cuda:{dev_str}"
+    elif dev_str:
+        target_device = dev_str
+    else:
+        target_device = "cuda:0" if torch.cuda.is_available() else "cpu"
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
     torch.backends.cudnn.benchmark = True

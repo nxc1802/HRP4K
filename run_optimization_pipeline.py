@@ -232,11 +232,44 @@ def main() -> int:
 
     completed = []
 
-    # Current winning configuration defaults
+    # Current winning configuration defaults (Phase 1 Winner: Top-K=300, Conf=0.001, IoU=0.6)
     best_inf_topk = 300
     best_inf_conf = 0.001
-    best_inf_iou = 0.5
+    best_inf_iou = 0.6
     current_p2_ckpt = args.p2_base
+
+    # Check if a winning inference config already exists from prior sweep
+    for candidate_cfg in [
+        BASE_DIR / "outputs" / "inference_sweep" / "best_inference_config.json",
+        OUTPUTS_DIR / "phase1_inference_sweep" / "best_inference_config.json",
+    ]:
+        if candidate_cfg.is_file():
+            try:
+                with open(candidate_cfg, "r", encoding="utf-8") as f:
+                    cfg_data = json.load(f)
+                if cfg_data.get("topk") and cfg_data.get("p2_conf_threshold"):
+                    best_inf_topk = cfg_data.get("topk", 300)
+                    best_inf_conf = cfg_data.get("p2_conf_threshold", 0.001)
+                    best_inf_iou = cfg_data.get("fusion_iou_threshold", 0.6)
+                    log(f"[Inference Config Loaded] Using prior winner: Top-K={best_inf_topk}, Conf={best_inf_conf}, IoU={best_inf_iou}")
+                    break
+            except Exception as e:
+                log(f"[Inference Config Warning] Could not parse {candidate_cfg}: {e}")
+
+    # Resolve dataset YAML cleanly
+    resolved_data_yaml = Path(args.data)
+    if not resolved_data_yaml.is_file():
+        candidates = [
+            resolved_data_yaml / "dataset.yaml",
+            resolved_data_yaml / "data.yaml",
+            BASE_DIR / "outputs" / "full_dataset" / "dataset.yaml",
+            BASE_DIR / "HRP4K" / "data.yaml",
+        ]
+        for cand in candidates:
+            if cand.is_file():
+                resolved_data_yaml = cand
+                break
+    log(f"Resolved Dataset YAML: {resolved_data_yaml}")
 
     try:
         # ===================================================================
@@ -286,7 +319,7 @@ def main() -> int:
                 "--phase", "2",
                 "--target-assignment", "3x3",
                 "--weights", str(args.weights),
-                "--data", str(Path(args.data) / "data.yaml"),
+                "--data", str(resolved_data_yaml),
                 "--device", str(args.device),
                 "--output", str(OUTPUTS_DIR / "phase2_multi_positive_3x3"),
                 "--topk", str(best_inf_topk),
@@ -321,7 +354,7 @@ def main() -> int:
                 "--target-assignment", "3x3",
                 "--cls-loss", "qfl",
                 "--weights", str(args.weights),
-                "--data", str(Path(args.data) / "data.yaml"),
+                "--data", str(resolved_data_yaml),
                 "--device", str(args.device),
                 "--output", str(OUTPUTS_DIR / "phase3_qfl_loss"),
                 "--topk", str(best_inf_topk),
@@ -357,7 +390,7 @@ def main() -> int:
                 "--cls-loss", "qfl",
                 "--scale-weights", "3.0,2.0,1.0,0.5",
                 "--weights", str(args.weights),
-                "--data", str(Path(args.data) / "data.yaml"),
+                "--data", str(resolved_data_yaml),
                 "--device", str(args.device),
                 "--output", str(OUTPUTS_DIR / "phase4_scale_aware"),
                 "--topk", str(best_inf_topk),
@@ -394,7 +427,7 @@ def main() -> int:
                 "--cls-loss", "qfl",
                 "--scale-weights", "3.0,2.0,1.0,0.5",
                 "--weights", str(args.weights),
-                "--data", str(Path(args.data) / "data.yaml"),
+                "--data", str(resolved_data_yaml),
                 "--device", str(args.device),
                 "--output", str(OUTPUTS_DIR / "phase5_best_p2_combination"),
                 "--topk", str(best_inf_topk),
@@ -422,12 +455,13 @@ def main() -> int:
         # ===================================================================
         if 6 in selected_phases:
             update_progress("Phase 6", "Canonical Final Evaluation & Decision Gate", completed)
+            eval_data_dir = resolved_data_yaml.parent if resolved_data_yaml.is_file() else resolved_data_yaml
             cmd_p6 = [
                 sys.executable,
                 str(BASE_DIR / "eval_comparison.py"),
                 "--checkpoint", str(current_p2_ckpt),
                 "--weights", str(args.weights),
-                "--data", str(args.data),
+                "--data", str(eval_data_dir),
                 "--device", str(args.device),
                 "--output", str(OUTPUTS_DIR / "phase6_final_evaluation"),
                 "--topk", str(best_inf_topk),
