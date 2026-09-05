@@ -73,10 +73,11 @@ def find_c2_backbone_stage(
                 stride_w = input_size[1] // x.shape[-1]
                 # Stride 4 stage in early backbone (before downsampling to stride 8 / Stage 3)
                 if stride_h == 4 and stride_w == 4:
-                    c2_idx = i
-                    c2_channels = x.shape[1]
+                    if c2_idx is None:
+                        c2_idx = i
+                        c2_channels = x.shape[1]
                 elif stride_h > 4 and c2_idx is not None:
-                    # Reached Stage 3 (stride 8+), so c2_idx is the final semantic stage of C2
+                    # Reached Stage 3 (stride 8+), so c2_idx is the C2 stage
                     break
 
     if was_training:

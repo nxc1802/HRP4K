@@ -125,16 +125,59 @@ class RTDETRP2Adapter(DetectorAdapter):
         self._init_model()
 
     def _init_model(self) -> None:
-        weights_str = str(self.weights)
-        native = RTDETR(weights_str).model if Path(weights_str).is_file() else RTDETR("rtdetr-l.pt").model
+        from ..infra.upload import ensure_weights
+
+        # 1. Resolve and ensure base model weights exist locally or download from HF
+        weights_file = ensure_weights(self.weights)
+        if not weights_file.is_file():
+            if str(self.weights) in {"rtdetr-l.pt", "rtdetr-x.pt"}:
+                native = RTDETR(str(self.weights)).model
+            else:
+                raise FileNotFoundError(
+                    f"Base detector weights not found locally or on HF: {self.weights}"
+                )
+        else:
+            native = RTDETR(str(weights_file)).model
+            print(f"[RTDETRP2Adapter] Loaded base detector weights from: {weights_file}")
+
         native_nc = getattr(native, "yaml", {}).get("nc", 80)
         self.is_coco_base = (native_nc is not None and native_nc > 1)
         if self.is_coco_base:
             print(f"[RTDETRP2Adapter Notice] Native checkpoint is COCO ({native_nc} classes).")
             print(f"[RTDETRP2Adapter Notice] Mode: {self.mode}. Native queries will be filtered to class {self.category_id}.")
 
+        # 2. Inspect P2 checkpoint to get exact C2 channel dimension if available
+        from ..models.p2_branch import _unwrap_sequential
+        ckpt_path = self.p2_checkpoint or (self.weights if str(self.weights).endswith("best_p2.pt") else None)
+        c2_layer_idx = None
+        c2_channels = None
+        p2_ckpt_dict = None
+
+        if ckpt_path:
+            p2_file = ensure_weights(ckpt_path)
+            if not p2_file.is_file():
+                raise FileNotFoundError(
+                    f"P2 auxiliary head checkpoint not found locally or on HF: {ckpt_path}"
+                )
+            p2_ckpt_dict = torch.load(str(p2_file), map_location="cpu", weights_only=False)
+            if isinstance(p2_ckpt_dict, dict) and "p2_adapter_state_dict" in p2_ckpt_dict:
+                w = p2_ckpt_dict["p2_adapter_state_dict"].get("adapter.conv1x1.weight")
+                if w is not None:
+                    c2_channels = int(w.shape[1])
+                    # Find layer in backbone with stride 4 and matching channels
+                    _, sub_modules, _ = _unwrap_sequential(native)
+                    x = torch.zeros(1, 3, 640, 640)
+                    for i, m in enumerate(sub_modules):
+                        x = m(x)
+                        stride = 640 // x.shape[-1]
+                        if stride == 4 and x.shape[1] == c2_channels:
+                            c2_layer_idx = i
+                            break
+
         self.model = RTDETRP2Model(
             native_model=native,
+            c2_layer_idx=c2_layer_idx,
+            c2_channels=c2_channels,
             nc=1,
             freeze_native=True,
             target_assignment=self.target_assignment,
@@ -144,17 +187,19 @@ class RTDETRP2Adapter(DetectorAdapter):
             conf_threshold=self.p2_conf_threshold,
         )
 
-        # Load P2 head weights if provided
-        ckpt_path = self.p2_checkpoint or (self.weights if str(self.weights).endswith("best_p2.pt") else None)
-        if ckpt_path and Path(ckpt_path).is_file():
-            ckpt = torch.load(str(ckpt_path), map_location="cpu", weights_only=False)
-            if isinstance(ckpt, dict):
-                if "p2_state_dict" in ckpt:
-                    self.model.p2_head.load_state_dict(ckpt["p2_state_dict"])
-                if "p2_adapter_state_dict" in ckpt:
-                    self.model.p2_branch.load_state_dict(ckpt["p2_adapter_state_dict"])
-                elif "p2_model" in ckpt:
-                    self.model.load_state_dict(ckpt["p2_model"], strict=False)
+        if p2_ckpt_dict:
+            if "p2_state_dict" in p2_ckpt_dict:
+                self.model.p2_head.load_state_dict(p2_ckpt_dict["p2_state_dict"])
+            if "p2_adapter_state_dict" in p2_ckpt_dict:
+                self.model.p2_branch.load_state_dict(p2_ckpt_dict["p2_adapter_state_dict"])
+            elif "p2_model" in p2_ckpt_dict:
+                self.model.load_state_dict(p2_ckpt_dict["p2_model"], strict=False)
+            print(f"[RTDETRP2Adapter] Successfully loaded P2 auxiliary head weights from: {p2_file}")
+        elif self.mode in {"p2", "fused"}:
+            print(
+                f"[RTDETRP2Adapter Warning] No P2 checkpoint provided for '{self.mode}' mode. "
+                "Running with freshly initialized P2 weights (smoke/test mode only)."
+            )
 
         self.model.to(self.device)
         self.model.eval()
