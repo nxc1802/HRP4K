@@ -207,7 +207,7 @@ def extract_and_cache_raw_predictions(
 
         boxes[:, [0, 2]] = torch.clamp(boxes[:, [0, 2]], min=0.0, max=w_orig)
         boxes[:, [1, 3]] = torch.clamp(boxes[:, [1, 3]], min=0.0, max=h_orig)
-        scores = filt[:, 4].clone().float()
+        scores = torch.clamp(filt[:, 4].clone().float(), min=0.0, max=1.0)
         return boxes.cpu(), scores.cpu()
 
     for batch_data in loader:
@@ -479,7 +479,7 @@ def run_inference_sweep(
                         x1, y1, x2, y2 = fused_b[j]
                         w = float(x2 - x1)
                         h = float(y2 - y1)
-                        sc = float(fused_s[j])
+                        sc = min(max(float(fused_s[j]), 0.0), 1.0)
                         if w >= 1.0 and h >= 1.0:
                             fused_preds.append({
                                 "image_id": im_id,

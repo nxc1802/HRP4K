@@ -140,6 +140,28 @@ class RTDETRP2Adapter(DetectorAdapter):
             native = RTDETR(str(weights_file)).model
             print(f"[RTDETRP2Adapter] Loaded base detector weights from: {weights_file}")
 
+        # Ensure base model is actually an RT-DETR model, not an overwritten YOLO checkpoint
+        is_rtdetr = (type(native).__name__ == "RTDETRDetectionModel") or any(
+            "RTDETRDecoder" in str(type(m)) for m in native.modules()
+        )
+        if not is_rtdetr:
+            print(
+                f"[RTDETRP2Adapter Warning] Checkpoint '{weights_file}' is not an RT-DETR architecture "
+                f"(detected {type(native).__name__} with yaml={getattr(native, 'yaml', {}).get('yaml_file')}). "
+                f"Auto-downloading genuine RT-DETR-L 2K weights from Hugging Face Hub..."
+            )
+            weights_file = ensure_weights(self.weights, force_redownload=True)
+            native = RTDETR(str(weights_file)).model
+            is_rtdetr = (type(native).__name__ == "RTDETRDetectionModel") or any(
+                "RTDETRDecoder" in str(type(m)) for m in native.modules()
+            )
+            if not is_rtdetr:
+                raise ValueError(
+                    f"Base detector weights '{weights_file}' is not an RT-DETR model! "
+                    f"Expected RTDETRDetectionModel, got {type(native).__name__}."
+                )
+            print(f"[RTDETRP2Adapter] Successfully verified and loaded genuine RT-DETR weights from: {weights_file}")
+
         native_nc = getattr(native, "yaml", {}).get("nc", 80)
         self.is_coco_base = (native_nc is not None and native_nc > 1)
         if self.is_coco_base:
@@ -160,6 +182,10 @@ class RTDETRP2Adapter(DetectorAdapter):
                     f"P2 auxiliary head checkpoint not found locally or on HF: {ckpt_path}"
                 )
             p2_ckpt_dict = torch.load(str(p2_file), map_location="cpu", weights_only=False)
+            if not (isinstance(p2_ckpt_dict, dict) and ("p2_state_dict" in p2_ckpt_dict or "p2_model" in p2_ckpt_dict)):
+                print(f"[RTDETRP2Adapter Warning] P2 checkpoint '{p2_file}' is invalid. Re-downloading from Hugging Face...")
+                p2_file = ensure_weights(ckpt_path, force_redownload=True)
+                p2_ckpt_dict = torch.load(str(p2_file), map_location="cpu", weights_only=False)
             if isinstance(p2_ckpt_dict, dict) and "p2_adapter_state_dict" in p2_ckpt_dict:
                 w = p2_ckpt_dict["p2_adapter_state_dict"].get("adapter.conv1x1.weight")
                 if w is not None:

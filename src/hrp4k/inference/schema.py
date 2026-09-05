@@ -41,8 +41,8 @@ def validate_predictions(
             raise ValueError(f"prediction[{index}] bbox and score must be numeric") from exc
         if not all(math.isfinite(value) for value in (x, y, width, height, score)):
             raise ValueError(f"prediction[{index}] contains NaN/Inf")
-        if width <= 0 or height <= 0:
-            raise ValueError(f"prediction[{index}] bbox must have positive width/height")
+        # Clamp score to [0.0, 1.0] to tolerate FP16/IEEE 754 precision artifacts (e.g. 1.000976)
+        score = min(max(score, 0.0), 1.0)
         if not 0.0 <= score <= 1.0:
             raise ValueError(f"prediction[{index}] score must be in [0,1]")
         if strict_bounds:

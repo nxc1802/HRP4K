@@ -308,17 +308,19 @@ def ensure_weights(
     repo_id: str | None = None,
     token: str | None = None,
     repo_type: str = "dataset",
+    force_redownload: bool = False,
 ) -> Path:
-    """Ensure weights file exists locally. If missing, automatically download from Hugging Face."""
+    """Ensure weights file exists locally. If missing or forced, automatically download from Hugging Face."""
     path_obj = Path(weights_path)
     
-    # 1. Check local paths
-    if path_obj.is_file():
-        return path_obj
-    
-    # Check under HRP4K subdirectory if run from parent directory
-    if (Path("HRP4K") / path_obj).is_file():
-        return Path("HRP4K") / path_obj
+    # 1. Check local paths (unless forced redownload)
+    if not force_redownload:
+        if path_obj.is_file():
+            return path_obj
+        
+        # Check under HRP4K subdirectory if run from parent directory
+        if (Path("HRP4K") / path_obj).is_file():
+            return Path("HRP4K") / path_obj
 
     # If it's a standard ultralytics asset (like yolo11m.pt, rtdetr-l.pt), let ultralytics download
     if str(weights_path) in {
