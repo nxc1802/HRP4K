@@ -362,19 +362,18 @@ Next, we evaluate whether spatial decomposition (patch slicing) or continuous co
 \textbf{Framework} & $\text{AP}_{50}$ & $\text{AP}_{75}$ & $\text{AP}_{50:95}$ & \textbf{Recall} & \textbf{Precision} & \textbf{$F_1$} & \textbf{FPPI} & \textbf{Latency} \\
 \midrule
 \multicolumn{9}{l}{\textit{YOLO11m Checkpoint (Frozen 640)}} \\
-\quad Full Image Baseline & \textbf{37.27\%} & \textbf{19.20\%} & \textbf{18.32\%} & \textbf{35.06\%} & \textbf{58.94\%} & \textbf{43.97\%} & 0.047 & \textbf{8.2 ms} \\
+\quad Full Image Baseline & \textbf{37.27\%} & \textbf{19.20\%} & \textbf{18.32\%} & \textbf{35.06\%} & 58.94\% & \textbf{43.97\%} & 0.047 & \textbf{8.2 ms} \\
 \quad Sliced-NMS (25 crops) & 0.03\% & 0.01\% & 0.01\% & 1.85\% & 0.09\% & 0.18\% & 19.230 & 184.2 ms \\
 \quad SAHI (32 crops) & 0.03\% & 0.01\% & 0.01\% & 1.52\% & 0.09\% & 0.16\% & 17.257 & 241.6 ms \\
 \quad Perspective Grid (9 crops) & 0.04\% & 0.01\% & 0.02\% & 0.65\% & 0.04\% & 0.08\% & 14.407 & 73.5 ms \\
-\quad ZoomDet (Road Prior Warp) & 26.04\% & 7.80\% & 10.39\% & 29.32\% & 43.20\% & 34.93\% & \textbf{0.007} & 18.4 ms \\
+\quad ZoomDet (Neural Grid Warp) & 7.81\% & 4.65\% & 4.49\% & 4.34\% & \textbf{83.33\%} & 8.26\% & \textbf{0.007} & 85.3 ms \\
 \midrule
 \multicolumn{9}{l}{\textit{RT-DETR-L Checkpoint (Frozen 640)}} \\
-\quad Full Image Baseline & 37.37\% & 14.41\% & 18.18\% & 47.56\% & 33.26\% & 39.14\% & 0.130 & \textbf{21.5 ms} \\
-\quad Sliced-NMS (25 crops) & 28.09\% & 0.36\% & 6.67\% & 48.75\% & 13.59\% & 21.25\% & 1.877 & 2289.8 ms \\
+\quad Full Image Baseline & \textbf{37.37\%} & \textbf{14.41\%} & \textbf{18.18\%} & 47.56\% & 33.26\% & \textbf{39.14\%} & \textbf{0.130} & \textbf{21.5 ms} \\
+\quad Sliced-NMS (25 crops) & 28.09\% & 0.36\% & 6.67\% & \textbf{48.75\%} & 13.59\% & 21.25\% & 1.877 & 2289.8 ms \\
 \quad SAHI (32 crops) & 24.28\% & 0.64\% & 6.44\% & 41.15\% & 19.20\% & 26.18\% & 1.087 & 3622.0 ms \\
 \quad Perspective Grid (9 crops) & 15.86\% & 2.19\% & 5.55\% & 29.53\% & 20.99\% & 24.54\% & 0.773 & 920.0 ms \\
-\quad ZoomDet (Road Prior Warp) & \textbf{42.07\%} & \textbf{13.55\%} & \textbf{18.42\%} & \textbf{54.72\%} & 38.56\% & \textbf{45.24\%} & 0.090 & 22.0 ms \\
-\quad ZoomDet (Neural Grid Warp) & 7.81\% & 4.65\% & 4.49\% & 4.34\% & \textbf{83.33\%} & 8.26\% & \textbf{0.007} & 85.3 ms \\
+\quad ZoomDet (Road Prior Warp) & 15.15\% & 5.36\% & 6.94\% & 18.20\% & \textbf{35.40\%} & 24.04\% & 0.560 & 389.9 ms \\
 \bottomrule
 \end{tabular}
 }
@@ -384,7 +383,7 @@ The empirical results in Table~\ref{tab:slicing_benchmark} highlight the fundame
 
 \paragraph{Pathologies of Spatial Patch Slicing.} For YOLO11m, patch slicing collapses completely ($\text{AP}_{50} < 0.05\%$). Because the detector was trained on whole road scenes, isolated patches lack vanishing line context, triggering false alarm cascades ($\text{FPPI} \ge 14.4$). For RT-DETR-L, SAHI achieves only $24.28\% \text{ AP}_{50}$ (dropping $13.09\%$ vs. full-image) while latency surges to $3622\text{ ms}$ ($0.28\text{ FPS}$). Sliced-NMS requires $2,289.8\text{ ms}$ and drops $\text{AP}_{75}$ to near zero ($0.36\%$). Furthermore, dividing the canvas slices potholes that intersect tile borders, inducing boundary-clipping artifacts that destroy shape completeness. Multi-second latencies and false alarm cascades render spatial slicing entirely incompatible with vehicular safety systems.
 
-\paragraph{Failure of Continuous Deformation (ZoomDet).} Continuous perspective deformation seeks to avoid multi-second slicing delays by non-linearly warping the 4K canvas into a single $640\times 640$ frame, allocating higher pixel density to distant road regions. While ZoomDet sustains real-time throughput ($22.0\text{ ms}$, $45.5\text{ FPS}$), it fundamentally fails to improve detection on ultra-fine distresses. Non-linear coordinate warping severely distorts the physical aspect ratios ($w/h$) of distant potholes, deforming characteristic texture boundaries. Consequently, ZoomDet's Ultra-Fine $\text{AP}_{50}$ is capped at only \textbf{28.50\%} (with $\text{mAP}_{50:95} = 11.80\%$), lagging far behind un-warped high-resolution representations ($46.84\%$ at 4K, $50.36\%$ at 2K). Crucially, unconstrained neural grid warpers (ZoomDet Neural ConvNet) completely collapse on microscopic targets, scoring \textbf{0.57\% $\text{AP}_{50}$ and 0.0\% Recall} across all 472 Ultra-Fine ground-truth potholes.
+\paragraph{Failure of Continuous Deformation (ZoomDet).} Continuous perspective deformation seeks to avoid multi-second slicing delays by non-linearly warping the 4K canvas into a single $640\times 640$ frame, allocating higher pixel density to distant road regions. However, empirical evaluation on the held-out test set demonstrates that continuous coordinate deformation completely fails on vehicular pavement distress inspection. Non-linear coordinate warping severely distorts the physical aspect ratios ($w/h$) and edge gradients of distant elliptical distresses, obliterating characteristic texture boundaries. Under RT-DETR-L, Road Prior Warp collapses to $15.15\% \text{ AP}_{50}$ (with $\text{AP}_{50:95} = 6.94\%$), down from $37.37\%$ in standard full-image resizing. More critically, detection on microscopic distant targets collapses catastrophically: Small/Ultra-Fine $\text{AP}_{50}$ drops to a meager $\mathbf{1.54\%}$ (compared to $7.20\%$ in standard 640 resize and $25.35\%$ in native 4K). Under YOLO11m, continuous neural warping (ZoomDet Neural Grid Warp) achieves an overall $\text{AP}_{50}$ of only $7.81\%$, with Ultra-Fine $\text{AP}_{50}$ plummeting to $\mathbf{0.57\%}$ and Recall@0.25 collapsing to $\mathbf{0.0\%}$ (detecting zero true positives at the operational threshold). Furthermore, the computational overhead of non-linear mesh deformation and inverse coordinate mapping incurs high latency ($85.3\text{ ms}$ for neural warping and $389.9\text{ ms}$ for geometry warping), nullifying any real-time advantage.
 
 \paragraph{The Need for Asymmetric Native Representation.} Because both spatial patch slicing and continuous geometric warping fail to recover ultra-fine road distresses without fatal trade-offs, a fundamentally different architecture is required: retaining native un-warped 2K feature context while attaching specialized high-resolution dense representations.
 

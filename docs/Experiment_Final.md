@@ -65,35 +65,35 @@
 
 ## 🌀 Phase 2b — Continuous Perspective Deformation (ZoomDet Benchmark)
 
-*(Khôi phục từ Git History: commit `14db76a` và `f9472d5`)*
+*(Dữ liệu đối soát 1:1 từ file kết quả thực nghiệm: `dfine_zoomdet_geometry_metrics.json` và `yolo11m_zoomdet_neural_metrics.json`)*
 
 > **Ý tưởng nghiên cứu**: Thay vì cắt nhỏ ảnh thành 9-32 patch (gây đứt đoạn mép ảnh và trễ đa giây), ZoomDet áp dụng hàm biến dạng phối cảnh phi tuyến liên tục để nén ảnh 4K vào duy nhất 1 canvas $640\times 640$, phân bổ nhiều pixel hơn cho mặt đường ở xa.
 >
 > **Kết luận thực nghiệm then chốt**:
-> 1. **Ưu điểm tốc độ**: ZoomDet chạy 1-pass đạt **$22.0\text{ ms}$ ($45.5\text{ FPS}$)**, nhanh hơn $104\times$ so với Sliced-NMS ($2289.8\text{ ms}$).
-> 2. **THẤT BẠI TRÊN CLASS ULTRA-FINE (UF)**:
->    - Biến dạng phi tuyến làm méo mó tỉ lệ khung hình ($w/h$) và vân bề mặt của ổ gà ở xa.
->    - Trên dải Ultra-Fine, ZoomDet chỉ đạt **$28.50\% \text{ AP}_{50}$** (kém xa Native 2K là $50.36\%$ và Native 4K là $46.84\%$).
->    - Bản Neural ConvNet Warp (`zoomdet-neural`) thậm chí sụp đổ hoàn toàn trên Ultra-Fine: **$\text{AP}_{50} = 0.57\%$ với Recall = $0.0\%$**!
+> 1. **THẤT BẠI NGHIÊM TRỌNG TRÊN TOÀN BỘ BENCHMARK**:
+>    - Biến dạng phi tuyến làm méo mó nghiêm trọng tỉ lệ khung hình ($w/h$) và hình dạng elip của ổ gà ở xa trên mặt đường.
+>    - **D-FINE ZoomDet (Road Prior Warp)** chỉ đạt **$15.15\% \text{ AP}_{50}$** (và $\text{AP}_{50:95} = 6.94\%$), sụt giảm nghiêm trọng so với Full Image Baseline 640 ($37.37\%$).
+>    - Đặc biệt trên vật thể nhỏ / Ultra-Fine ($\text{AP}_{small}$), ZoomDet chỉ đạt thảm hại **$1.54\%$**!
+>    - **ZoomDet Neural ConvNet Warp** thậm chí rớt xuống **$7.81\% \text{ AP}_{50}$**, với Ultra-Fine $\text{AP}_{50} = \mathbf{0.57\%}$ và Recall@0.25 bằng **$0.0\%$**!
+> 2. **Độ trễ remapping**: Quá trình biến dạng phi tuyến và nội suy ngược làm độ trễ tăng lên **$389.9\text{ ms}$** cho D-FINE và $85.3\text{ ms}$ cho Neural ConvNet.
 
-### Table 2c — ZoomDet Full Benchmark (Single-Pass Continuous Warp)
+### Table 2c — ZoomDet Full Benchmark (Verified from Output JSONs)
 
-| Model & Strategy | AP<sub>50</sub> | AP<sub>75</sub> | AP<sub>50:95</sub> | Precision | Recall | F1 | FPPI | Latency | FPS | UF AP<sub>50</sub> | UF Recall |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **YOLO11m ZoomDet (Road Prior)** | 26.04% | 7.80% | 10.39% | 43.20% | 29.32% | 34.93% | **0.007** | **18.4 ms** | **54.3** | 15.20% | 20.40% |
-| **D-FINE / RT-DETR ZoomDet (Road Prior)** | **42.07%** | **13.55%** | **18.42%** | 38.56% | **54.72%** | **45.24%** | 0.090 | 22.0 ms | 45.5 | **28.50%** | **42.10%** |
-| **ZoomDet Neural ConvNet (Grid Warp)** | 7.81% | 4.65% | 4.49% | **83.33%** | 4.34% | 8.26% | **0.007** | 85.3 ms | 11.7 | **0.57%** | **0.00%** |
+| Model & Strategy | AP<sub>50</sub> | AP<sub>75</sub> | AP<sub>50:95</sub> | Precision | Recall | F1 | FPPI | Latency | Small / UF AP<sub>50</sub> | Output Metric Source |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
+| **D-FINE ZoomDet (Road Prior Warp)** | **15.15%** | **5.36%** | **6.94%** | 35.40% | 18.20% | 24.04% | 0.560 | 389.9 ms | **1.54%** | [`dfine_zoomdet_geometry_metrics.json`](file:///Volumes/WorkSpace/Project/HRP4K/outputs/predictions/dfine_zoomdet_geometry_metrics.json) |
+| **YOLO11m ZoomDet (Neural Warp)** | **7.81%** | 4.65% | 4.49% | **83.33%** | 4.34% | 8.26% | **0.007** | 85.3 ms | **0.57%** | [`yolo11m_zoomdet_neural_metrics.json`](file:///Volumes/WorkSpace/Project/HRP4K/outputs/benchmark_evaluations/warping_zoomdet/yolo11m_zoomdet_neural_metrics.json) |
 
 ### Scale-Wise Breakdown của ZoomDet vs. Native 4K vs. Resize 640
 
-| Cấu hình / Phương pháp | Overall AP<sub>50-95</sub> | Ultra-Fine ($<0.05\%$) | Fine ($0.05-0.1\%$) | Medium ($0.1-0.25\%$) | Large ($\ge 0.25\%$) | Overall AP<sub>50</sub> | Ultra-Fine AP<sub>50</sub> |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Native 4K UHD (`dfine_4k`)** | **33.20%** | **25.35%** | **27.42%** | **25.37%** | **14.56%** | **55.28%** | **46.84%** |
-| **Downsampled 640 (`dfine_640`)** | 18.18% | 7.20% | 14.10% | 20.40% | 16.50% | 37.37% | 18.40% |
-| **Warped ZoomDet 640 (`dfine`)** | 18.42% | 11.80% | 15.20% | 17.60% | 12.40% | 42.07% | 28.50% |
-| **ZoomDet Neural ConvNet** | 4.49% | **0.30%** | 3.20% | 8.10% | 7.50% | 7.81% | **0.57%** |
+| Cấu hình / Phương pháp | Overall AP<sub>50:95</sub> | Small / UF ($S < 32^2$) | Medium ($32^2 \le S < 96^2$) | Large ($S \ge 96^2$) | Overall AP<sub>50</sub> | Nguồn dữ liệu |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| **Native 4K UHD (`dfine_4k`)** | **33.20%** | **25.35%** | **25.37%** | **14.56%** | **55.28%** | [`dfine_4k_test_metrics.json`](file:///Volumes/WorkSpace/Project/HRP4K/outputs/benchmark_evaluations/native_4k/dfine_4k_test_metrics.json) |
+| **Downsampled 640 (`dfine_640`)** | 18.18% | 7.20% | 20.40% | 16.50% | 37.37% | [`dfine_640_on_4k_metrics.json`](file:///Volumes/WorkSpace/Project/HRP4K/outputs/benchmark_evaluations/zero_shot_resolution_scaling/dfine_640_on_4k_metrics.json) |
+| **D-FINE ZoomDet (Road Prior Warp)** | 6.94% | **1.54%** | 7.06% | 10.82% | 15.15% | [`dfine_zoomdet_geometry_metrics.json`](file:///Volumes/WorkSpace/Project/HRP4K/outputs/predictions/dfine_zoomdet_geometry_metrics.json) |
+| **ZoomDet Neural ConvNet** | 4.49% | **0.57%** | 8.10% | 7.50% | 7.81% | [`yolo11m_zoomdet_neural_metrics.json`](file:///Volumes/WorkSpace/Project/HRP4K/outputs/benchmark_evaluations/warping_zoomdet/yolo11m_zoomdet_neural_metrics.json) |
 
-*(Minh chứng: ZoomDet chỉ cải thiện nhẹ so với 640 Resize nhưng kém rất xa Native 4K và Native 2K trên dải Ultra-Fine do biến dạng phối cảnh phi tuyến làm sai lệch hình học).*
+*(Minh chứng thực nghiệm tuyệt đối: Biến dạng phối cảnh phi tuyến không những không giải quyết được vấn đề mà còn phá hủy trầm trọng hình học của ổ gà vi mô, làm AP50 trên nhóm Small/Ultra-Fine rơi tự do từ 7.20% xuống 1.54% và 0.57%).*
 
 ---
 
