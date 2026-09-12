@@ -38,3 +38,12 @@ __marimo__/
 marimo_output/
 
 uv.lock
+
+# LaTeX build intermediates
+paper/*.aux
+paper/*.bbl
+paper/*.blg
+paper/*.out
+paper/*.xdv
+paper/*.fls
+paper/*.fdb_latexmk

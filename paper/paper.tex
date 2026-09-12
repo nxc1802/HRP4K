@@ -71,23 +71,23 @@ Our primary technical contributions are summarized as follows:
 \begin{enumerate}
     \item \textbf{Multi-Paradigm Benchmark on HRP4K}: We present the first comprehensive, dual-mode evaluation (Academic Protocol $\text{conf}=0.001$ and Operational Protocol $\text{conf}=0.25$) comparing architectural scaling, patch slicing (SAHI, Sliced-NMS, Perspective Grid), and dense feature fusion across all 900 held-out test images of the HRP4K benchmark.
     \item \textbf{The P2-DETR Dual-Branch Framework}: We design a frozen 2K Transformer backbone coupled with a lightweight trainable $P_2$ auxiliary head ($stride=4$, $+2.98\text{M}$ parameters), which boosts Ultra-Fine Recall from $91.10\%$ to $93.22\% - 94.07\%$ with minimal computational cost.
-    \item \textbf{Training and Loss Function Ablation}: We systematically dissect target assignment ($1\times 1$ vs. $3\times 3$) and loss formulations (BCE vs. QFL vs. Sigmoid Focal Loss), proving that Pure Focal Loss ($\alpha=0.25, \gamma=2.0$) on single-cell assignment prevents gradient noise on dense feature maps.
-    \item \textbf{Post-Processing Innovation (Scale-Partitioned Prior NMS)}: We demonstrate empirically and theoretically that Weighted Boxes Fusion (WBF) breaks down on cross-resolution branches ($AP_{50} < 4\%$). In contrast, our Scale-Partitioned Prior NMS isolates ultra-fine priors, achieving peak Ultra-fine $AP_{50}$ ($50.39\%$), lowest FPPI ($1.4967$), and a $2.26\times$ latency reduction ($4.24\text{ ms}$).
+    \item \textbf{Training and Loss Function Ablation}: We systematically dissect target assignment ($1\times 1$ vs. $3\times 3$) and loss formulations (BCE vs. Quality Focal Loss (QFL) \cite{li2020generalized} vs. Sigmoid Focal Loss), proving that Pure Focal Loss ($\alpha=0.25, \gamma=2.0$) on single-cell assignment prevents gradient noise on dense feature maps.
+    \item \textbf{Scale-Partitioned Prior NMS}: We demonstrate empirically and theoretically that Weighted Boxes Fusion (WBF) breaks down on cross-resolution branches ($AP_{50} < 4\%$). In contrast, our Scale-Partitioned Prior NMS isolates ultra-fine priors, achieving peak Ultra-fine $AP_{50}$ ($50.39\%$), lowest FPPI ($1.4967$), and a $2.26\times$ latency reduction ($4.24\text{ ms}$).
 \end{enumerate}
 
 \section{Related Work}
 
 \subsection{Pavement Defect and Road Distress Detection}
-Early automated road inspection relied on handcrafted texture descriptors, shadow thresholding, and stereo-vision disparity modeling \cite{fan2019pothole,du2020pothole}. With the advent of deep convolutional neural networks, benchmark challenges such as the Global Road Damage Detection (GRDDC) \cite{arya2021deep,maeda2018road} propelled models based on YOLO \cite{bochkovskiy2020yolov4,ultralytics2024yolo11} and Faster R-CNN \cite{ren2015faster}. However, existing datasets predominantly feature low-resolution imagery ($512 \times 512$ or $720\text{p}$) with large, severe potholes, obscuring the challenge of detecting microscopic, nascent distresses in high-speed mobile inspection. The release of the HRP4K dataset \cite{hrp4k_dataset} established the first large-scale 4K benchmark, revealing that conventional detectors experience sharp performance degradation when scaled to ultra-fine targets.
+Early automated road distress inspection relied on handcrafted texture descriptors, shadow thresholding, and stereo-vision disparity modeling \cite{fan2019pothole,du2020pothole}. With the advent of deep convolutional neural networks, benchmark challenges such as the Global Road Damage Detection (GRDDC) \cite{arya2021deep,maeda2018road} propelled models based on Faster R-CNN \cite{ren2015faster} and the YOLO series (YOLOv3 \cite{redmon2018yolov3}, YOLOv4 \cite{bochkovskiy2020yolov4}, YOLO11 \cite{ultralytics2024yolo11}). However, existing datasets predominantly feature low-resolution imagery ($512 \times 512$ or $720\text{p}$) with large, severe potholes, obscuring the challenge of detecting microscopic, nascent distresses in high-speed mobile inspection. The release of the HRP4K dataset \cite{hrp4k_dataset} established the first large-scale 4K benchmark, revealing that conventional detectors experience sharp performance degradation when scaled to ultra-fine targets.
 
 \subsection{Small and Tiny Object Detection}
-Detecting tiny objects in high-resolution aerial and surveillance imagery has spurred extensive research \cite{yang2019clustered,wang2021high}. Standard Feature Pyramid Networks (FPN) \cite{lin2017feature} construct hierarchical representations where bottom-up strides ($stride \ge 8$) severely downsample spatial detail. To recover tiny targets, high-resolution representation networks (HRNet) \cite{wang2021high} maintain parallel high-resolution streams, but their massive memory footprint precludes real-time inference on 4K imagery. Several works introduce auxiliary high-resolution heads ($P_2$, $stride=4$) in convolutional detectors \cite{bochkovskiy2020yolov4}. However, integrating dense $P_2$ representations into real-time Transformer architectures without destabilizing attention mechanisms remains an open challenge.
+Detecting tiny objects in high-resolution aerial and surveillance imagery has spurred extensive research \cite{yang2019clustered,wang2021high}. Standard Feature Pyramid Networks (FPN) \cite{lin2017feature} and bidirectional pyramids such as BiFPN \cite{tan2020efficientdet} construct hierarchical representations where bottom-up strides ($stride \ge 8$) severely downsample spatial detail. To recover tiny targets, high-resolution representation networks (HRNet) \cite{wang2021high} maintain parallel high-resolution streams, but their massive memory footprint precludes real-time inference on 4K imagery. Several works introduce auxiliary high-resolution heads ($P_2$, $stride=4$) in convolutional detectors \cite{bochkovskiy2020yolov4}. However, integrating dense $P_2$ representations into real-time Transformer architectures without destabilizing attention mechanisms remains an open challenge.
 
 \subsection{Spatial Decomposition and Slicing Strategies}
 To bypass GPU memory limits during high-resolution inference, patch-based inference frameworks such as SAHI \cite{akyon2022sahi} and Clustered Slicing \cite{yang2019clustered} divide the canvas into overlapping sub-images. Each tile is evaluated independently, followed by coordinate mapping and Non-Maximum Suppression (NMS). While effective for isolated aerial targets (e.g., small vehicles on uniform water/grass backgrounds), slicing road imagery induces severe boundary truncations, duplicates ambiguous crack textures across adjoining tiles, and compounds false positives, leading to multi-second latencies that are unsuitable for real-time vehicular navigation.
 
 \subsection{Real-Time Detection Transformers (RT-DETR)}
-DETR \cite{carion2020end} and Deformable DETR \cite{zhu2020deformable} eliminated handcrafted components like anchor generation and NMS by formulating detection as direct set prediction. However, their high computational complexity hindered real-time adoption. Lv et al. \cite{lv2023detrs} introduced RT-DETR, which combines an efficient Hybrid Encoder with multi-scale feature interactions and an uncertainty-minimal query selection mechanism, outperforming YOLO detectors in accuracy and latency. In this work, we exploit RT-DETR-L as our primary macro-detector and resolve its sub-grid spatial blindness via scale-specialized dense feature gating.
+Originating from attention mechanisms in natural language processing \cite{vaswani2017attention} and hierarchical Vision Transformers \cite{liu2021swin}, DETR \cite{carion2020end} and Deformable DETR \cite{zhu2020deformable} eliminated handcrafted components like anchor generation and NMS by formulating detection as direct set prediction. However, their high computational complexity hindered real-time adoption. Lv et al. \cite{lv2023detrs} introduced RT-DETR, which combines an efficient Hybrid Encoder with multi-scale feature interactions and an uncertainty-minimal query selection mechanism, outperforming YOLO detectors in accuracy and latency. In this work, we exploit RT-DETR-L as our primary macro-detector and resolve its sub-grid spatial blindness via scale-specialized dense feature gating.
 
 \begin{figure}[!t]
 \centering
@@ -162,11 +162,11 @@ DETR \cite{carion2020end} and Deformable DETR \cite{zhu2020deformable} eliminate
 The architecture of \textbf{P2-DETR} is illustrated in Fig.~\ref{fig:architecture_pipeline}. It consists of three tightly coupled modules: (1) a frozen macro-level Transformer detector operating on 2K resolution, (2) an auxiliary dense $P_2$ feature head ($stride=4$) trained with class-imbalance focal objectives, and (3) a Scale-Partitioned Prior Non-Maximum Suppression gating mechanism.
 
 \subsection{Frozen Macro-Level Transformer Backbone}
-Let an input image be denoted by $\mathbf{I} \in \mathbb{R}^{3 \times H \times W}$, where $H=1080$ and $W=1920$ define the 2K canonical resolution. The image is processed by the RT-DETR-L backbone (HGNetv2 / ResNet-50) to produce multi-scale feature hierarchies:
+Let an input image be denoted by $\mathbf{I} \in \mathbb{R}^{3 \times H \times W}$, where $H=1080$ and $W=1920$ define the 2K canonical resolution. The image is processed by the RT-DETR-L backbone (HGNetv2 / ResNet-50 \cite{he2016deep}) to produce multi-scale feature hierarchies:
 \begin{equation}
     \mathcal{F} = \{ \mathbf{C}_3, \mathbf{C}_4, \mathbf{C}_5 \}, \quad \text{with strides } \{ 8, 16, 32 \},
 \end{equation}
-where $\mathbf{C}_i \in \mathbb{R}^{C_i \times \frac{H}{2^i} \times \frac{W}{2^i}}$. These features are passed through an Efficient Hybrid Encoder combining Cross-Scale Feature Interaction (CCFM) and Intra-Scale Self-Attention (AIFI) to produce enriched feature representations $\mathbf{P}_3, \mathbf{P}_4, \mathbf{P}_5$. An uncertainty-minimal query selection decoder outputs $K=300$ macro-level candidate detections:
+where $\mathbf{C}_k \in \mathbb{R}^{C_k \times \frac{H}{2^k} \times \frac{W}{2^k}}$. These features are passed through an Efficient Hybrid Encoder combining Cross-Scale Feature Interaction (CCFM) and Intra-Scale Self-Attention (AIFI) to produce enriched feature representations $\mathbf{P}_3, \mathbf{P}_4, \mathbf{P}_5$. An uncertainty-minimal query selection decoder outputs $K=300$ macro-level candidate detections:
 \begin{equation}
     \mathcal{D}_{Nat} = \big\{ (\mathbf{b}_k, s_k) \mid k = 1, \dots, K \big\},
 \end{equation}
@@ -175,20 +175,25 @@ where $\mathbf{b}_k = (x_k, y_k, w_k, h_k)$ represents normalized bounding box c
 \subsection{Dense $P_2$ Feature Reconstruction Head}
 Because the finest feature map in standard RT-DETR ($\mathbf{P}_3$, $stride=8$) downsamples a $20 \times 20$ pothole to a tiny $2.5 \times 2.5$ region, spatial localization collapses. To resolve this, we construct an auxiliary $P_2$ branch with stride $s=4$, producing a dense spatial lattice of dimensions $\frac{H}{4} \times \frac{W}{4} = 270 \times 480 = 129,600$ grid locations.
 
-The $P_2$ feature representation is constructed by fusing early low-level backbone features $\mathbf{C}_2 \in \mathbb{R}^{128 \times \frac{H}{4} \times \frac{W}{4}}$ with upsampled semantic features from $\mathbf{P}_3$:
+The $P_2$ feature representation is constructed by directly tapping the early low-level backbone stage $\mathbf{C}_2 \in \mathbb{R}^{C_{c2} \times \frac{H}{4} \times \frac{W}{4}}$ (where $C_{c2} = 128$) and passing it through a dedicated, lightweight two-stage convolution adapter:
 \begin{equation}
-    \mathbf{P}_2 = \text{Conv}_{1\times 1}\big( \mathbf{C}_2 \big) + \text{Upsample}_{2\times}\big( \text{Conv}_{1\times 1}(\mathbf{P}_3) \big),
+    \mathbf{P}_2 = \text{SiLU}\Big( \text{BN}\big( \text{Conv}_{3\times 3}( \text{SiLU}( \text{BN}( \text{Conv}_{1\times 1}(\mathbf{C}_2) ) ) ) \big) \Big) \in \mathbb{R}^{256 \times \frac{H}{4} \times \frac{W}{4}}.
 \end{equation}
-followed by a $3 \times 3$ depthwise separable convolution block yielding channel dimension $C_{P2} = 256$.
+By directly adapting $\mathbf{C}_2$ without modifying the frozen hybrid encoder, the native detector remains completely untouched.
 
-On top of $\mathbf{P}_2$, a lightweight prediction head predicts classification logits $\hat{\mathbf{p}} \in \mathbb{R}^{1 \times \frac{H}{4} \times \frac{W}{4}}$ and bounding box coordinate offsets $\hat{\mathbf{t}} = (\Delta x, \Delta y, \Delta w, \Delta h) \in \mathbb{R}^{4 \times \frac{H}{4} \times \frac{W}{4}}$. For each grid cell $(i, j)$, the decoded bounding box is parameterized as:
+On top of $\mathbf{P}_2$, an anchor-free lightweight prediction head branches into two parallel convolutional streams:
+\begin{enumerate}
+    \item \textbf{Classification Subnetwork}: Two $3 \times 3$ convolutional layers (with BatchNorm and SiLU) followed by a $1 \times 1$ convolution predicting classification logits $\hat{\mathbf{p}} \in \mathbb{R}^{1 \times \frac{H}{4} \times \frac{W}{4}}$. The final bias is initialized to $-4.59$ to account for class imbalance prior ($p=0.01$).
+    \item \textbf{Bounding Box Regression Subnetwork}: Two $3 \times 3$ convolutional layers (with BatchNorm and SiLU) followed by a $1 \times 1$ convolution and ReLU activation predicting non-negative pixel distance offsets $\hat{\mathbf{o}} = (\hat{l}, \hat{t}, \hat{r}, \hat{b}) \in \mathbb{R}_{\ge 0}^{4 \times \frac{H}{4} \times \frac{W}{4}}$.
+\end{enumerate}
+For each grid cell $(i, j)$ with center $(x_c, y_c) = \big((j + 0.5)s, (i + 0.5)s\big)$, the decoded bounding box coordinates $[\hat{x}_1, \hat{y}_1, \hat{x}_2, \hat{y}_2]$ in image space are parameterized as:
 \begin{equation}
-    x_c = (j + \sigma(\Delta x)) \cdot 4, \quad y_c = (i + \sigma(\Delta y)) \cdot 4,
+\begin{aligned}
+    \hat{x}_1 &= \max(0, x_c - \hat{l}_{ij}), \quad \hat{y}_1 = \max(0, y_c - \hat{t}_{ij}), \\
+    \hat{x}_2 &= \min(W, x_c + \hat{r}_{ij}), \quad \hat{y}_2 = \min(H, y_c + \hat{b}_{ij}).
+\end{aligned}
 \end{equation}
-\begin{equation}
-    w = 4 \cdot \exp(\Delta w), \quad h = 4 \cdot \exp(\Delta h),
-\end{equation}
-where $\sigma(\cdot)$ denotes the sigmoid activation. The auxiliary head requires only $2.98\text{M}$ parameters, representing less than $9.1\%$ of the base model parameter budget.
+This anchor-free formulation avoids sensitive scale heuristics and exponential instabilities, ensuring robust boundary regression for microscopic potholes. The auxiliary adapter and head require only $2.98\text{M}$ parameters, representing less than $9.1\%$ of the base model budget.
 
 \subsection{Training Formulation for Extreme Class Imbalance}
 On a $270 \times 480$ feature map, there are $129,600$ candidate anchors per image. With an average of only $1.02$ ground-truth potholes per image, positive grid cells account for less than $0.0017\%$ of all anchors (an extreme background-to-foreground ratio exceeding $50,000 : 1$). Under standard Binary Cross-Entropy (BCE), easy background gradients drown out the sparse foreground signals, causing the detector to collapse into near-zero confidence predictions.
@@ -199,14 +204,19 @@ To guarantee robust convergence without gradient saturation, we formulate the tr
 \end{equation}
 where $p_{t, ij} = \hat{p}_{ij}$ if $y_{ij} = 1$ and $p_{t, ij} = 1 - \hat{p}_{ij}$ otherwise. We set focusing parameter $\gamma = 2.0$ and balancing factor $\alpha = 0.25$.
 
-Bounding box regression is supervised strictly on positive cells using a composite $\ell_1$ and Generalized Intersection over Union (GIoU) \cite{rezatofighi2019generalized} loss:
+Bounding box regression is supervised strictly on positive cells using composite $\ell_1$ distance loss on spatial offsets and Generalized Intersection over Union (GIoU) loss \cite{rezatofighi2019generalized}:
 \begin{equation}
-    \mathcal{L}_{reg} = \frac{1}{N_{pos}} \sum_{y_{ij}=1} \Big( \lambda_1 \|\hat{\mathbf{b}}_{ij} - \mathbf{b}_{ij}^*\|_1 + \lambda_{giou} \big(1 - \text{GIoU}(\hat{\mathbf{b}}_{ij}, \mathbf{b}_{ij}^*)\big) \Big),
+    \mathcal{L}_{box} = \frac{1}{N_{pos}} \sum_{y_{ij}=1} \|\hat{\mathbf{o}}_{ij} - \mathbf{o}_{ij}^*\|_1, \quad
+    \mathcal{L}_{giou} = \frac{1}{N_{pos}} \sum_{y_{ij}=1} \big(1 - \text{GIoU}(\hat{\mathbf{b}}_{ij}, \mathbf{b}_{ij}^*)\big),
 \end{equation}
-with loss balancing coefficients set to $\lambda_1 = 5.0$ and $\lambda_{giou} = 2.0$. The total training loss is $\mathcal{L}_{total} = \mathcal{L}_{cls} + \mathcal{L}_{reg}$.
+where $\mathbf{o}_{ij}^* = (x_c - x_1^*, y_c - y_1^*, x_2^* - x_c, y_2^* - y_c)$ represents ground truth distance offsets. The total training loss is:
+\begin{equation}
+    \mathcal{L}_{total} = \lambda_{cls} \mathcal{L}_{cls} + \lambda_{box} \mathcal{L}_{box} + \lambda_{giou} \mathcal{L}_{giou},
+\end{equation}
+with loss balancing coefficients set to $\lambda_{cls} = 1.0$, $\lambda_{box} = 2.0$, and $\lambda_{giou} = 2.0$.
 
 \subsection{Scale-Partitioned Prior NMS}
-A common post-processing strategy in multi-head networks is concatenating all predictions and applying Greedy NMS \cite{neubeck2006efficient}. However, when combining a 2K detector with a dense $P_2$ head, standard NMS introduces severe cross-scale suppression: noisy, sub-optimal $P_2$ proposals can suppress legitimate medium and large pothole boxes produced by the Native branch.
+A common post-processing strategy in multi-head networks is concatenating all predictions and applying Greedy NMS \cite{neubeck2006efficient} or soft suppression schemes like Soft-NMS \cite{bodla2017soft}. However, when combining a 2K detector with a dense $P_2$ head, standard NMS introduces severe cross-scale suppression: noisy, sub-optimal $P_2$ proposals can suppress legitimate medium and large pothole boxes produced by the Native branch.
 
 To eliminate cross-scale interference while maintaining ultra-low latency, we introduce \textbf{Scale-Partitioned Prior NMS}. Formally, let $\mathcal{D}_{P2}$ be the candidate set from the auxiliary head. We define a scale-partitioned candidate set $\hat{\mathcal{D}}_{P2}$ filtered by bounding box area:
 \begin{equation}
@@ -234,8 +244,8 @@ The 921 test potholes are partitioned into four standardized area scales:
 \subsection{Dual-Mode Evaluation Protocols}
 To provide unbiased and comprehensive comparisons, we evaluate all models under two distinct protocols:
 \begin{enumerate}
-    \item \textbf{Academic Protocol ($\text{conf} = 0.001$)}: Computes COCO-style metrics ($AP_{50}$, $AP_{75}$, $AP_{50:95}$) across the entire Precision-Recall curve using 101-point interpolation.
-    \item \textbf{Operational Deployment Protocol ($\text{conf} = 0.25$)}: Evaluates real-world vehicular suitability at a fixed confidence threshold of $0.25$, reporting Precision, Recall, $F_1$-score, False Positives Per Image ($\text{FPPI}_{all}$), and inference latency in milliseconds.
+    \item \textbf{Academic Protocol} ($\text{conf} = 0.001$): Computes COCO-style metrics ($AP_{50}$, $AP_{75}$, $AP_{50:95}$) across the entire Precision-Recall curve using 101-point interpolation.
+    \item \textbf{Operational Protocol} ($\text{conf} = 0.25$): Evaluates real-world vehicular suitability at a fixed confidence threshold of $0.25$, reporting Precision, Recall, $F_1$-score, False Positives Per Image ($\text{FPPI}_{all}$), and inference latency in milliseconds.
 \end{enumerate}
 
 \subsection{Implementation and Training Details}
@@ -251,7 +261,7 @@ The base RT-DETR-L model is pretrained on 2K resolution ($1920 \times 1080$). Th
 \section{Experimental Results}
 
 \subsection{The 4K Resolution Paradox (Table 1)}
-We first evaluate the impact of input resolution scaling on CNN-based (YOLO11m) and Transformer-based (RT-DETR-L) architectures across four resolutions: $640\times 640$, $1\text{K}$ ($960\times 540$), $2\text{K}$ ($1920\times 1080$), and $4\text{K}$ ($3840\times 2160$).
+We evaluate input resolution scaling on CNN (YOLO11m) and Transformer (RT-DETR-L) architectures across four resolutions: $640\times 640$, $1\text{K}$ ($960\times 540$), $2\text{K}$ ($1920\times 1080$), and $4\text{K}$ ($3840\times 2160$).
 
 \begin{table}[!t]
 \centering
@@ -315,7 +325,7 @@ Next, we evaluate whether spatial decomposition frameworks (SAHI, Sliced-NMS, Pe
 The results in Table~\ref{tab:slicing_benchmark} highlight the catastrophic failure of patch slicing in road inspection:
 \begin{itemize}
     \item For YOLO11m, patch slicing collapses completely ($\text{AP}_{50} < 0.05\%$). Because the model was trained on whole road scenes, individual patches lack road perspective cues, causing severe false alarm cascades ($\text{FPPI} \ge 14.4$).
-    \item For RT-DETR-L, SAHI achieves only $24.28\% \text{ AP}_{50}$ (a drop of \textbf{13.09\%} compared to full-image inference) while per-image latency explodes to \textbf{3,622.0~ms} ($\approx 0.28\text{ FPS}$). Sliced-NMS requires $2,289.8\text{ ms}$ and drops $\text{AP}_{75}$ to near zero ($0.36\%$).
+    \item For RT-DETR-L, SAHI achieves only $24.28\% \text{ AP}_{50}$ (dropping \textbf{13.09\%} vs. full-image inference) while per-image latency explodes to \textbf{3,622.0~ms} ($\approx 0.28\text{ FPS}$). Sliced-NMS requires $2,289.8\text{ ms}$ and drops $\text{AP}_{75}$ to near zero ($0.36\%$).
     \item Slicing is fundamentally incompatible with vehicular safety systems requiring real-time response times ($<50\text{ ms}$).
 \end{itemize}
 
@@ -364,7 +374,7 @@ The scale decomposition demonstrates the targeted effectiveness of the $P_2$ hea
 \end{itemize}
 
 \subsection{Qualitative Visualizations}
-Fig.~\ref{fig:qualitative_detection} showcases qualitative detections comparing Native RT-DETR-L 2K, SAHI, and P2-DETR on challenging 4K scenes. P2-DETR successfully isolates tiny potholes obscured by road shadows and asphalt discoloration, whereas SAHI produces duplicate bounding boxes along tile intersections.
+Figure~\ref{fig:qualitative_detection} showcases detections comparing Native RT-DETR-L 2K, SAHI, and P2-DETR on challenging 4K scenes. P2-DETR successfully isolates tiny potholes obscured by road shadows and asphalt discoloration, whereas SAHI produces duplicate bounding boxes along tile intersections.
 
 \begin{figure}[!t]
 \centering
@@ -379,7 +389,7 @@ Fig.~\ref{fig:qualitative_detection} showcases qualitative detections comparing 
 A core question in multi-branch detection is whether greedy NMS can be superseded by advanced ensembling techniques. We evaluate three distinct post-processing alternatives across all 900 test images (540,000 candidate proposals):
 \begin{enumerate}
     \item \textbf{Scale-Partitioned Prior NMS}: Restricting $P_2$ candidate boxes to maximum area thresholds $S < 32^2$, $48^2$, and $64^2\text{ px}^2$.
-    \item \textbf{Scale-Calibrated Weighted Boxes Fusion (WBF)} \cite{solovyev2021weighted}: Clustering cross-branch boxes and computing confidence-weighted coordinate averages.
+    \item \textbf{Scale-Calibrated WBF} \cite{solovyev2021weighted}: Clustering cross-branch boxes and computing confidence-weighted coordinate averages.
     \item \textbf{Proposal-Level MLP Gating}: A 2-layer neural network ($9 \to 32 \to 1$, 353 params) evaluated via 2-Fold Disjoint Cross Validation (to guarantee zero data leakage).
 \end{enumerate}
 
@@ -429,7 +439,7 @@ We examine the impact of classification losses and target assignments on dense f
 \textbf{Configuration} & \textbf{Target Assign} & \textbf{Loss Formulation} & $\text{AP}_{50}$ & $\text{AP}_{75}$ & $\text{AP}_{50:95}$ & \textbf{UF-Rec} & \textbf{$F_1$@0.25} & \textbf{FPPI} \\
 \midrule
 Baseline BCE & $1 \times 1$ Center & Standard BCE & \textbf{62.58\%} & 38.36\% & 36.99\% & \textbf{94.07\%} & \textbf{47.71\%} & \textbf{1.4667} \\
-Quality Focal Loss & $3 \times 3$ Window & QFL ($\beta=2.0$) & 57.55\% & 37.01\% & 34.89\% & 93.01\% & 21.46\% & 5.4933 \\
+Quality Focal Loss & $3 \times 3$ Window & QFL ($\beta=2.0$) \cite{li2020generalized} & 57.55\% & 37.01\% & 34.89\% & 93.01\% & 21.46\% & 5.4933 \\
 \textbf{Pure Focal Loss [Ours]} & $1 \times 1$ Center & Focal ($\alpha=0.25, \gamma=2.0$) & 62.13\% & \textbf{38.98\%} & \textbf{37.23\%} & 93.22\% & 46.78\% & 1.5278 \\
 All-in-One Combination & $3 \times 3$ Window & QFL + Scale-Weights & 57.55\% & 37.01\% & 34.89\% & 93.01\% & 21.46\% & 5.4933 \\
 \bottomrule
@@ -449,6 +459,12 @@ In vehicular pavement inspection, real-time edge processing is mandatory. As sum
 \section{Conclusion}
 In this work, we addressed the fundamental challenge of detecting ultra-fine potholes in 4K road imagery. Through comprehensive multi-paradigm benchmarking on HRP4K, we exposed the \textit{4K Illusion} (brute-force scaling degrades accuracy and quadruples latency) and demonstrated the failure of spatial patch slicing (SAHI incurs multi-second delays and false alarm explosions). To resolve this paradox, we proposed \textbf{P2-DETR}, combining a frozen 2K Transformer detector with a lightweight dense $P_2$ auxiliary head ($stride=4$, $2.98\text{M}$ parameters) trained via Sigmoid Focal Loss. By introducing Scale-Partitioned Prior NMS, we eliminated cross-scale interference, cutting post-processing latency to $4.24\text{ ms}$ and boosting Ultra-Fine Recall to \textbf{93.22\%--94.07\%}. Our work establishes a practical, real-time blueprint for high-resolution vehicular road distress inspection. Future work will explore learned cross-attention feature gating for end-to-end set prediction.
 
+\let\oldbibliography\thebibliography
+\renewcommand{\thebibliography}[1]{%
+  \oldbibliography{#1}%
+  \setlength{\itemsep}{1.5pt}%
+  \setlength{\parskip}{0pt}%
+}
 \bibliographystyle{splncs04}
 \bibliography{references}
 
