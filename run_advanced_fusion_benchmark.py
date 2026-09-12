@@ -265,23 +265,28 @@ def main():
     X_f2, y_f2, dets_f2 = build_dataset_for_images(fold2_ids)
 
     def train_and_predict_mlp(X_train, y_train, X_test):
-        model = ProposalMLPGater(in_features=9, hidden=32)
-        optimizer = torch.optim.Adam(model.parameters(), lr=0.01, weight_decay=1e-4)
-        criterion = nn.BCELoss()
+        net = torch.nn.Sequential(
+            torch.nn.Linear(9, 32),
+            torch.nn.ReLU(inplace=True),
+            torch.nn.Linear(32, 1),
+        )
+        optimizer = torch.optim.Adam(net.parameters(), lr=0.01, weight_decay=1e-4)
+        pos_weight = torch.tensor([(len(y_train) - y_train.sum()) / max(1.0, y_train.sum())])
+        criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
         x_t = torch.from_numpy(X_train)
         y_t = torch.from_numpy(y_train).unsqueeze(1)
-        model.train()
+        net.train()
         for epoch in range(40):
             optimizer.zero_grad()
-            preds = model(x_t)
-            loss = criterion(preds, y_t)
+            logits = net(x_t)
+            loss = criterion(logits, y_t)
             loss.backward()
             optimizer.step()
 
-        model.eval()
+        net.eval()
         with torch.no_grad():
-            test_preds = model(torch.from_numpy(X_test)).squeeze(1).numpy()
+            test_preds = torch.sigmoid(net(torch.from_numpy(X_test))).squeeze(1).numpy()
         return test_preds
 
     print("  Training MLP Fold 1 (train on Fold 1, predict Fold 2)...")
@@ -301,7 +306,8 @@ def main():
         gated_det["score"] = float(new_score)
         gated_candidates_by_img.setdefault(int(d["image_id"]), []).append(gated_det)
 
-    # Run NMS at IoU 0.6 on gated scores
+    # Run NMS at IoU 0.6 on gated scores using fast torchvision.ops.nms
+    import torchvision.ops as ops
     mlp_fused_all: list[dict[str, Any]] = []
     for img_id, c_list in gated_candidates_by_img.items():
         if not c_list:
@@ -309,24 +315,16 @@ def main():
         if len(c_list) == 1:
             mlp_fused_all.append(c_list[0])
             continue
-        boxes_xywh = np.array([c["bbox"] for c in c_list], dtype=float)
+        boxes_xywh = np.array([c["bbox"] for c in c_list], dtype=np.float32)
         boxes_xyxy = np.column_stack([
             boxes_xywh[:, 0], boxes_xywh[:, 1],
             boxes_xywh[:, 0] + boxes_xywh[:, 2], boxes_xywh[:, 1] + boxes_xywh[:, 3]
         ])
-        scores = np.array([float(c.get("score", 0)) for c in c_list], dtype=float)
+        scores = np.array([float(c.get("score", 0)) for c in c_list], dtype=np.float32)
 
-        order = scores.argsort()[::-1]
-        keep = []
-        while order.size > 0:
-            i = order[0]
-            keep.append(i)
-            if order.size == 1:
-                break
-            ious = _compute_iou_matrix(boxes_xyxy[i:i + 1], boxes_xyxy[order[1:]])[0]
-            inds = np.where(ious <= 0.6)[0]
-            order = order[inds + 1]
-
+        t_boxes = torch.from_numpy(boxes_xyxy)
+        t_scores = torch.from_numpy(scores)
+        keep = ops.nms(t_boxes, t_scores, iou_threshold=0.6).numpy()
         for k_idx in keep:
             mlp_fused_all.append(c_list[k_idx])
 
