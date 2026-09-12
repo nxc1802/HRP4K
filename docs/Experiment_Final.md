@@ -63,6 +63,40 @@
 
 ---
 
+## 🌀 Phase 2b — Continuous Perspective Deformation (ZoomDet Benchmark)
+
+*(Khôi phục từ Git History: commit `14db76a` và `f9472d5`)*
+
+> **Ý tưởng nghiên cứu**: Thay vì cắt nhỏ ảnh thành 9-32 patch (gây đứt đoạn mép ảnh và trễ đa giây), ZoomDet áp dụng hàm biến dạng phối cảnh phi tuyến liên tục để nén ảnh 4K vào duy nhất 1 canvas $640\times 640$, phân bổ nhiều pixel hơn cho mặt đường ở xa.
+>
+> **Kết luận thực nghiệm then chốt**:
+> 1. **Ưu điểm tốc độ**: ZoomDet chạy 1-pass đạt **$22.0\text{ ms}$ ($45.5\text{ FPS}$)**, nhanh hơn $104\times$ so với Sliced-NMS ($2289.8\text{ ms}$).
+> 2. **THẤT BẠI TRÊN CLASS ULTRA-FINE (UF)**:
+>    - Biến dạng phi tuyến làm méo mó tỉ lệ khung hình ($w/h$) và vân bề mặt của ổ gà ở xa.
+>    - Trên dải Ultra-Fine, ZoomDet chỉ đạt **$28.50\% \text{ AP}_{50}$** (kém xa Native 2K là $50.36\%$ và Native 4K là $46.84\%$).
+>    - Bản Neural ConvNet Warp (`zoomdet-neural`) thậm chí sụp đổ hoàn toàn trên Ultra-Fine: **$\text{AP}_{50} = 0.57\%$ với Recall = $0.0\%$**!
+
+### Table 2c — ZoomDet Full Benchmark (Single-Pass Continuous Warp)
+
+| Model & Strategy | AP<sub>50</sub> | AP<sub>75</sub> | AP<sub>50:95</sub> | Precision | Recall | F1 | FPPI | Latency | FPS | UF AP<sub>50</sub> | UF Recall |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **YOLO11m ZoomDet (Road Prior)** | 26.04% | 7.80% | 10.39% | 43.20% | 29.32% | 34.93% | **0.007** | **18.4 ms** | **54.3** | 15.20% | 20.40% |
+| **D-FINE / RT-DETR ZoomDet (Road Prior)** | **42.07%** | **13.55%** | **18.42%** | 38.56% | **54.72%** | **45.24%** | 0.090 | 22.0 ms | 45.5 | **28.50%** | **42.10%** |
+| **ZoomDet Neural ConvNet (Grid Warp)** | 7.81% | 4.65% | 4.49% | **83.33%** | 4.34% | 8.26% | **0.007** | 85.3 ms | 11.7 | **0.57%** | **0.00%** |
+
+### Scale-Wise Breakdown của ZoomDet vs. Native 4K vs. Resize 640
+
+| Cấu hình / Phương pháp | Overall AP<sub>50-95</sub> | Ultra-Fine ($<0.05\%$) | Fine ($0.05-0.1\%$) | Medium ($0.1-0.25\%$) | Large ($\ge 0.25\%$) | Overall AP<sub>50</sub> | Ultra-Fine AP<sub>50</sub> |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Native 4K UHD (`dfine_4k`)** | **33.20%** | **25.35%** | **27.42%** | **25.37%** | **14.56%** | **55.28%** | **46.84%** |
+| **Downsampled 640 (`dfine_640`)** | 18.18% | 7.20% | 14.10% | 20.40% | 16.50% | 37.37% | 18.40% |
+| **Warped ZoomDet 640 (`dfine`)** | 18.42% | 11.80% | 15.20% | 17.60% | 12.40% | 42.07% | 28.50% |
+| **ZoomDet Neural ConvNet** | 4.49% | **0.30%** | 3.20% | 8.10% | 7.50% | 7.81% | **0.57%** |
+
+*(Minh chứng: ZoomDet chỉ cải thiện nhẹ so với 640 Resize nhưng kém rất xa Native 4K và Native 2K trên dải Ultra-Fine do biến dạng phối cảnh phi tuyến làm sai lệch hình học).*
+
+---
+
 ## 🔬 Phase 3 — Proposed Method (RT-DETR-L + Auxiliary P2 Head)
 
 > **Kiến trúc đề xuất**: Frozen RT-DETR-L 2K ($32.8\text{M}$ frozen params) + Lightweight Dense P2 Head ($2.98\text{M}$ trainable params, $stride=4$).
