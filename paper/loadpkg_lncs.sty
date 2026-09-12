@@ -1,0 +1,92 @@
+% The preceding line is only needed to identify funding in the first footnote. If that is unneeded, please comment it out.
+\usepackage{cite}
+% \usepackage{natbib}
+\usepackage{mathtools, amsmath,amssymb,amsfonts}
+
+% \usepackage{lipsum} % write one loumn on two-column paper
+% \usepackage{cuted} % write one loumn on two-column paper
+
+\usepackage{siunitx} % for SI units
+% \sisetup{detect-weight=true, detect-family=true} % to detect font weight of SI units in abstract
+
+\usepackage{multirow}
+
+\usepackage{algorithmic}
+
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{booktabs}
+
+%\usepackage{booktabs} % for \toprule \bottomrule 
+\usepackage{arydshln}
+\usepackage{tabularx}
+
+\usepackage{tikz}
+\usepackage{circuitikz} %draw circuit
+\usepackage{graphicx} %add graph
+\usepackage{pgfplotstable}%draw graph
+\usepackage{pgfplots}%draw graph
+\pgfplotsset{compat=1.10}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, calc}
+
+\usepackage{textcomp}
+\usepackage{xcolor}
+% \def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+%     T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+
+% \usepackage[acronym, automake=true, nonumberlist, nogroupskip]{glossaries} % there should be automake option to print glossaries
+%\setglossarystyle{long}
+% \makeglossaries
+% \newglossarystyle{custom_acronyms}
+% {
+%     \setglossarystyle{long3colheader}%
+%     \renewcommand*{\glossaryheader}{}%  
+%     \renewcommand{\glossentry}[2]{%
+%         \textbf{\glsentryitem{##1}\glstarget{##1}{\glossentryname{##1}}}
+%         & \glossentrydesc{##1}
+%         & ##2
+%         \tabularnewline}%
+% }    
+
+% define shortcuts
+%\newcommand{\ML}{MATLAB\textsuperscript{\textregistered}}
+\newcommand{\vect}[1]{\boldsymbol{#1}}
+\newcommand{\matr}[1]{\boldsymbol{#1}}
+\newcommand{\rowvec}[1]{\begin{bmatrix} #1 \end{bmatrix}}
+
+\newcommand{\argmin}{\mathop{\mathrm{argmin}}}
+
+\newcommand{\eref}[1]{Eqn. (\ref{#1})}
+\newcommand{\fref}[1]{Fig. \ref{#1}}
+\newcommand{\sref}[1]{Section \ref{#1}}
+\newcommand{\tref}[1]{Table \ref{#1}}
+
+\newcommand{\im}[1]{\text{Im}\{#1\}}
+\newcommand{\re}[1]{\text{Re}\{#1\}}
+
+\newcommand{\etal}{\textit{et al. }}
+
+% \newcommand{\ts}{\textsuperscript}
+
+% %%------------create legend outside the plots
+% \newenvironment{customlegend}[1][]{%
+% 	\begingroup
+% 	\csname pgfplots@init@cleared@structures\endcsname
+% 	\pgfplotsset{#1}%
+% }{%
+% 	\csname pgfplots@createlegend\endcsname
+% 	\endgroup
+% }%
+% \def\addlegendimage{\csname pgfplots@addlegendimage\endcsname}
+
+\hyphenation{op-tical net-works semi-conduc-tor}
+
+
+\newlength{\wirewidth}
+\setlength{\wirewidth}{0.4mm} % you have to define the variable before setting it, here is \wirewidth
+\newlength{\compowidth}
+\setlength{\compowidth}{0.15mm} 
+\newlength{\xcoupling}
+\setlength{\xcoupling}{0.1mm}
+
+
