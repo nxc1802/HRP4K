@@ -5,6 +5,9 @@ import numpy as np
 import torch
 import torchvision.ops as ops
 
+import warnings
+warnings.filterwarnings("ignore")
+
 try:
     from ensemble_boxes import weighted_boxes_fusion
     HAS_ENSEMBLE_BOXES = True
@@ -161,6 +164,8 @@ def fuse_calibrated_wbf(
                 y1 = max(0.0, min(1.0, y / img_h))
                 x2 = max(0.0, min(1.0, (x + w) / img_w))
                 y2 = max(0.0, min(1.0, (y + h) / img_h))
+                if x2 <= x1 + 1e-5 or y2 <= y1 + 1e-5:
+                    continue
                 sc = min(1.0, max(0.0, float(d.get("score", 0)) * scale_score))
                 boxes_norm.append([x1, y1, x2, y2])
                 scores.append(sc)
