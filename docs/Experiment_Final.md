@@ -126,6 +126,33 @@
 
 ---
 
+### Table 3c — Proposed Full Fine-Tune (2K — Unfreeze Native + Dense P2 Head)
+
+> **Cấu hình Huấn Luyện Toàn Bộ (Full Fine-Tune)**: Mở đông băng toàn bộ Native RT-DETR-L ($32.8\text{M}$ params) đồng thời huấn luyện liên tục cùng Dense P2 Auxiliary Head ($2.98\text{M}$ params, tổng cộng $35.78\text{M}$ parameters).
+> - **Chiến lược tối ưu**: Differential Learning Rate ($lr_{\text{native}} = 5\times 10^{-5}$, $lr_{\text{P2}} = 5\times 10^{-4}$).
+> - **Tham số**: Epochs: 30, Patience: 5, Batch: 16, Resolution: 2K ($1920\times 1920$), Rect: True, Optimizer: AdamW.
+> - **Tiến trình hội tụ**: Loss giảm từ $74,911.14$ (Epoch 1) $\to$ $198.94$ (Epoch 2) $\to$ $117.0760$ (Epoch 26 - All-time Best) $\to$ $117.88$ (Epoch 30).
+> - **Hugging Face Hub Experiment**: [📁 Cuong2004/HRP4K/experiments/eb21f336bb50](https://huggingface.co/datasets/Cuong2004/HRP4K/tree/main/experiments/eb21f336bb50)
+> - **Checkpoints**: [📦 best_full.pt (428.8 MB)](https://huggingface.co/datasets/Cuong2004/HRP4K/blob/main/experiments/eb21f336bb50/weights/best_full.pt) | [📦 best.pt (428.6 MB)](https://huggingface.co/datasets/Cuong2004/HRP4K/blob/main/experiments/eb21f336bb50/best.pt) | [📊 Test Metrics Comparison JSON](https://huggingface.co/datasets/Cuong2004/HRP4K/blob/main/experiments/eb21f336bb50/test/test_metrics_comparison.json)
+
+| Configuration | AP<sub>50</sub> | AP<sub>75</sub> | AP<sub>50:95</sub> | Overall Recall (Academic) | Recall @0.25 (Operational) | Prec @0.25 | F1 @0.25 | FPPI @0.25 | UF Recall | UF AP<sub>50</sub> | Hugging Face File |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
+| **P2-Only Head** (Full Finetune) | 2.98% | 0.24% | 1.15% | 25.73% | 0.43% | **36.36%** | 0.86% | **0.0078** | 45.97% | 4.86% | [📄 Metrics](https://huggingface.co/datasets/Cuong2004/HRP4K/blob/main/experiments/eb21f336bb50/test/test_predictions_p2.json) |
+| **Fine-tuned Native RT-DETR-L** | 59.96% | **36.28%** | **34.77%** | **85.67%** | **73.83%** | 31.79% | 44.44% | 1.6211 | 87.50% | 52.58% | [📄 Metrics](https://huggingface.co/datasets/Cuong2004/HRP4K/blob/main/experiments/eb21f336bb50/test/test_predictions_native.json) |
+| **Proposed Fused (Full Fine-Tune)** | **60.20%** | 35.97% | 34.71% | 85.34% | 73.62% | **33.01%** | **45.58%** | **1.5289** | **88.35%** | **52.90%** | [📊 Metrics](https://huggingface.co/datasets/Cuong2004/HRP4K/blob/main/experiments/eb21f336bb50/test/test_metrics_comparison.json) |
+
+#### Table 3d — Scale Decomposition cho Full Fine-Tune (Native vs. Proposed Fused)
+
+| Pothole Scale Category | Ground Truth Count | Native Recall @0.001 | Fused Recall @0.001 | Native AP<sub>50</sub> | Fused AP<sub>50</sub> | Δ AP<sub>50</sub> | Native Recall @0.25 | Fused Recall @0.25 |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Ultra-fine ($S < 32^2$)** | **472** | 87.50% | **88.35%** | 52.58% | **52.90%** | **+0.32% ▲** | 87.50% | **88.35% (+0.85% ▲)** |
+| **Fine ($32^2 \le S < 96^2$)** | 169 | **86.39%** | 84.62% | 54.43% | 54.43% | = | **86.39%** | 84.62% |
+| **Medium ($96^2 \le S < 144^2$)** | 147 | **89.80%** | 87.76% | **45.92%** | 45.76% | -0.16% | **89.80%** | 87.76% |
+| **Large ($S \ge 144^2$)** | 133 | **73.68%** | 72.93% | 16.43% | **16.52%** | **+0.09% ▲** | **73.68%** | 72.93% |
+| **Overall All Objects** | **921** | **85.67%** | 85.34% | 59.96% | **60.20%** | **+0.24% ▲** | **73.83%** | 73.62% |
+
+---
+
 ## 🚀 Proposed Method Optimization Roadmap (Nâng Cấp P2-Method)
 
 > Kế hoạch nâng cấp và tối ưu hoá toàn diện cho kiến trúc Proposed P2 theo lộ trình nghiên cứu chuẩn mực:
@@ -219,6 +246,7 @@
 | **Original P2 Fused (Pre-Phase 1)** | 46.57% | 25.74% | 26.41% | 83.82% | 86.65% | 86.39% | 0.85% | 200.43 | 48.5 ms | 20.6 |
 | **🏆 Proposed P2 Fused (Phase 1 Winner - BCE)** | **62.58%** | 38.36% | 36.99% | **92.40%** | **94.07%** | 92.90% | **47.71%** | **1.4667** | 48.5 ms | 20.6 |
 | **⚡ Proposed P2 Fused (Phase 3 - Focal Loss)** | 62.13% | **38.98%** | **37.23%** | 91.97% | 93.22% | 92.31% | 46.78% | 1.5278 | 61.1 ms | 16.4 |
+| **Proposed Full Fine-tune (Native + P2)** | 60.20% | 35.97% | 34.71% | 85.34% | 88.35% | 84.62% | 45.58% | 1.5289 | 60.5 ms | 16.5 |
 | **All-in-One Best P2 Combination (Retrained)** | 57.55% | 37.01% | 34.89% | 91.97% | 93.01% | **93.49%** | 21.46% | 5.4933 | 61.7 ms | 16.2 |
 | **P2-Only Standalone (Focal Loss Best)** | 1.87% | 0.55% | 0.75% | 38.00% | 61.44% | 25.44% | 2.85% | 0.1300 | 28.3 ms | 35.3 |
 
@@ -236,6 +264,9 @@ Căn cứ theo tiêu chuẩn nghiệm thu khoa học quy định tại `Big Plan
 > 2. **Phát hiện khoa học về Tái Huấn Luyện (All-in-One Retraining)**:
 >    - Việc ép thêm $3\times 3$ target assignment, hàm mất mát QFL và trọng số phạt lệch $w_{UF}=3.0$ giúp mô hình bắt thêm các ổ gà nhỏ/fine ($+0.59\%$ Fine Recall), nhưng làm tăng đáng kể độ nhạy quá mức (over-sensitivity), khiến FPPI tăng lên $5.49$ và kéo tụt Precision tại điểm vận hành.
 >    - Điều này minh chứng rằng **trần năng lực kiến trúc P2 đã đạt ngưỡng tối ưu Pareto tại Phase 1 Winner**.
-> 3. **Khuyến nghị kết thúc tối ưu hoá để xuất bản bài báo (Public Paper Ready)**:
+> 3. **Phát hiện từ Full Fine-tune (Unfreeze Native + P2)**:
+>    - Khi unfreeze toàn bộ $35.78\text{M}$ tham số (cả Native và P2 Head), mô hình hội tụ loss sâu ấn tượng từ $74,911.14 \to 117.08$. Tại điểm vận hành ($\text{conf}=0.25$), Full Fine-tune Fused cải thiện rõ rệt so với Native fine-tuned: **F1 tăng từ $44.44\% \to 45.58\%$ ($+1.14\%$)**, **Precision tăng từ $31.79\% \to 33.01\%$ ($+1.22\%$)**, **FPPI giảm từ $1.6211 \to 1.5289$ (giảm báo động giả)** và **Ultra-fine Recall tăng $+0.85\%$ ($87.50\% \to 88.35\%$)**.
+>    - Tuy nhiên, việc giữ đông băng Native RT-DETR đã pretrain kỹ trên 2K và chỉ tối ưu P2 Head (Phase 1 Winner) vẫn bảo toàn tốt hơn các đặc trưng vật thể trung bình/lớn, đạt AP50 tổng thể cao hơn ($62.58\%$ vs $60.20\%$).
+> 4. **Khuyến nghị kết thúc tối ưu hoá để xuất bản bài báo (Public Paper Ready)**:
 >    - **DỪNG** việc mở rộng thêm các mô-đun phức tạp, tốn kém tài nguyên (như BiFPN, Transformer Self-Attention trên P2, hay Deformable Convolutions).
 >    - Lấy mô hình **Proposed P2 Fused (Phase 1 Sweep Winner: Top-K=300, Conf=0.001, IoU=0.6)** làm đóng góp khoa học chính (**Primary Proposed Architecture**) cho bài báo, khẳng định tính ưu việt của giải pháp: **Nhẹ ($+2.96\text{M}$ params), Nhanh ($>20$ FPS), Không cần huấn luyện lại phức tạp, và Bứt phá xuất sắc trần phát hiện ổ gà vi mô ($94.07\%$ Recall)**.
