@@ -591,7 +591,13 @@ class RTDETRP2Model(nn.Module):
             native_out = self.native_model(img)
             # In training mode, native_out is (dec_bboxes, dec_scores, ...)
             native_preds = (native_out[0], native_out[1]) if isinstance(native_out, (list, tuple)) else native_out
-            raw_native_loss_dict = self.native_criterion(native_preds, batch)
+            batch_for_native = {
+                "cls": batch["cls"].to(img.device, dtype=torch.long).view(-1),
+                "bboxes": batch["bboxes"].to(device=img.device),
+                "batch_idx": batch_idx.to(img.device, dtype=torch.long).view(-1),
+                "gt_groups": gt_groups,
+            }
+            raw_native_loss_dict = self.native_criterion(native_preds, batch_for_native)
             native_loss = sum(raw_native_loss_dict.values())
             loss_native_dict = {f"native_{k}": v for k, v in raw_native_loss_dict.items()}
 
