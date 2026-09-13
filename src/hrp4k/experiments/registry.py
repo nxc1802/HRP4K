@@ -49,6 +49,7 @@ class ExperimentConfig:
     tile_size: int = 960
     overlap: float = 0.2
     frozen_checkpoint: str | None = None  # for slicing: path to frozen 640 checkpoint
+    freeze_native: bool = True           # whether native detector is frozen or full fine-tuned
     # Metadata
     dataset: str = "HRP4K"
     experiment_id: str = ""
@@ -77,6 +78,7 @@ class ExperimentConfig:
             "seed": self.seed,
             "method": self.method,
             "dataset": self.dataset,
+            "freeze_native": self.freeze_native,
         }
         return experiment_id(canonical)
 
@@ -231,6 +233,31 @@ def _build_slicing_experiments() -> dict[str, ExperimentConfig]:
 
 def _build_proposed_experiments() -> dict[str, ExperimentConfig]:
     experiments = {}
+
+    # RT-DETR-L Proposed Full Fine-Tune (2K — Unfreeze Native + P2, Epoch 30, Patience 5)
+    name_full_2k = "rtdetr-l-proposed-full-2k"
+    experiments[name_full_2k] = ExperimentConfig(
+        name=name_full_2k,
+        phase="proposed",
+        detector="rtdetr-l",
+        weights="outputs/experiments/rtdetr-l-resolution-2k/weights/best.pt",
+        resolution="2k",
+        imgsz=1920,
+        batch=16,
+        accumulation=1,
+        optimizer="AdamW",
+        lr0=0.0005,
+        lrf=0.01,
+        weight_decay=0.0001,
+        warmup_bias_lr=0.0,
+        amp=True,
+        rect=True,
+        epochs=30,
+        patience=5,
+        seed=42,
+        confidence=0.001,
+        freeze_native=False,
+    )
 
     # RT-DETR-L Proposed P2 (2K — Primary Feasibility Checkpoint)
     name_2k = "rtdetr-l-proposed-p2-2k"

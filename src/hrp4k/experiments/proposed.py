@@ -221,6 +221,9 @@ class RTDETRP2Adapter(DetectorAdapter):
         )
 
         if p2_ckpt_dict:
+            if "native_state_dict" in p2_ckpt_dict:
+                self.model.native_model.load_state_dict(p2_ckpt_dict["native_state_dict"])
+                print(f"[RTDETRP2Adapter] Successfully loaded fine-tuned native detector weights from checkpoint.")
             if "p2_state_dict" in p2_ckpt_dict:
                 self.model.p2_head.load_state_dict(p2_ckpt_dict["p2_state_dict"])
             if "p2_adapter_state_dict" in p2_ckpt_dict:
@@ -368,8 +371,9 @@ def train_rtdetr_p2(
     topk: int = 300,
     p2_conf_threshold: float = 0.001,
     fusion_iou_threshold: float = 0.5,
+    freeze_native: bool = True,
 ) -> dict[str, Any]:
-    """Execute dedicated training for Frozen RT-DETR-L + Lightweight Dense P2 Head."""
+    """Execute dedicated training for RT-DETR-L + Lightweight Dense P2 Head (supports both frozen native and full fine-tune)."""
     if not smoke and not allow_full and not resume:
         raise ValueError("Full training requires explicit --allow-full; use --smoke for local verification")
 
@@ -405,7 +409,7 @@ def train_rtdetr_p2(
 
     resolved_weights = ensure_weights(weights, repo_id=hf_repo, token=hf_token)
 
-    # 1. Load Frozen RT-DETR-L Baseline
+    # 1. Load RT-DETR-L Baseline
     rtdetr = RTDETR(str(resolved_weights))
     native_model = rtdetr.model
     if not isinstance(native_model, RTDETRDetectionModel):
@@ -416,7 +420,7 @@ def train_rtdetr_p2(
         native_model=native_model,
         nc=1,
         input_size=(actual_imgsz, actual_imgsz) if isinstance(actual_imgsz, int) else actual_imgsz,
-        freeze_native=True,
+        freeze_native=freeze_native,
         target_assignment=target_assignment,
         cls_loss_type=cls_loss_type,
         scale_weights=scale_weights,
@@ -425,20 +429,28 @@ def train_rtdetr_p2(
     )
     p2_model.to(target_device)
 
-    # 2. Verify Parameter Freezing
+    # 2. Verify Parameter Freezing / Trainable status
     frozen_params = sum(p.numel() for p in p2_model.native_model.parameters() if not p.requires_grad)
     trainable_params = sum(p.numel() for p in p2_model.parameters() if p.requires_grad)
     p2_params_count = sum(p.numel() for p in p2_model.p2_branch.parameters()) + sum(p.numel() for p in p2_model.p2_head.parameters())
     print(f"[Architecture] Base RT-DETR Model:       {resolved_weights}")
     print(f"[Architecture] Base Model Classes:       {getattr(native_model, 'nc', 1)} (Pothole)")
-    print(f"[Architecture] Frozen Base Parameters:   {frozen_params:,} (100% FROZEN)")
-    print(f"[Architecture] Trainable P2 Parameters: {trainable_params:,} (P2 ONLY: {p2_params_count:,})")
-
-    # 3. Setup Optimizer ONLY for P2 parameters
-    p2_params = list(p2_model.p2_branch.parameters()) + list(p2_model.p2_head.parameters())
-    optimizer = torch.optim.AdamW(p2_params, lr=0.0005, weight_decay=0.0001)
-
-    print(f"\n[Proposed Engine] Launching Frozen RT-DETR-L + Dense P2 Head (Epochs: {actual_epochs}, Imgsz: {actual_imgsz}, Device: {target_device})")
+    if freeze_native:
+        print(f"[Architecture] Frozen Base Parameters:   {frozen_params:,} (100% FROZEN)")
+        print(f"[Architecture] Trainable P2 Parameters: {trainable_params:,} (P2 ONLY: {p2_params_count:,})")
+        p2_params = list(p2_model.p2_branch.parameters()) + list(p2_model.p2_head.parameters())
+        optimizer = torch.optim.AdamW(p2_params, lr=0.0005, weight_decay=0.0001)
+        print(f"\n[Proposed Engine] Launching Frozen RT-DETR-L + Dense P2 Head (Epochs: {actual_epochs}, Imgsz: {actual_imgsz}, Device: {target_device})")
+    else:
+        print(f"[Architecture] Mode:                    FULL FINE-TUNE (Native Unfrozen + P2)")
+        print(f"[Architecture] Trainable Parameters:    {trainable_params:,} (Native + P2 all trainable)")
+        native_params = [p for p in p2_model.native_model.parameters() if p.requires_grad]
+        p2_params = list(p2_model.p2_branch.parameters()) + list(p2_model.p2_head.parameters())
+        optimizer = torch.optim.AdamW([
+            {"params": native_params, "lr": 0.00005, "weight_decay": 0.0001},
+            {"params": p2_params, "lr": 0.0005, "weight_decay": 0.0001},
+        ])
+        print(f"\n[Proposed Engine] Launching FULL FINE-TUNE RT-DETR-L + Dense P2 Head (Epochs: {actual_epochs}, Imgsz: {actual_imgsz}, Device: {target_device})")
 
     # 4. Build Dataset & DataLoader using Ultralytics Data Loader or custom loader
     from ultralytics.data import build_dataloader, build_yolo_dataset
@@ -500,8 +512,11 @@ def train_rtdetr_p2(
     scaler = torch.amp.GradScaler(device=device_type, enabled=amp_enabled)
 
     for epoch in range(start_epoch, actual_epochs):
-        p2_model.p2_branch.train()
-        p2_model.p2_head.train()
+        if freeze_native:
+            p2_model.p2_branch.train()
+            p2_model.p2_head.train()
+        else:
+            p2_model.train()
         epoch_losses: list[float] = []
 
         for batch_idx, batch_data in enumerate(train_loader):
@@ -509,28 +524,17 @@ def train_rtdetr_p2(
             bs = img.shape[0]
             b_idx = batch_data["batch_idx"].to(target_device)
             gt_groups = [(b_idx == i).sum().item() for i in range(bs)]
-            targets = {
-                "cls": batch_data["cls"].to(target_device, dtype=torch.long).view(-1),
-                "bboxes": batch_data["bboxes"].to(device=target_device),
-                "batch_idx": b_idx.view(-1),
-                "gt_groups": gt_groups,
-            }
 
-            # Forward P2 with Frozen Backbone and AMP
+            # Forward and compute loss (supports both frozen native and full fine-tune)
             with torch.amp.autocast(device_type=device_type, enabled=amp_enabled):
-                with torch.no_grad():
-                    c2_feat = extract_c2_backbone(p2_model.native_model, img, c2_layer_idx=p2_model.c2_layer_idx)
-
-                p2_feat = p2_model.p2_branch(c2_feat)
-                cls_logits, box_offsets = p2_model.p2_head(p2_feat)
-
-                loss_dict = p2_model.p2_head.compute_loss(
-                    cls_logits=cls_logits,
-                    box_offsets=box_offsets,
-                    targets=targets,
-                    img_size=(img.shape[-2], img.shape[-1]),
-                )
-                loss = loss_dict["loss_p2_total"]
+                batch_for_loss = {
+                    "img": img,
+                    "batch_idx": b_idx,
+                    "cls": batch_data["cls"].to(target_device),
+                    "bboxes": batch_data["bboxes"].to(target_device),
+                    "gt_groups": gt_groups,
+                }
+                loss, loss_dict = p2_model.loss(batch_for_loss)
                 scaled_loss = loss / max(1, accumulation)
 
             scaler.scale(scaled_loss).backward()
@@ -546,7 +550,8 @@ def train_rtdetr_p2(
                 break
 
         mean_loss = float(np.mean(epoch_losses)) if epoch_losses else 0.0
-        print(f"Epoch {epoch + 1}/{actual_epochs} - Mean P2 Loss: {mean_loss:.4f}")
+        loss_label = "Total Loss" if not freeze_native else "Mean P2 Loss"
+        print(f"Epoch {epoch + 1}/{actual_epochs} - {loss_label}: {mean_loss:.4f}")
 
         payload = {
             "p2_state_dict": p2_model.p2_head.state_dict(),
@@ -554,9 +559,11 @@ def train_rtdetr_p2(
             "optimizer_state_dict": optimizer.state_dict(),
             "epoch": epoch + 1,
             "mean_p2_loss": mean_loss,
+            "mean_loss": mean_loss,
             "base_checkpoint": str(resolved_weights),
             "image_size": actual_imgsz,
-            "architecture": "frozen_rtdetr_l_p2",
+            "architecture": "rtdetr_l_p2_full" if not freeze_native else "frozen_rtdetr_l_p2",
+            "freeze_native": freeze_native,
             "target_assignment": target_assignment,
             "cls_loss_type": cls_loss_type,
             "scale_weights": scale_weights,
@@ -564,6 +571,8 @@ def train_rtdetr_p2(
             "p2_conf_threshold": p2_conf_threshold,
             "fusion_iou_threshold": fusion_iou_threshold,
         }
+        if not freeze_native:
+            payload["native_state_dict"] = p2_model.native_model.state_dict()
 
         # Save last checkpoint (both last_p2.pt and last.pt for HF syncer)
         torch.save(payload, str(last_p2_path))
@@ -575,6 +584,8 @@ def train_rtdetr_p2(
             patience_counter = 0
             torch.save(payload, str(best_p2_path))
             torch.save(payload, str(weights_dir / "best.pt"))
+            if not freeze_native:
+                torch.save(payload, str(weights_dir / "best_full.pt"))
             if syncer.enabled:
                 try:
                     syncer.sync_epoch(
@@ -723,9 +734,12 @@ def run_proposed_experiment(
     exp_id = config.experiment_id
     run_dir = output_dir / experiment_name
 
+    freeze_native = getattr(config, "freeze_native", True)
+    mode_str = "Frozen" if freeze_native else "Full Fine-tune"
+
     print(f"\n{'='*60}")
     print(f"[Proposed Experiment] {experiment_name}")
-    print(f"[Architecture]        Frozen {config.detector} + Lightweight Dense P2 Head")
+    print(f"[Architecture]        {mode_str} {config.detector} + Lightweight Dense P2 Head")
     print(f"[Resolution]          {config.resolution} ({config.imgsz}px)")
     print(f"[Batch]               {config.batch} × {config.accumulation}x accum = {config.effective_batch}")
     print(f"[Fusion Strategy]     Concatenate + Class-Aware NMS")
@@ -779,6 +793,7 @@ def run_proposed_experiment(
                 resolved_p2_ckpt = str(local_ckpt)
         if not resolved_p2_ckpt:
             for local_cand in [
+                run_dir / "weights" / "best_full.pt",
                 run_dir / "weights" / "best_p2.pt",
                 run_dir / "weights" / "last.pt",
                 run_dir / "weights" / "best.pt",
@@ -788,7 +803,8 @@ def run_proposed_experiment(
                     print(f"[Resume P2] Resuming from local checkpoint: {resolved_p2_ckpt}")
                     break
     else:
-        print(f"\n[Proposed Mode] Starting FRESH training of P2 Head on top of Frozen Fine-Tuned RT-DETR: {base_weights_path}")
+        init_mode = "Full Fine-tune (Native + P2)" if not freeze_native else "P2 Head on top of Frozen Fine-Tuned RT-DETR"
+        print(f"\n[Proposed Mode] Starting FRESH {init_mode}: {base_weights_path}")
 
     storage = ExperimentStorage(exp_id, repo_id=hf_repo, token=hf_token)
     storage.upload_config(config.to_dict())
@@ -800,6 +816,7 @@ def run_proposed_experiment(
         "resolution": config.resolution,
         "status": "training",
         "base_model": str(base_weights_path),
+        "freeze_native": freeze_native,
         "environment": environment_snapshot(),
     })
 
@@ -815,6 +832,7 @@ def run_proposed_experiment(
         patience=config.patience,
         device=None,
         allow_full=True,
+        freeze_native=freeze_native,
         experiment={"name": experiment_name, "id": exp_id},
         seed=config.seed,
         eval_confidence=config.confidence,
@@ -830,9 +848,12 @@ def run_proposed_experiment(
     val_path = run_dir / "val_metrics.json"
     test_path = run_dir / "test_metrics.json"
     best_p2_file = run_dir / "weights" / "best_p2.pt"
-    if best_p2_file.is_file():
-        storage.upload_file(best_p2_file, "weights/best_p2.pt", "Upload final best_p2.pt weights")
-        storage.upload_file(best_p2_file, "checkpoints/best.pt", "Upload final best.pt checkpoint")
+    best_full_file = run_dir / "weights" / "best_full.pt"
+    best_upload_file = best_full_file if (not freeze_native and best_full_file.is_file()) else best_p2_file
+
+    if best_upload_file.is_file():
+        storage.upload_file(best_upload_file, f"weights/{best_upload_file.name}", f"Upload final {best_upload_file.name} weights")
+        storage.upload_file(best_upload_file, "checkpoints/best.pt", "Upload final best.pt checkpoint")
     storage.upload_final_results(
         val_metrics_path=val_path if val_path.exists() else None,
         test_metrics_path=test_path if test_path.exists() else None,
@@ -845,6 +866,7 @@ def run_proposed_experiment(
         "phase": config.phase,
         "resolution": config.resolution,
         "status": "completed",
+        "freeze_native": freeze_native,
         "val_metrics": train_result.get("val_metrics", {}),
         "test_metrics": train_result.get("test_metrics", {}),
         "best_checkpoint": train_result.get("best", ""),

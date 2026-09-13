@@ -472,6 +472,12 @@ class RTDETRP2Model(nn.Module):
             self.native_model.eval()
             for p in self.native_model.parameters():
                 p.requires_grad = False
+        else:
+            self.native_model.train()
+            for p in self.native_model.parameters():
+                p.requires_grad = True
+            from ultralytics.models.utils.loss import RTDETRDetectionLoss
+            self.native_criterion = RTDETRDetectionLoss(nc=self.nc, use_vfl=True)
 
         if c2_layer_idx is None or c2_channels is None:
             c2_layer_idx, c2_channels = find_c2_backbone_stage(self.native_model, input_size=input_size)
@@ -512,8 +518,11 @@ class RTDETRP2Model(nn.Module):
         batch: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Forward pass for evaluation / inference."""
-        # 1. Native RT-DETR forward (frozen)
-        with torch.no_grad():
+        # 1. Native RT-DETR forward
+        if self.freeze_native:
+            with torch.no_grad():
+                native_out = self.native_model(x)
+        else:
             native_out = self.native_model(x)
 
         # 2. Extract C2 and forward P2 Dense Head
@@ -560,7 +569,7 @@ class RTDETRP2Model(nn.Module):
         batch: dict[str, Any],
         preds: Any = None,
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-        """Compute P2 loss: only P2 parameters receive gradients."""
+        """Compute loss: supports both frozen native (P2-only) and full joint fine-tuning."""
         img = batch["img"]
         bs = img.shape[0]
         batch_idx = batch["batch_idx"]
@@ -572,8 +581,19 @@ class RTDETRP2Model(nn.Module):
             "gt_groups": gt_groups,
         }
 
-        with torch.no_grad():
+        if self.freeze_native:
+            with torch.no_grad():
+                c2_feat = extract_c2_backbone(self.native_model, img, c2_layer_idx=self.c2_layer_idx)
+            native_loss = torch.tensor(0.0, device=img.device)
+            loss_native_dict: dict[str, torch.Tensor] = {}
+        else:
             c2_feat = extract_c2_backbone(self.native_model, img, c2_layer_idx=self.c2_layer_idx)
+            native_out = self.native_model(img)
+            # In training mode, native_out is (dec_bboxes, dec_scores, ...)
+            native_preds = (native_out[0], native_out[1]) if isinstance(native_out, (list, tuple)) else native_out
+            raw_native_loss_dict = self.native_criterion(native_preds, batch)
+            native_loss = sum(raw_native_loss_dict.values())
+            loss_native_dict = {f"native_{k}": v for k, v in raw_native_loss_dict.items()}
 
         p2_feat = self.p2_branch(c2_feat)
         cls_logits, box_offsets = self.p2_head(p2_feat)
@@ -585,6 +605,14 @@ class RTDETRP2Model(nn.Module):
             img_size=(img.shape[-2], img.shape[-1]),
         )
         total_p2_loss = loss_dict["loss_p2_total"]
+        total_loss = total_p2_loss + native_loss
 
-        return total_p2_loss, loss_dict
+        combined_dict = {
+            **loss_dict,
+            **loss_native_dict,
+            "loss_native_total": native_loss,
+            "loss_total": total_loss,
+        }
+
+        return total_loss, combined_dict
 

@@ -17,34 +17,35 @@ from pathlib import Path
 # CONFIGURATION — CHỈNH SỬA THÔNG SỐ TẠI ĐÂY
 # ==============================================================================
 # Chế độ chạy:
-#   - "train"       : Chạy trọn gói (Train P2-only + Val + Test Eval + Push HF)
-#   - "eval"        : Chỉ đánh giá checkpoint đã train trên tập test
-#   - "compare"     : Đánh giá và so sánh song song P2-Only vs Native vs Fusion
-#   - "inspect"     : Chỉ đọc và in metadata của checkpoint
-#   - "calibration" : Chạy chẩn đoán score calibration [0.001, 0.01, 0.05, 0.10, 0.25]
-MODE = "train"
+#   - "train"         : Chạy trọn gói (Train P2-only + Val + Test Eval + Push HF)
+#   - "full_finetune" : Chạy Full Fine-tune (Native RT-DETR-L + P2 Head, epochs=30, patience=5)
+#   - "eval"          : Chỉ đánh giá checkpoint đã train trên tập test
+#   - "compare"       : Đánh giá và so sánh song song P2-Only vs Native vs Fusion
+#   - "inspect"       : Chỉ đọc và in metadata của checkpoint
+#   - "calibration"   : Chạy chẩn đoán score calibration [0.001, 0.01, 0.05, 0.10, 0.25]
+MODE = "full_finetune"
 
-# Tên thí nghiệm (dùng khi MODE = "train"):
-# Options: "rtdetr-l-proposed-p2-2k", "rtdetr-l-proposed-p2-640", "rtdetr-l-proposed-p2-4k"
-EXPERIMENT_NAME = "rtdetr-l-proposed-p2-2k"
+# Tên thí nghiệm (dùng khi MODE = "train" hoặc "full_finetune"):
+# Options: "rtdetr-l-proposed-full-2k", "rtdetr-l-proposed-p2-2k", "rtdetr-l-proposed-p2-640", "rtdetr-l-proposed-p2-4k"
+EXPERIMENT_NAME = "rtdetr-l-proposed-full-2k"
 
 # Model Base RT-DETR đã fine-tune trên HRP4K (nếu chưa có trên máy, hệ thống tự động tải từ Hugging Face):
 BASE_WEIGHTS = "outputs/experiments/rtdetr-l-resolution-2k/weights/best.pt"
 
-# Có tiếp tục train P2 cũ hay train P2 mới từ đầu?
-#   - False: Ghép P2 head MỚI vào base model fine-tune, freeze base và train P2 từ Epoch 1
-#   - True (Resume): Tiếp tục checkpoint P2 hiện tại (từ Epoch 18 trở đi)
-RESUME_P2 = True
-P2_CHECKPOINT = "outputs/experiments/rtdetr-l-proposed-p2-2k/weights/best_p2.pt"
+# Có tiếp tục train checkpoint cũ hay train mới từ đầu?
+#   - False: Ghép P2 head vào base model, train từ Epoch 1
+#   - True (Resume): Tiếp tục checkpoint hiện tại
+RESUME_P2 = False
+P2_CHECKPOINT = ""
 
-# Hyperparameters (dùng khi MODE = "train"):
-BATCH_SIZE = 16       # Full batch 16 cho GPU 80GB-95GB
-EPOCHS = 35           # Huấn luyện tiếp đến epoch 35 (hoặc 50)
-PATIENCE = 7          # Dừng sớm nếu 7 epoch không giảm loss
+# Hyperparameters (dùng khi MODE = "train" hoặc "full_finetune"):
+BATCH_SIZE = 16       # Full batch 16 cho GPU 80GB-102GB
+EPOCHS = 30           # 30 epochs cho full fine-tune
+PATIENCE = 5          # Dừng sớm nếu 5 epoch không giảm loss
 DEVICE = "0"          # CUDA device index ("0", "1", ...) hoặc "cpu"
 
 # Đường dẫn checkpoint khi MODE = "eval", "compare", hoặc "inspect":
-CHECKPOINT_PATH = "outputs/experiments/rtdetr-l-proposed-p2-2k/weights/best_p2.pt"
+CHECKPOINT_PATH = "outputs/experiments/rtdetr-l-proposed-full-2k/weights/best_full.pt"
 
 # Hugging Face đồng bộ kết quả (lấy từ biến môi trường hoặc file .env):
 HF_TOKEN = os.environ.get("HF_TOKEN", "")
@@ -52,7 +53,7 @@ HF_REPO = os.environ.get("HF_REPO", "Cuong2004/HRP4K")
 ENABLE_HF_SYNC = bool(HF_TOKEN)
 
 # File ghi log:
-LOG_FILE = "train_proposed_run.log"
+LOG_FILE = "train_full_finetune.log"
 # ==============================================================================
 
 
@@ -60,12 +61,16 @@ def build_command() -> list[str]:
     """Construct CLI argument list based on active configuration."""
     python_bin = sys.executable
 
-    if MODE == "train":
+    if MODE in ("train", "full_finetune"):
+        target_exp = "rtdetr-l-proposed-full-2k" if MODE == "full_finetune" else EXPERIMENT_NAME
+        target_epochs = 30 if MODE == "full_finetune" else EPOCHS
+        target_patience = 5 if MODE == "full_finetune" else PATIENCE
+
         cmd = [
-            python_bin, "-m", "hrp4k.cli", "experiment", EXPERIMENT_NAME,
+            python_bin, "-m", "hrp4k.cli", "experiment", target_exp,
             "--batch", str(BATCH_SIZE),
-            "--epochs", str(EPOCHS),
-            "--patience", str(PATIENCE),
+            "--epochs", str(target_epochs),
+            "--patience", str(target_patience),
             "--weights", BASE_WEIGHTS,
             "--device", str(DEVICE),
         ]
