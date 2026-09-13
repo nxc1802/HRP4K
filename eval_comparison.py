@@ -74,6 +74,7 @@ def run_comparison(
     topk: int = 300,
     p2_conf: float = 0.001,
     fusion_iou: float = 0.5,
+    exp_id: str = "eb21f336bb50",
 ) -> dict[str, Any]:
     ckpt_path = Path(checkpoint_path).resolve()
     if not ckpt_path.is_file():
@@ -426,12 +427,12 @@ def run_comparison(
             print(f"\n[HF Upload] Uploading comprehensive metrics & predictions to Hugging Face repo: {repo}...")
             api = HfApi(token=token)
             files_to_upload = [
-                (comp_path, "experiments/9b68a1164e96/test/test_metrics_comparison.json"),
-                (out_dir / "test_metrics_academic.json", "experiments/9b68a1164e96/test/test_metrics_academic.json"),
-                (out_dir / "test_metrics_operational.json", "experiments/9b68a1164e96/test/test_metrics_operational.json"),
-                (out_dir / "test_predictions_p2.json", "experiments/9b68a1164e96/test/test_predictions_p2.json"),
-                (out_dir / "test_predictions_native.json", "experiments/9b68a1164e96/test/test_predictions_native.json"),
-                (out_dir / "test_predictions_fused.json", "experiments/9b68a1164e96/test/test_predictions_fused.json"),
+                (comp_path, f"experiments/{exp_id}/test/test_metrics_comparison.json"),
+                (out_dir / "test_metrics_academic.json", f"experiments/{exp_id}/test/test_metrics_academic.json"),
+                (out_dir / "test_metrics_operational.json", f"experiments/{exp_id}/test/test_metrics_operational.json"),
+                (out_dir / "test_predictions_p2.json", f"experiments/{exp_id}/test/test_predictions_p2.json"),
+                (out_dir / "test_predictions_native.json", f"experiments/{exp_id}/test/test_predictions_native.json"),
+                (out_dir / "test_predictions_fused.json", f"experiments/{exp_id}/test/test_predictions_fused.json"),
             ]
             for local_p, remote_p in files_to_upload:
                 if local_p.is_file():
@@ -465,6 +466,7 @@ def main() -> int:
     parser.add_argument("--topk", type=int, default=300, help="Inference Top-K predictions")
     parser.add_argument("--p2-conf", type=float, default=0.001, help="P2 confidence score threshold")
     parser.add_argument("--fusion-iou", type=float, default=0.5, help="NMS IoU threshold for fusion")
+    parser.add_argument("--exp-id", default="eb21f336bb50", help="Experiment ID for Hugging Face upload")
     parser.add_argument("--hf-upload", action="store_true", help="Upload comparison metrics to Hugging Face")
     parser.add_argument("--hf-repo", default="Cuong2004/HRP4K", help="Target HF repo")
     parser.add_argument("--hf-token", help="Hugging Face write access token")
@@ -487,6 +489,7 @@ def main() -> int:
         topk=args.topk,
         p2_conf=args.p2_conf,
         fusion_iou=args.fusion_iou,
+        exp_id=args.exp_id,
     )
     return 0
 
